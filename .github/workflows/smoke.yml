@@ -1,0 +1,32 @@
+name: Smoke Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Run smoke tiers 0-3
+        run: python scripts/smoke/run_all.py --tier 0,1,2,3 --json smoke-report.json
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-report
+          path: smoke-report.json
+
+# 说明：
+# - Tier4（行为级触发）依赖 LLM 运行时，不在 CI 中自动跑。
+# - 接口探活（Tier3 api_probe）默认关闭，需设置仓库 Secret/变量 SMOKE_PROBE_API=1 才启用。
+# - 任一 Tier 出现致命(FATAL)问题，本 job 标红并阻断合并(merge)。
