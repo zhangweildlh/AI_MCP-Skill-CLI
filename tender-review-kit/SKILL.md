@@ -1,5 +1,5 @@
 ---
-name: tender-review-skill
+name: tender-review-kit
 description: 招标文件审标 / tender document review for bidders。审的是招标方发的招标文件(PDF/Word),服务的是要去投标的人。输出投标核对清单(废标项+评分项+证明材料+▲标识参数+时间节点),帮投标人在动手写投标文件之前把游戏规则吃透。当用户给出招标文件要审、问废标点/否决条款/评分项/资格要求,或要做投标前合规自检时使用——即使没明说"审核"。产清单和事实,不下"投/不投"结论。Use when analyzing Chinese tender/RFP documents for bidders: extract disqualification/scoring items, required materials, ▲-marked parameters, with line-numbered evidence.
 ---
 
