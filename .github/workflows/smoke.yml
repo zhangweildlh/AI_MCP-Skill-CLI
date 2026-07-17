@@ -16,6 +16,9 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install skill CLI dependencies
+        run: python -m pip install --quiet requests
+
       - name: Run smoke tiers 0-3
         run: python scripts/smoke/run_all.py --tier 0,1,2,3 --json smoke-report.json
 
