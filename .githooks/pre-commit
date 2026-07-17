@@ -4,21 +4,34 @@
 # Python 不可用时降级为警告并放行，避免锁死提交。
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "$0")/../scripts/smoke" && pwd)"
-PYTHON_BIN=""
-command -v python >/dev/null 2>&1 && PYTHON_BIN=python
-command -v python3 >/dev/null 2>&1 && PYTHON_BIN=python3
-command -v uv >/dev/null 2>&1 && PYTHON_BIN="uv run python"
+# 获取仓库根目录，并转换为 Windows 原生路径（规避 Git Bash / Windows Python 路径歧义）
+REPO_ROOT_MSYS=$(git rev-parse --show-toplevel)
+REPO_ROOT_WIN=$(cygpath -w "$REPO_ROOT_MSYS" 2>/dev/null || echo "$REPO_ROOT_MSYS")
+cd "$REPO_ROOT_WIN"
 
-if [ -z "$PYTHON_BIN" ]; then
+# 选择可用的 Python 命令（优先 python / python3，回退 uv run python）
+if command -v python >/dev/null 2>&1; then
+  RUN_CMD="python"
+elif command -v python3 >/dev/null 2>&1; then
+  RUN_CMD="python3"
+elif command -v uv >/dev/null 2>&1; then
+  RUN_CMD="uv run python"
+else
+  RUN_CMD=""
+fi
+
+if [ -z "$RUN_CMD" ]; then
   echo "⚠️ 未找到 Python，跳过冒烟测试（请稍后手动运行 python scripts/smoke/run_all.py --tier 0,1）"
   exit 0
 fi
 
-cd "$(git rev-parse --show-toplevel)"
-$PYTHON_BIN "$SCRIPT_DIR/run_all.py" --tier 0,1 --staged
-status=$?
-if [ $status -ne 0 ]; then
+if eval "$RUN_CMD \"$REPO_ROOT_WIN/scripts/smoke/run_all.py\" --tier 0,1 --staged"; then
+  status=0
+else
+  status=$?
+fi
+
+if [ "$status" -ne 0 ]; then
   echo "❌ 冒烟测试未通过，提交已阻断。运行以下命令查看详情："
   echo "   python scripts/smoke/run_all.py --tier 0,1 --staged"
   exit 1
