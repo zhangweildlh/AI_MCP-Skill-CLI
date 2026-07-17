@@ -1,0 +1,6 @@
+# .env 已按用户需求（2026-07-17）纳入仓库，故此处不再忽略
+runtime.conf
+__pycache__
+*.7z
+*.zip
+.sisyphus/
