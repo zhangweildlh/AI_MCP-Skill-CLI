@@ -1,0 +1,26 @@
+#!/bin/sh
+# 冒烟测试 pre-commit 钩子：仅跑 Tier0（密钥/忽略门禁）+ Tier1（结构），秒级、阻断致命问题。
+# 安装方式（一次）：git config core.hooksPath .githooks
+# Python 不可用时降级为警告并放行，避免锁死提交。
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/../scripts/smoke" && pwd)"
+PYTHON_BIN=""
+command -v python >/dev/null 2>&1 && PYTHON_BIN=python
+command -v python3 >/dev/null 2>&1 && PYTHON_BIN=python3
+command -v uv >/dev/null 2>&1 && PYTHON_BIN="uv run python"
+
+if [ -z "$PYTHON_BIN" ]; then
+  echo "⚠️ 未找到 Python，跳过冒烟测试（请稍后手动运行 python scripts/smoke/run_all.py --tier 0,1）"
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+$PYTHON_BIN "$SCRIPT_DIR/run_all.py" --tier 0,1 --staged
+status=$?
+if [ $status -ne 0 ]; then
+  echo "❌ 冒烟测试未通过，提交已阻断。运行以下命令查看详情："
+  echo "   python scripts/smoke/run_all.py --tier 0,1 --staged"
+  exit 1
+fi
+exit 0
