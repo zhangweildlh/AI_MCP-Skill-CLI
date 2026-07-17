@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -44,12 +45,16 @@ def self_check(rep: Report) -> None:
         if not sp.exists():
             rep.info(skill, "script", f"未找到 {script}，跳过")
             continue
+        # uv 仅在存在时才作为兜底尝试；云端 CI 通常无 uv
         attempts = [
             ["python", script, "--help"],
             ["python3", script, "--help"],
-            ["uv", "run", "--project", str(REPO_ROOT / skill), "python", script, "--help"],
         ]
+        if shutil.which("uv"):
+            attempts.append(["uv", "run", "--project", str(REPO_ROOT / skill),
+                            "python", script, "--help"])
         ok = False
+        dep_error = False
         last_err = ""
         for exe in attempts:
             code, _, err = run_cmd(exe)
@@ -57,17 +62,18 @@ def self_check(rep: Report) -> None:
                 ok = True
                 break
             last_err = err
+            if "ModuleNotFoundError" in err or "ImportError" in err:
+                dep_error = True
         if ok:
             rep.ok(skill, "script", f"{script} --help 通过")
+        elif dep_error:
+            # 失败源于缺第三方依赖（如 requests），属环境问题，警告不阻断
+            rep.warn(skill, "script",
+                     f"{script} 依赖未安装（{last_err.strip().splitlines()[-1][:120]}），"
+                     f"属环境依赖问题，未阻断；建议在运行环境安装依赖后重跑")
         else:
-            # 区分「代码缺陷」与「环境缺第三方依赖」：缺依赖仅警告，不阻断
-            if "ModuleNotFoundError" in last_err or "ImportError" in last_err:
-                rep.warn(skill, "script",
-                         f"{script} 依赖未安装（{last_err.strip().splitlines()[-1][:120]}），"
-                         f"属环境依赖问题，未阻断；建议在运行环境安装依赖")
-            else:
-                rep.fatal(skill, "script",
-                          f"{script} --help 执行失败（stderr: {last_err[:160]}）")
+            rep.fatal(skill, "script",
+                      f"{script} --help 执行失败（stderr: {last_err[:160]}）")
 
     # tender-review-kit pytest
     trk = REPO_ROOT / "tender-review-kit"
