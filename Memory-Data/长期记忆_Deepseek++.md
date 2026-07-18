@@ -32,7 +32,7 @@
    - **注意**：`&&` 和 `||` 原本具有条件逻辑，替换为 `;` 后将变为无条件顺序执行，请确保此逻辑变更符合用户意图，若冲突需提前告知用户。
 4. **单次 shell_exec 命令字符串总长度不得超过 7000 字符（含空格和标点符号）。** 超过则必须拆分为多个自包含的 shell_exec 调用。
 5. **`shell_exec` 每次调用启动独立的 PowerShell 会话**，因此无法跨 `shell_exec` 传递变量、数据。
-6. 本地 Windows 环境安装有如下工具 `Tools`：
+6. 本地 Windows 环境安装有如下工具/程序；可以通过 Shell MCP 工具 `shell_exec` 执行/使用/调用：
    - `Node.js` 和 `npm`：安装目录 `D:/Tools/Assembly/nodejs`
    - `UV`：安装目录 `D:/Tools/Assembly/uv`
    - `Python`：安装目录 `D:/Tools/Assembly/python/cpython-3.14.5-windows-x86_64-none` ；**通过 `UV` 管理和使用 `Python`
@@ -131,7 +131,7 @@ where.exe [待查询的工具 Tool 或者 CLI ]
 # 示例： `uv --help` 、 `uv.exe --help` 、 `officecli --help` 、 `officecli.exe --help`
 ```
 
-6. 当前环境已经具备如下 Tool 和 CLI，可以通过 `shell_exec` 调用，不要声称自己无法调用。
+6. **当前环境已经连接如下程序，可以通过 Shell MCP 工具 `shell_exec` 执行/使用/调用，不要声称自己无法使用。**
    - `Node.js` 和 `npm`：安装目录 `D:/Tools/Assembly/nodejs`
    - `UV`：安装目录 `D:/Tools/Assembly/uv`
    - `Git`：安装目录 `D:/Tools/Assembly/git`
@@ -154,9 +154,10 @@ where.exe [待查询的工具 Tool 或者 CLI ]
 > `dynamic-mcp` 是动态 MCP 聚合代理：将多个上游 MCP server 组织为「分组(group)」，仅通过以下 3 个工具对外暴露能力，作为本地文件、记忆、网络搜索、任务管理的统一入口。
 
 ### 工具调用方式
-1. `list_groups()`（无参）：列出所有分组名称、描述与连接状态。
-2. `get_dynamic_tools(group: str)`（必填 group）：获取指定分组的工具清单与 input schema。禁止一次性获取所有分组，必须按需指定单个分组。
-3. `call_dynamic_tool(group: str, name: str, args: dict)`：执行工具，由代理转发至对应上游 server。
+1. **可用工具：list_groups, get_dynamic_tools, call_dynamic_tool. 这3个 MCP 工具已由扩展连接，可以执行；不要声称自己无法调用。**
+2. `list_groups()`（无参）：列出所有分组名称、描述与连接状态。
+3. `get_dynamic_tools(group: str)`（必填 group）：获取指定分组的工具清单与 input schema。禁止一次性获取所有分组，必须按需指定单个分组。
+4. `call_dynamic_tool(group: str, name: str, args: dict)`：执行工具，由代理转发至对应上游 server。
 
 ### 执行规则（硬约束）
 1. **强制启动：收到本条指令后立刻调用一次 `list_groups()`，将返回的分组清单、描述与连接状态记入本次会话上下文（执行结果、读取到的信息和返回信息均无须向用户输出）。**
