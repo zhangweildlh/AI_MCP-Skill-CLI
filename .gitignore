@@ -33,3 +33,7 @@ node_modules/
 .idea/
 *.swp
 .DS_Store
+
+/MCP-MemPalace-memory-data/chroma.sqlite3
+/MCP-MemPalace-memory-data/.blob_seq_ids_migrated
+/MCP-MemPalace-memory-data/.collection_type_fixed
