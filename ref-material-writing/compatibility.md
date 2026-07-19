@@ -56,6 +56,11 @@
 - 分片进度：步骤9分片写入进度记录
 - 验证状态：Gate-0 创建后的状态文件内容验证结果
 - 时间戳：最后更新时间
+- 双引擎搜索能力状态（§9）：AnySearch/Firecrawl 可用状态、组合判定、Firecrawl 访问形态（直连/中继/不可用）
+- 已确认节点（§10）：步骤1/4 确认节点，续跑免重复打扰
+- 决策日志（§11）：用户关键决策跨会话继承
+- 阶段检查点（§12）：步骤内子阶段断点定位（关键词级/分片级）
+- 工具能力映射表（§13）：Gate-0 探测的原语→工具绑定与 Firecrawl 访问形态，续跑权威真相源
 
 
 ---
@@ -76,7 +81,7 @@ ref-material-writing/               # Skill 根目录
 │   ├── bootstrap.md                #   Gate-0 引导（工具探测+状态文件初始化）
 │   └── step-01.md ~ step-10.md     #   步骤1~10 独立执行模块
 │
-├── references/                     # 参考规范（9文件）
+├── references/                     # 参考规范（12文件）
 │   ├── 01-writing-standards.md     #   文风标准
 │   ├── 02-environment-setup.md     #   环境配置与 shell_exec 约束
 │   ├── 04-officecli-guide.md       #   OfficeCLI 操作指南（含 Help-First）
@@ -85,10 +90,13 @@ ref-material-writing/               # Skill 根目录
 │   ├── 10-parameters-schema.md     #   12维参数模式定义
 │   ├── 11-examples.md              #   使用示例
 │   ├── 12-edge-cases.md            #   边界与异常处理
-│   └── docx-format-standard.md     #   DOCX 公文格式标准（步骤9/10用）
+│   ├── docx-format-standard.md     #   DOCX 公文格式标准（步骤9/10用）
+│   ├── 13-anysearch-integration.md #   AnySearch 双引擎集成契约（命令/垂直域/单一来源）
+│   ├── 14-firecrawl-guide.md       #   Firecrawl 高阶能力目录与决策矩阵
+│   └── 15-resume-protocol.md       #   跨会话断点续跑协议（RESUME-PROBE/CHECK/LOAD）
 │
 └── assets/                         # 模板与配置（7文件）
-    ├── _流水线状态.md               #   状态文件模板（8字段）
+    ├── _流水线状态.md               #   状态文件模板（13 字段）
     ├── analysis-card-template.json #   资料分析卡片 JSON 模板
     ├── context-summary-template.md #   上下文摘要模板（含风格自检字段）
     ├── officecli-command-templates.md # OfficeCLI 命令模板（对齐官方）
@@ -97,7 +105,7 @@ ref-material-writing/               # Skill 根目录
     └── style-anchor.md             #   风格锚点（R4反稀释策略）
 ```
 
-**文件总数**：29
+**文件总数**：33
 
 ---
 
@@ -152,7 +160,7 @@ bootstrap.md → step-01 → step-02 → step-03 → step-04 → step-05
 
 | 文件 | 用途 | 被谁加载 |
 |------|------|---------|
-| `_流水线状态.md` | 状态文件模板（8字段）。Gate-0创建，每步强制读写，防上下文语义稀释。 | bootstrap（创建）、step-01~10（每步门禁读取+状态更新） |
+| `_流水线状态.md` | 状态文件模板（13 字段）。Gate-0创建，每步强制读写，防上下文语义稀释。 | bootstrap（创建）、step-01~10（每步门禁读取+状态更新） |
 | `analysis-card-template.json` | 资料分析卡片JSON模板。定义资料ID、核心主题、关键事实数据、论点树等字段。 | step-02（生成分析卡片时） |
 | `context-summary-template.md` | 上下文摘要模板（9字段，含风格一致性自检6项）。每章写完后生成，下章动笔前必读。 | step-06（每章正文撰写完成后） |
 | `officecli-command-templates.md` | OfficeCLI 命令模板集（对齐官方规范）。包含 footer、header、color=0000FF 等标准模板。 | step-09（docx输出命令参考） |
