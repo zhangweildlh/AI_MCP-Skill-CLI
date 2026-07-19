@@ -99,7 +99,7 @@ AnySearch 垂直域多为**美国 / 国际向**（例：`legal`=US Congress、`e
                            model="spark-1-pro", maxCredits=50)
    status = firecrawl_agent_status(id=TASK.id)   # 异步轮询（最多 30 次），completed→取结果；failed/expired→GOTO fb
    ```
-   - 参数说明：`prompt` 必填（≤10000 字符）；`model` 默认 `spark-1-pro`（复杂研究可 `spark-1-mini` 提速）；`maxCredits` 设预算上限控成本；**无 `max_steps` 参数**（原 step-05 写法已废弃）。返回 `task_id`。**回读协议（抗索引驱逐）**：提交后，在**下一回合**先 `ToolSearch` 重索引，再单轮 `call_dynamic_tool(...agent_status...)` 回读；若 `processing` 则再重索引 + 再查（最多补偿 2 次），仍 `processing` 或 `failed/expired` → 降级 fb。**严禁在单回合内紧循环轮询**（每次调用后索引会被回收，循环必败）。
+   - 参数说明：`prompt` 必填（≤10000 字符）；`model` 默认 `spark-1-pro`（复杂研究可 `spark-1-mini` 提速）；`maxCredits` 设预算上限控成本；**无 `max_steps` 参数**（原 step-05 写法已废弃）。返回 `task_id`。**回读协议（仅中继形态适用，抗索引驱逐）**：提交后，在**下一回合**先 `ToolSearch` 重索引，再单轮 `call_dynamic_tool(...agent_status...)` 回读；若 `processing` 则再重索引 + 再查（最多补偿 2 次），仍 `processing` 或 `failed/expired` → 降级 fb。**严禁在单回合内紧循环轮询**（此限制仅适用中继形态：每次调用后索引会被回收，循环必败）；**直连形态无索引驱逐，可在单回合内轮询** `firecrawl_agent_status(id)` 至 `completed`（见上方直连示例，最多 30 次）。
 2. **降级 fb（agent 超时/失败）**：不得静默跳过，改用 `WEB_SEARCH`（`firecrawl_search`，取前 10→按权重取前 5）+ `WEB_FETCH`（`firecrawl_scrape` 抓正文）。来源权重：政府官网(.gov.cn) > 学术文献 > 权威媒体 > 行业协会 > 大型咨询公司 > 其他。
 3. 将本轮结果以标签 **`[搜索K{序号}-Firecrawl]`** 暂存（K=关键词序号）。
 
