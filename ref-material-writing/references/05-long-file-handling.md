@@ -21,7 +21,7 @@
 > **🛡️ 批前防御性关闭（治 B2 孤儿 resident 锁，强制）**：每个写入批次的**首命令**前置 `officecli close "$FILE" 2>/dev/null ;`（幂等，无 resident 时无害），再 `create --force`/`add`。原因：`create --force` 只覆盖磁盘文件、**不接管/终止已有 resident 会话**；若上一批因异常未 `close` 留下孤儿 resident，本批会报 `Error: ... is currently opened by a resident process`。批前防御性关闭可消除该锁。批次脚本建议用 `trap 'officecli close "$FILE" 2>/dev/null' EXIT` 保证**任何退出路径**（含 `set -e` 中途异常）都关闭 resident，避免孤儿锁（与 O2 联动）。
 
 ```bash
-officecli close "$FILE" 2>/dev/null ; officecli create "$FILE" --force ; officecli add "$FILE" /body --type paragraph --prop text="关于XXXX工作的报告" --prop font='方正小标宋' --prop size=22pt --prop align=center --prop firstLineIndent=0 ; officecli add "$FILE" /body --type paragraph --prop text="一、章节标题" --prop style=Heading1 --prop font='黑体' --prop size=16pt --prop bold=false ; ... ; officecli close "$FILE"
+officecli close "$FILE" 2>/dev/null ; officecli create "$FILE" --force ; officecli add "$FILE" /body --type paragraph --prop text="关于XXXX工作的报告" --prop font='方正小标宋' --prop size=22pt --prop align=center --prop firstLineIndent=0 ; officecli add "$FILE" /body --type paragraph --prop text="一、章节标题" --prop outlineLvl=0 --prop font='黑体' --prop size=16pt --prop bold=false ; ... ; officecli close "$FILE"
 ```
 
 对已有文件追加内容：直接 `add` → `close`
@@ -151,6 +151,7 @@ Get-Content data.csv | Select-Object -Skip 200 -First 200
 ```bash
 # 按样式查询（docx/pptx）
 officecli query "$FILE" 'paragraph[style=Heading1]'
+# 注：上例演示按样式查询任意 docx；本 Skill 生成的标题使用 outlineLvl（见步骤9），查询本 Skill 产出物请改用 paragraph[outlineLvl]
 
 # 按文本内容查询（docx/pptx）
 officecli query "$FILE" 'p:contains("关键术语")'
@@ -219,8 +220,8 @@ officecli query "$FILE" 'cell[type=Formula]'
 
 1. **危险字符探测**：写入前扫描正文中的 bash 危险字符——`'`（单引号）、`"`（双引号）、`$`、反引号、反斜杠 `\`。
 2. **优先单引号包裹**：**正文不含 ASCII 单引号时，一律用单引号包裹 `--prop text='...'`**（bash 单引号内不解释任何元字符，最安全）；含单引号则用 `'\''` 兜底转义（关闭单引号 + 转义单引号 + 重开单引号）。
-3. **生成器拼装（推荐）**：用脚本（Python/Node 等）解析源文稿、产出 `officecli add ...` 命令并拆成**自包含批次**（批前防御性 `close`、每批 ≤10 条 add、批末 `close`），再逐批 `bash batch.sh` 执行。说明：用脚本**拼装命令**仍属"调用 officecli 生成 docx"，**不违反**"不得安装 Python 程序做 docx"（docx 仍由 officecli 产出，脚本只拼字符串，见 O2 同逻辑）。
-4. **长度与批次**：单条 `--prop text` ≤3000 字符、每批 ≤10 条 add、单次 shell_exec ≤7000 字符（与上方批量写入规则一致）。
+3. **生成器拼装（推荐）**：用脚本（Python/Node 等）解析源文稿、产出 `officecli add ...` 命令并拆成**自包含批次**（批前防御性 `close`、每批 ≤12 条 add、批末 `close`），再逐批 `bash batch.sh` 执行。说明：用脚本**拼装命令**仍属"调用 officecli 生成 docx"，**不违反**"不得安装 Python 程序做 docx"（docx 仍由 officecli 产出，脚本只拼字符串，见 O2 同逻辑）。
+4. **长度与批次**：单条 `--prop text` ≤3000 字符、每批 ≤12 条 add、单次 shell_exec ≤7000 字符（与上方批量写入规则一致）。
 5. **验证**：每批执行后按 §四 4 条错误检测规则核对；全部分批完成后按 §五 QA 门禁 + 步骤10 Delivery Gate 终验。
 
 > 实测：源文稿含 0 单引号、0 `$`、0 反斜杠、100 双引号、18 反引号，采用单引号包裹 → 零转义事故。
@@ -229,7 +230,7 @@ officecli query "$FILE" 'cell[type=Formula]'
 
 1. 结构定义（styles、numbering）
 2. 页面设置（sections、页面尺寸、页边距）
-3. 标题与正文（Heading1→Heading2→Heading3→Normal）
+3. 标题与正文（outlineLvl=0→outlineLvl=1→outlineLvl=2→Normal）
 4. 表格与图表（先建空表，再逐行填充）
 5. 页眉页脚（页脚含 PAGE 字段）
 6. 目录（3+ 标题时添加 TOC）
@@ -242,14 +243,14 @@ officecli query "$FILE" 'cell[type=Formula]'
 | 创建空白文件 | `officecli create "$FILE" --force` |
 | 设置页面 | `officecli set "$FILE" / --prop pageWidth=11906 --prop pageHeight=16838` |
 | 添加大标题 | `officecli add "$FILE" /body --type paragraph --prop text="关于XXXX工作的报告" --prop font='方正小标宋' --prop size=22pt --prop align=center --prop firstLineIndent=0` |
-| 添加一级标题 | `officecli add "$FILE" /body --type paragraph --prop text="一、章节标题" --prop style=Heading1 --prop font='黑体' --prop size=16pt --prop bold=false` |
-| 添加二级标题 | `officecli add "$FILE" /body --type paragraph --prop text="（一）小节标题" --prop style=Heading2 --prop font='楷体_GB2312' --prop size=16pt --prop bold=true` |
-| 添加三级标题 | `officecli add "$FILE" /body --type paragraph --prop text="1. 小标题" --prop style=Heading3 --prop font='仿宋' --prop size=15pt --prop bold=true` |
+| 添加一级标题 | `officecli add "$FILE" /body --type paragraph --prop text="一、章节标题" --prop outlineLvl=0 --prop font='黑体' --prop size=16pt --prop bold=false` |
+| 添加二级标题 | `officecli add "$FILE" /body --type paragraph --prop text="（一）小节标题" --prop outlineLvl=1 --prop font='楷体_GB2312' --prop size=16pt --prop bold=true` |
+| 添加三级标题 | `officecli add "$FILE" /body --type paragraph --prop text="1. 小标题" --prop outlineLvl=2 --prop font='仿宋' --prop size=15pt --prop bold=true` |
 | 添加正文 | `officecli add "$FILE" /body --type paragraph --prop text="正文段落内容。" --prop style=Normal --prop font='仿宋' --prop size=15pt --prop firstLineIndent=720 --prop lineSpacing=28pt --prop align=both` |
 | 添加正文（蓝色标记） | `officecli add "$FILE" /body --type paragraph --prop text="正文段落内容。" --prop style=Normal --prop font='仿宋' --prop size=15pt --prop firstLineIndent=720 --prop lineSpacing=28pt --prop align=both --prop color=0000FF` |
 | 添加表格 | `officecli add "$FILE" /body --type paragraph --prop text="表 1 ×××× 统计表" --prop font='方正小标宋' --prop size=16pt --prop align=center --prop firstLineIndent=0 ; officecli add "$FILE" /body --type table --prop rows=4 --prop cols=3 --prop width=100% --prop align=center --prop font='仿宋' --prop size=15pt --prop bold=false` |
 | 添加页脚 | `officecli add "$FILE" / --type footer --prop type=default --prop align=center --prop size=9pt --prop text="Page " --prop field=page` |
-| 添加目录 | `officecli add "$FILE" /body --type paragraph --prop text="目 录" --prop font='方正小标宋' --prop size=16pt --prop bold=false --prop align=center --prop firstLineIndent=0 --index 0 ; officecli add "$FILE" /body --type toc --prop levels="1-3" --prop hyperlinks=true --index 1` |
+| 添加目录 | `officecli add "$FILE" /body --type toc --prop levels="1-3" --prop title="目录" --prop hyperlinks=true`（方案甲：单 TOC 带 title，不手动加"目 录"段，避免双标题陷阱；详见 officecli-command-templates.md） |
 
 > **xlsx 写入速查（参考）**：本方案不提供 xlsx 的批量写入流程，但以下命令供参考，需在独立 shell_exec 中执行：
 > ```bash

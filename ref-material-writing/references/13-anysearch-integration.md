@@ -24,7 +24,7 @@ uv run --project D:/Tools/Assembly/python/myenv python D:/Documents/AI_MCP-Skill
 
 - API key 由该目录内 `.env`（`ANYSEARCH_API_KEY`）自动加载，**命令中无需传 key**。
 - 路径为固定存放目录（`D:/Documents/AI_MCP-Skill-CLI/anysearch-skill`），用户明确指定，故**允许并应当硬编码**；但 ref-material-writing 内部资产路径仍须使用 `[Skill技能根目录]/[name]` 等占位符。
-- **维护约定**：若未来 `runtime.conf` 命令变更，须**仅改 runtime.conf 并重写本文件及 4 处镜像**（`_router/bootstrap.md`、`_router/_contract.md`、`_router/step-02.md`、`_router/step-05.md`）；禁止只改镜像不改 runtime.conf（反之亦然）。
+- **维护约定**：若未来 `runtime.conf` 命令变更，须**仅改 runtime.conf 并重写本文件及 6 处镜像**（`_router/bootstrap.md`、`_router/_contract.md`、`_router/step-02.md`、`_router/step-05.md`、`compatibility.md`、`references/02-environment-setup.md`）；禁止只改镜像不改 runtime.conf（反之亦然）。
 
 ---
 

@@ -1,6 +1,6 @@
 # docx 文件格式标准（公文）
 
-> 从原 `references/09-workflow-phase3.md` 的「docx文件格式标准」抽出为独立文件，供步骤9 / 步骤10 引用。
+> 本文件定义 docx 公文格式标准，供步骤9 / 步骤10 引用。
 > 命令示例对齐官方 `officecli-docx` Skill（见 `assets/officecli-command-templates.md` 与 `references/04-officecli-guide.md`）。**版本差异声明见 `references/02` / `04`：任何命令失败须 `officecli --help` 核实。**
 
 ---
@@ -39,10 +39,10 @@ officecli set "$FILE" / --prop marginLeft=1588 --prop marginRight=1474
 officecli add "$FILE" /body --type paragraph --prop text="关于XXXX工作的报告" --prop font='方正小标宋' --prop size=22pt --prop align=center --prop firstLineIndent=0
 
 # 一级标题
-officecli add "$FILE" /body --type paragraph --prop text="一、章节标题" --prop style=Heading1 --prop font='黑体' --prop size=16pt --prop bold=false
+officecli add "$FILE" /body --type paragraph --prop text="一、章节标题" --prop outlineLvl=0 --prop font='黑体' --prop size=16pt --prop bold=false
 
 # 正文
 officecli add "$FILE" /body --type paragraph --prop text="正文段落内容。" --prop style=Normal --prop font='仿宋' --prop size=15pt --prop firstLineIndent=720 --prop lineSpacing=28pt --prop align=both
 ```
 
-> 注：标题层级字体可依 `references/01` 与用户要求调整；当模板自带样式可信时优先 `style=Heading1` 等，再按需设显式字号。
+> 注：标题层级必须用 outlineLvl + 直接格式化（见 step-09 强制工序）；空白 docx 仅含 Normal 样式，不可引用 HeadingN 样式。字体/字号/加粗依 `references/01` 与用户要求设置。
