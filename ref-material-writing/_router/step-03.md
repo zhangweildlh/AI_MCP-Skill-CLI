@@ -1,6 +1,6 @@
 # 步骤3：跨资料逻辑关联分析
 
-> 对应原 `references/07-workflow-phase1.md` 步骤3。遵循 `_router/_contract.md` 六段契约。
+> rmw 内部步骤3。遵循 `_router/_contract.md` 七段契约。
 
 ---
 
@@ -50,6 +50,8 @@
 
 ## [验证]
 - 使用 `FILE_STAT` 确认 `_交叉引用结果.json` 与 `_relation_graph.md` 均存在。
+- **引用标准档**：`_交叉引用结果.json` 按 `references/16-self-check-B.md`（JSON 卡片类）校验；`_relation_graph.md` 按 `references/16-self-check-A.md`（Markdown 类）校验；均查存在性 + 非空 + 轻签名 + 结构完整性。
+- **向 §14 写入登记（设计点 5）**：通过则写入"✅通过 + 轻签名 + 登记对象=`_交叉引用结果.json` / `_relation_graph.md`（绝对路径）+ 子阶段=全文 + 自检时刻"；失败回退重做本步 [执行]→[产出]。
 
 ## [状态]
 - 更新"当前步骤"="步骤3 / 共10步"。

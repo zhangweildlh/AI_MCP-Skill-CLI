@@ -1,6 +1,6 @@
 # 步骤2：参考资料全量读取与内部逻辑解析
 
-> 对应原 `references/07-workflow-phase1.md` 步骤2。遵循 `_router/_contract.md` 六段契约。
+> rmw 内部步骤2。遵循 `_router/_contract.md` 七段契约。
 
 ---
 
@@ -51,6 +51,8 @@
 ## [验证]
 - 使用 `FILE_STAT` 确认每份 `_card_[资料ID].json` 已存在。
 - 缺失 → 用 WRITE_FILE 补写后重新校验。
+- **引用 `references/16-self-check-B.md` 标准档**校验每份卡片：存在性 + 非空阈值 + 轻签名（字节/行数 vs [产出] 预期）+ 结构完整性（`json.loads` 可解析 + 必填字段对齐 `assets/analysis-card-template.json`）。
+- **向 §14 写入登记（设计点 5）**：通过则写入"✅通过 + 轻签名 + 登记对象=各 `_card_[资料ID].json`（绝对路径）+ 子阶段=卡片级（如 2/5 卡）+ 自检时刻"；失败回退重做本步 [执行]→[产出]。
 
 ## [状态]
 - 更新"当前步骤"="步骤2 / 共10步"。
