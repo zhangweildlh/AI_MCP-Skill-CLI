@@ -61,6 +61,7 @@
 - 决策日志（§11）：用户关键决策跨会话继承
 - 阶段检查点（§12）：步骤内子阶段断点定位（关键词级/分片级）
 - 工具能力映射表（§13）：Gate-0 探测的原语→工具绑定与 Firecrawl 访问形态，续跑权威真相源
+- 逐步自检登记（§14）：每步自检通过与轻签名，下游信任依据（防跨会话/跨步骤重复全量复检）
 
 
 ---
@@ -77,11 +78,11 @@ ref-material-writing/               # Skill 根目录
 ├── compatibility.md                # 兼容性声明 + 本工作空间地图
 │
 ├── _router/                        # 内部路由模块（12文件）
-│   ├── _contract.md                #   六段契约格式定义
+│   ├── _contract.md                #   七段契约格式定义
 │   ├── bootstrap.md                #   Gate-0 引导（工具探测+状态文件初始化）
 │   └── step-01.md ~ step-10.md     #   步骤1~10 独立执行模块
 │
-├── references/                     # 参考规范（12文件）
+├── references/                     # 参考规范（16文件）
 │   ├── 01-writing-standards.md     #   文风标准
 │   ├── 02-environment-setup.md     #   环境配置与 shell_exec 约束
 │   ├── 04-officecli-guide.md       #   OfficeCLI 操作指南（含 Help-First）
@@ -93,10 +94,14 @@ ref-material-writing/               # Skill 根目录
 │   ├── docx-format-standard.md     #   DOCX 公文格式标准（步骤9/10用）
 │   ├── 13-anysearch-integration.md #   AnySearch 双引擎集成契约（命令/垂直域/单一来源）
 │   ├── 14-firecrawl-guide.md       #   Firecrawl 高阶能力目录与决策矩阵
-│   └── 15-resume-protocol.md       #   跨会话断点续跑协议（RESUME-PROBE/CHECK/LOAD）
+│   ├── 15-resume-protocol.md       #   跨会话断点续跑协议（RESUME-PROBE/CHECK/LOAD）
+│   ├── 16-self-check-A.md          #   自检标准档 A：文本/Markdown 产出物（存在/非空/轻签名/结构）
+│   ├── 16-self-check-B.md          #   自检标准档 B：JSON 分析卡片（json.loads 解析 + 必填字段对齐）
+│   ├── 16-self-check-C.md          #   自检标准档 C：Office 产出物（docx 校验 + 段落数）
+│   └── 16-self-check-D.md          #   自检标准档 D：检索来源（双引擎完备性 + 信源追溯）
 │
 └── assets/                         # 模板与配置（7文件）
-    ├── _流水线状态.md               #   状态文件模板（13 字段）
+    ├── _流水线状态.md               #   状态文件模板（14 字段）
     ├── analysis-card-template.json #   资料分析卡片 JSON 模板
     ├── context-summary-template.md #   上下文摘要模板（含风格自检字段）
     ├── officecli-command-templates.md # OfficeCLI 命令模板（对齐官方）
@@ -105,7 +110,7 @@ ref-material-writing/               # Skill 根目录
     └── style-anchor.md             #   风格锚点（R4反稀释策略）
 ```
 
-**文件总数**：33
+**文件总数**：37
 
 ---
 
@@ -160,12 +165,12 @@ bootstrap.md → step-01 → step-02 → step-03 → step-04 → step-05
 
 | 文件 | 用途 | 被谁加载 |
 |------|------|---------|
-| `_流水线状态.md` | 状态文件模板（13 字段）。Gate-0创建，每步强制读写，防上下文语义稀释。 | bootstrap（创建）、step-01~10（每步门禁读取+状态更新） |
+| `_流水线状态.md` | 状态文件模板（14 字段）。Gate-0创建，每步强制读写，防上下文语义稀释。 | bootstrap（创建）、step-01~10（每步门禁读取+状态更新） |
 | `analysis-card-template.json` | 资料分析卡片JSON模板。定义资料ID、核心主题、关键事实数据、论点树等字段。 | step-02（生成分析卡片时） |
 | `context-summary-template.md` | 上下文摘要模板（9字段，含风格一致性自检6项）。每章写完后生成，下章动笔前必读。 | step-06（每章正文撰写完成后） |
 | `officecli-command-templates.md` | OfficeCLI 命令模板集（对齐官方规范）。包含 footer、header、color=0000FF 等标准模板。 | step-09（docx输出命令参考） |
 | `outline-templates.md` | 提纲参考框架（按文体分类）。提纲缺失时自动草拟的依据。 | step-04（提纲缺失时自动草拟） |
-| `output-template.md` | 六部分结构化输出模板：封面→摘要→正文→溯源→附录→过程说明。 | step-09（最终文稿组织） |
+| `output-template.md` | 六部分结构化输出模板：资料解析说明→提纲调整说明→补充信息说明→正文→信息溯源说明→相似段落标记说明。 | step-09（最终文稿组织） |
 | `style-anchor.md` | 风格锚点：文风/语气/标题格式/论述密度的固定参照。R4反稀释策略核心组件，每章动笔前重载。 | step-06（R4加载，每章动笔前） |
 
 ---

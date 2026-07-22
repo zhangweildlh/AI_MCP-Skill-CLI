@@ -1,6 +1,6 @@
 # 步骤9：结构化输出最终文稿
 
-> 对应原 `references/09-workflow-phase3.md` 步骤9。遵循 `_router/_contract.md` 六段契约。
+> rmw 内部步骤9。遵循 `_router/_contract.md` 七段契约。
 > **本步骤受 OfficeCLI 分片写入限制约束**（单段≤3000 字符、每批≤12 条 add、单次 shell_exec≤7000 字符）。
 
 ---
@@ -57,6 +57,8 @@
 - 使用 `FILE_STAT` 确认 `_最终文稿.docx` 或 `_最终文稿.md` 已存在。
 - docx：确认分片进度 N/M 全部完成。
 - docx：确认标题层级已建立（`officecli query "$FILE" 'paragraph[outlineLvl]' --json` 命中数 ≥ 提纲章节数）；确认目录已处理——要么 `refresh` 后 TOC 字段 text 非占位符，要么已降级为手动目录（无 `/toc` 字段）并在状态文件「验证状态」记"⚠️ TOC=手动目录（环境无 Word）"。
+- **引用 `references/16-self-check-C.md` 标准档**校验：存在性 + 非空阈值 + 轻签名（字节/段落数 vs [产出] 预期）+ 结构完整性（docx：`officecli validate` 通过 G1a/G1b + 段落数 ≥ 提纲章节数；md：标题层级 ≥ 提纲层级）。
+- **向 §14 写入登记（设计点 5）**：通过则写入"✅通过 + 轻签名 + 登记对象=`[输出目录]/_最终文稿.docx`（或 .md）+ 子阶段=全文/分片 + 自检时刻"；失败回退重做本步 [执行]→[产出]（回到步骤9 对应分片）。
 
 ## [状态]
 - 更新"当前步骤"="步骤9 / 共10步"。
