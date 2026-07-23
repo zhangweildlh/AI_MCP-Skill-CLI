@@ -126,18 +126,33 @@ def _inject_openai_path() -> None:
 
 _inject_openai_path()
 
-openai = None  # type: Any
+openai = None  # type: Any  # 占位，真实模块由 _ensure_openai() 懒加载填充
 _OPENAI_AVAILABLE = False
 OPENAI_LOAD_PATH = ""
+_openai_cached = None  # type: Any
 
-try:
-    import openai
-    _OPENAI_AVAILABLE = True
-    _spec = importlib.util.find_spec("openai")
-    if _spec and _spec.origin:
-        OPENAI_LOAD_PATH = _spec.origin
-except ImportError:
-    pass
+
+def _ensure_openai():
+    """首次调用时懒加载 openai 包并缓存，之后复用。
+
+    冷启动优化：mimo.code 主路径不依赖 openai，避免顶层 import 重型包
+    （httpx/pydantic 依赖链）拖慢 MCP Server 启动，从而缩短 dmcp 冷启动窗口。
+    """
+    global openai, _OPENAI_AVAILABLE, OPENAI_LOAD_PATH, _openai_cached
+    if _openai_cached is not None:
+        return _openai_cached
+    try:
+        mod = importlib.import_module("openai")
+        openai = mod
+        _OPENAI_AVAILABLE = True
+        _spec = importlib.util.find_spec("openai")
+        if _spec and _spec.origin:
+            OPENAI_LOAD_PATH = _spec.origin
+        _openai_cached = mod
+        return mod
+    except ImportError:
+        _OPENAI_AVAILABLE = False
+        return None
 
 
 # ===========================================================================
@@ -516,16 +531,20 @@ class MimoMCPServer:
         self.code_timeout = get_code_timeout()
         self.chat_max_tokens = get_chat_max_tokens()
 
-        # 初始化 OpenAI 兼容客户端
+        # OpenAI 客户端延迟构造：首次调用 mimo.chat / mimo.health 时才真正 import
+        # 并构造，避免冷启动期加载重型 openai 包，缩短 dmcp 冷启动窗口。
         self.client = None
-        if _OPENAI_AVAILABLE and self.api_key:
-            try:
-                self.client = openai.OpenAI(
-                    api_key=self.api_key,
-                    base_url=self.base_url,
-                )
-            except Exception as e:
-                logger.warning("OpenAI 客户端初始化失败: %s" % e)
+
+        # 轻量探测 openai 是否可导入（仅 find_spec 定位，不执行模块代码，
+        # mimo.code 主路径不真正加载 openai），仅用于启动日志准确性。
+        global _OPENAI_AVAILABLE, OPENAI_LOAD_PATH
+        try:
+            _spec = importlib.util.find_spec("openai")
+            if _spec and _spec.origin:
+                _OPENAI_AVAILABLE = True
+                OPENAI_LOAD_PATH = _spec.origin
+        except Exception:
+            _OPENAI_AVAILABLE = False
 
         logger.info(
             "MCP Server 启动 | model=%s | exe=%s | api_key=%s | openai=%s",
@@ -808,14 +827,16 @@ class MimoMCPServer:
         """
         通过 OpenAI SDK 调用 MiMo API 对话。
         分层校验：openai 包 -> API Key -> 参数 -> 调用 -> 异常细分。
+        openai 采用懒加载，首次调用时才 import。
         """
         # 前置参数校验
         err = validate_mimo_chat_args(args)
         if err:
             return {"content": [{"type": "text", "text": err}], "isError": True}
 
-        # 分层检查：openai 包 -> API Key
-        if not _OPENAI_AVAILABLE:
+        # 分层检查：openai 包（懒加载） -> API Key
+        oa = _ensure_openai()
+        if oa is None:
             return {
                 "content": [{
                     "type": "text",
@@ -828,6 +849,20 @@ class MimoMCPServer:
                 }],
                 "isError": True,
             }
+
+        # 延迟构造 OpenAI 客户端（仅首次调用且密钥已配置时）
+        if self.client is None and self.api_key:
+            try:
+                self.client = oa.OpenAI(api_key=self.api_key, base_url=self.base_url)
+            except Exception as e:
+                logger.warning("OpenAI 客户端初始化失败: %s" % e)
+                return {
+                    "content": [{
+                        "type": "text",
+                        "text": "OpenAI 客户端初始化失败: %s" % e,
+                    }],
+                    "isError": True,
+                }
 
         if not self.client:
             return {
@@ -853,22 +888,22 @@ class MimoMCPServer:
             content = resp.choices[0].message.content or ""
             return {"content": [{"type": "text", "text": _sanitize(content)}]}
 
-        except openai.AuthenticationError:
+        except oa.AuthenticationError:
             return {
                 "content": [{"type": "text", "text": "API Key 无效，请核对密钥配置"}],
                 "isError": True,
             }
-        except openai.RateLimitError:
+        except oa.RateLimitError:
             return {
                 "content": [{"type": "text", "text": "请求频率超限，请稍后重试（免费额度可能有速率限制）"}],
                 "isError": True,
             }
-        except openai.APIConnectionError:
+        except oa.APIConnectionError:
             return {
                 "content": [{"type": "text", "text": "网络连接失败，请检查网络是否通畅，或 API 地址是否正确"}],
                 "isError": True,
             }
-        except openai.APITimeoutError:
+        except oa.APITimeoutError:
             return {
                 "content": [{"type": "text", "text": "API 请求超时，请稍后重试"}],
                 "isError": True,
@@ -886,6 +921,8 @@ class MimoMCPServer:
 
     def _health(self, _args: Dict = None) -> Dict:
         """健康检查：CLI / openai / API Key / 网络 / 全量配置"""
+        # 触发一次 openai 懒加载，确保状态准确
+        oa = _ensure_openai()
         results: Dict[str, Any] = {
             "version": self.VERSION,
             "platform": sys.platform,
@@ -898,7 +935,7 @@ class MimoMCPServer:
             "chat_max_tokens": self.chat_max_tokens,
             "openai_available": _OPENAI_AVAILABLE,
             "openai_load_path": OPENAI_LOAD_PATH if _OPENAI_AVAILABLE else "NOT INSTALLED",
-            "openai_version": getattr(openai, "__version__", "unknown") if _OPENAI_AVAILABLE else "NONE",
+            "openai_version": getattr(_openai_cached, "__version__", "unknown") if _OPENAI_AVAILABLE else "NONE",
         }
 
         # 检查 CLI 版本
@@ -912,6 +949,13 @@ class MimoMCPServer:
         else:
             results["cli_status"] = "NOT INSTALLED - run: npm install -g @mimo-ai/cli"
 
+        # 延迟构造 OpenAI 客户端（仅首次调用且密钥已配置时）
+        if self.client is None and self.api_key and oa is not None:
+            try:
+                self.client = oa.OpenAI(api_key=self.api_key, base_url=self.base_url)
+            except Exception as e:
+                logger.warning("OpenAI 客户端初始化失败: %s" % e)
+
         # 检查 API 连通性（细分 5 类错误）
         if self.client:
             try:
@@ -923,13 +967,13 @@ class MimoMCPServer:
                 results["api_status"] = "OK"
                 raw = resp.choices[0].message.content or ""
                 results["api_test_response"] = _sanitize(raw[:50])
-            except openai.AuthenticationError:
+            except oa.AuthenticationError:
                 results["api_status"] = "AUTH FAILED - API Key 无效"
-            except openai.RateLimitError:
+            except oa.RateLimitError:
                 results["api_status"] = "RATE LIMITED - 请求频率超限"
-            except openai.APIConnectionError:
+            except oa.APIConnectionError:
                 results["api_status"] = "CONNECTION FAILED - 网络不通或 API 地址错误"
-            except openai.APITimeoutError:
+            except oa.APITimeoutError:
                 results["api_status"] = "TIMEOUT - API 请求超时"
             except Exception as e:
                 results["api_status"] = "ERROR: %s" % e
