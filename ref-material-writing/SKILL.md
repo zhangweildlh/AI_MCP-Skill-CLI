@@ -1,10 +1,6 @@
 ---
 name: ref-material-writing
-description: >-
-  基于写作需求、提纲和多份参考资料驱动的文档写作。当用户提供写作需求、
-  提纲和多份参考资料并要求撰写文档/报告/方案/综述/建议书时触发；当用户
-  强调"基于参考资料""不要编造""严格按提纲写"时优先使用；默认采用正式
-  严谨的公文风格。不适用于无参考资料的内容创作、创意写作或仅润色改写。
+description: 基于写作需求、提纲和多份参考资料驱动的文档写作。当用户提供写作需求、提纲和多份参考资料并要求撰写文档/报告/方案/综述/建议书时触发；当用户强调"基于参考资料""不要编造""严格按提纲写"时优先使用；默认采用正式严谨的公文风格。不适用于无参考资料的内容创作、创意写作或仅润色改写。
 license: Proprietary
 metadata:
   author: zhangweildlh
@@ -68,7 +64,7 @@ compatibility: >-
 | **提纲缺失** | 不暂停流程，在「步骤4」中自动草拟 |
 | **信息不足** | 启动「步骤5」双引擎联网搜索；每引擎 3 轮后仍不足则标注「[数据待核实]」 |
 | **双引擎搜索** | 步骤5 缺口补全：AnySearch 与 Firecrawl 平权、顺序执行（先 AnySearch 后 Firecrawl）、结果合并；每引擎每关键词 2–3 轮；垂直领域由 AI 按任务主题/诉求/思路/提纲判定并传入 AnySearch；交叉验证新增「双引擎互证」级；任一引擎不可用由 LLM 原生 web_search/web_fetch 补偿保双轨，二者皆不可用转单轨原生 |
-| **AnySearch 命令来源** | AnySearch 调用命令以 `anysearch-skill/runtime.conf` 为单一事实源（固定 `uv run --project D:/Tools/Assembly/python/myenv python D:/Documents/AI_MCP-Skill-CLI/anysearch-skill/scripts/anysearch_cli.py`）；ref-material-writing 内部所有硬编码仅为该值的镜像，二者须一致；变更须同步 rewrite 6 处镜像（bootstrap / _contract / step-02 / step-05 / compatibility / 02-environment-setup）与 runtime.conf。垂直域规则与实证结论（中文国策/标准无垂直域→通用搜索）见 `references/13-anysearch-integration.md` |
+| **AnySearch 命令来源** | AnySearch 调用命令以 `anysearch-skill/runtime.conf` 为单一事实源（固定命令形式：`uv run --project D:/Tools/Assembly/python/myenv python` 调用 AnySearch CLI 入口，入口具体路径见 runtime.conf）；ref-material-writing 内部所有硬编码仅为该值的镜像，二者须一致；变更须同步 rewrite 6 处镜像（bootstrap / _contract / step-02 / step-05 / compatibility / 02-environment-setup）与 runtime.conf。垂直域规则与实证结论（中文国策/标准无垂直域→通用搜索）见 `references/13-anysearch-integration.md` |
 | **确认节点** | 「步骤1」和「步骤4」须用户确认；用户明确"无需确认"时可跳过 |
 | **状态文件读写** | 每个步骤执行前必须读取 `_流水线状态.md`，执行完成后必须更新 |
 | **工具调用** | 依「工具能力映射表」解析原语→实际工具；Firecrawl 与 AnySearch 为双引擎平权（步骤5 联网补全），原生文件工具优先于 MCP；原生搜索作为双引擎的补偿/降级通道 |
@@ -93,8 +89,8 @@ compatibility: >-
 - **上游自证（每步 [验证] 末尾）**：每步执行完成后真实核验自身产出物（存在 + 齐全），通过则向状态文件 `§14 逐步自检登记` 写入「自检=✅通过 + 轻签名（FILE_STAT 字节数,行数）+ 登记对象（绝对路径/文件名）+ 子阶段 + 自检时刻（yyyy-MM-dd HH:mm:ss）」；未通过则回退重跑本步相关操作。**登记是自检的最后动作，自检是当前步骤的最后流程**（顺序铁律：执行 → 自检 → 登记）。
 - **下游信任（零复检）**：下游步骤读到 `§14` 有 ✅ 登记即默认信任、零复检、零回读；无登记才表示该步自检未完成（可能中断），下游按三级 Token 控制处置（见 `_router/_contract.md` [验证] 段）。
 - **三级 Token 控制**：① 有登记 → 信任，零读；② 无登记但本步本就要「功能性全量回读」该前序产出 → 把完整性判断折叠进这次必须的回读里（零额外 Token）+ 回填登记；③ 无登记且无功能性回读需求 → 仅轻检（FILE_STAT 存在性 + 非空非过小 + 手段二轻签名字节/行数 + 手段三分层强度），不全量回读。
-- **自检只验完整性（integrity），不验正确性（correctness）**：A/B/C/D 标准档（`references/16-self-check-A/B/C/D.md`）覆盖「存在 / 非空 / 轻签名 / 结构完整性」；正确性由步骤7 合规自检与步骤10 交付闸负责（职责定界见 `step-07.md` / `step-10.md`）。
-- **落地位置**：自检标准档 `references/16-self-check-A/B/C/D.md`（按产出物类型 A 文本/Markdown、B JSON 卡片、C Office、D 检索来源拆分）；状态文件 `§14` 字段定义见 `assets/_流水线状态.md`；契约级机制见 `_router/_contract.md` [验证] 段与 [状态] 段。
+- **自检只验完整性（integrity），不验正确性（correctness）**：A/B/C/D 标准档（`references/16-self-check-A.md`、`16-self-check-B.md`、`16-self-check-C.md`、`16-self-check-D.md`）覆盖「存在 / 非空 / 轻签名 / 结构完整性」；正确性由步骤7 合规自检与步骤10 交付闸负责（职责定界见 `step-07.md` / `step-10.md`）。
+- **落地位置**：自检标准档 `references/16-self-check-A.md`、`16-self-check-B.md`、`16-self-check-C.md`、`16-self-check-D.md`（按产出物类型 A 文本/Markdown、B JSON 卡片、C Office、D 检索来源拆分）；状态文件 `§14` 字段定义见 `assets/_流水线状态.md`；契约级机制见 `_router/_contract.md` [验证] 段与 [状态] 段。
 
 ## 资源索引
 
