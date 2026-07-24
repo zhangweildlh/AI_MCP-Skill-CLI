@@ -59,7 +59,7 @@ function Get-MarkdownSection {
 
 | 你要做的 | 需读取的章节 |
 |---|---|
-| 查询/设置 当前工作目录、Skill 技能根目录、GitHub 仓库根目录、临时目录、Tool/CLI 存放根目录 的默认值与解析规则 | `## 当前工作目录、Skill技能根目录和GitHub仓库根目录` |
+| 查询/设置 当前工作目录、Skill 技能根目录、GitHub 仓库根目录、临时目录、Tool/CLI 存放根目录 的默认值与解析规则 | `## 当前工作目录、Skill技能根目录和GitHub仓库根目录`（含「路径核验防误报」条目） |
 | 理解占位符 `[]` / `<>` 的写法与替换规则 | `## 当前工作目录、Skill技能根目录和GitHub仓库根目录` |
 | 用相对路径加载 Skill 内部资产（解析根为 [name] 目录） | `## 当前工作目录、Skill技能根目录和GitHub仓库根目录` |
 | 切换 Shell/PowerShell 工作目录、理解 cwd 与相对路径拼接规则 | `## Shell 约束、UV 命令约束和 Python 环境` |

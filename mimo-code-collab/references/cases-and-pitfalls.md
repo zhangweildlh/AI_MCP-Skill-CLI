@@ -61,7 +61,7 @@
 1. **主Agent**：`gh`/`git` 建分支、切到修复分支（真实外部操作，主Agent 独占）；
 2. **范式B 调研**：主Agent 用 `gh search`/本地工具搜索相关上下文，mimo 并行联网搜索同类修复方案（只分析），交叉互审后主Agent 合成调研结论；
 3. **mimo（范式A 实现 v2）**：在 `<SANDBOX>` 生成修复代码 + 产出提交信息文本（prompt："请修复 X，并给出符合约定式提交的提交信息，不要执行任何 git 命令"）；
-4. **主Agent**：`git add` + `git commit`（用 mimo 产出的提交信息）+ `gh pr create`（用 mimo 产出的 PR 描述）；
+4. **主Agent**：`git add` + `git commit`（用 mimo 产出的提交信息）+ `gh pr create`（用 mimo 产出的 PR 描述）；主Agent 执行 git 时须遵循路径核验防误报规范（先 `ls .git` 复核、用 `git -C "D:/绝对/Windows/路径"` 或先 cd /d/绝对/路径 再执行，禁止 `git -C /d/...`）。
 5. **主Agent + mimo（范式A Review）**：拉取 PR diff 交 mimo 审（prompt："请 Review 以下 diff，按 P0–P2 排序给出意见，只输出意见文本"），主Agent 出具审核报告；
 6. **主Agent**：若 Review 无 P0，则 `gh pr merge` 合入；否则回灌意见交 mimo 修订（编码协同闭环）。
 

@@ -83,6 +83,7 @@
   - **凭证助手（2026-07-17 配置）**：`https://github.com` 与 `https://gist.github.com` 走 `gh auth setup-git` 桥接（复用 `gh` 登录令牌，自动续期、权限含 repo/workflow/admin:org）；其余托管走全局 `wincred`（Windows 凭证管理器）。桥接为软件凭证，第三方电脑装好 `gh` 并 `gh auth login` 后即可复用——移植 GitExtensions 时只需在该机重跑 `gh auth setup-git`（或复制 `D:\Tools\Assembly` 整树到相同盘符使绝对路径不变）。
 - **`gh`**：`D:\Tools\Assembly\gh.exe`（v2.96.0；已登录 `zhangweildlh`；scopes 含 `repo`/`workflow`/`admin:org`）。负责读仓库/文件、跨 GitHub 搜索、PR/Issue、CI 轮询、合并（仅自有 PR）、Release/凭证。
 - **GitHub仓库根目录**：所有本地仓库/GitHub 代码/资产默认存放于 `D:\Documents\AI_Work_Temp`，均为其一级子目录（与永久记忆「目录与工具链约定」一致）。用户指定绝对路径的"GitHub 仓库目录"则直接使用；指定相对路径或仓库名则解析为 `[根目录]/[相对路径或仓库名]`；否则以自然语言询问用户。
+  - **路径核验防误报**：执行 git 前先 `ls "<目录>/.git"` 确认仓库有效性（零歧义，不受路径格式影响）；git 命令统一用 `git -C "D:/绝对/Windows/路径"` 或先 `cd /d/绝对/路径` 再执行。**禁止** `git -C /d/...`（Unix 风格根路径，Git Bash 下会被 git 误报 `fatal: not a git repository`，但 `git -C "D:/..."` 与 `cd /d/... && git` 均正常）。若 `git rev-parse` 报 `not a git repository`，**先排除路径格式误报**：先 `ls "<目录>/.git"` 复核，`.git` 存在则视为命令格式问题、改用正确写法重测，不得据此判定"非 git 仓库"或触发路径异常暂停、不得向用户发"路径核验关键异常"告警。
 
 ---
 

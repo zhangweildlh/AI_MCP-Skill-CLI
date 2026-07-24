@@ -61,7 +61,7 @@
 | T-COORD-01 | 编码协同闭环（范式A：设计→实现→审查+新版本→修订） | ①主Agent 给精确规格(v1) → ②mimo 实现(v2) → ③主Agent 审查出具【审核报告+v3 指示】 → ④mimo 修订(v4) → ⑤主Agent 读回验证（≤5 轮） | 每轮接收方产「审核报告+新版本」；最终文件通过主Agent 全部自测；全程串行 |
 | T-COORD-02 | GitHub 协同闭环（范式B 搜索 + 范式A 审阅 + 主Agent 真实执行） | ①主Agent 建/切分支（gh/git）→ ②范式B：主Agent `gh` 搜索 + mimo 联网调研并行，交叉互审 → ③mimo 在 `<SANDBOX>` 生成代码变更 + 提交信息文本(v2) → ④主Agent `git commit`/`gh pr create` → ⑤主Agent 拉 diff 交 mimo 审(范式A, v4…) → ⑥主Agent `gh pr merge`（Review 无 P0 后） | mimo 仅产出内容；真实 git/gh 全由主Agent 执行；范式B 交叉审核与范式A 修订均收敛 |
 
-> T-COORD-02 是**设计形态**（mimo 不直接 git，主Agent 执行外部动作），首次使用按此流程实测一遍以确认本环境行为。
+> T-COORD-02 是**设计形态**（mimo 不直接 git，主Agent 执行外部动作），首次使用按此流程实测一遍以确认本环境行为；主Agent 执行 git 时须遵循路径核验防误报规范（先 `ls .git` 复核、用 `git -C "D:/绝对/Windows/路径"` 或先 cd /d/绝对/路径 再执行，禁止 `git -C /d/...`）。
 
 ---
 
