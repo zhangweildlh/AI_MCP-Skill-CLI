@@ -9,6 +9,19 @@
 
 ---
 
+## [2026-07-24]
+
+### Removed
+- **github-repo-sync（Skill-GitHub仓库同步助手.md）**：删除该独立技能文件。其"六步同步流程"中步骤 1–5 与 `github-personal-manager` 的「日常同步巡检」工作流高度重复，且两技能均含"同步"触发词存在双触发歧义，故退役（原文件备份留存于 `_skill_backup/`）。
+
+### Added
+- **github-personal-manager**：新增 `scripts/sop_sync_report.sh`，以"合并前本地 tip"为基准生成结构化的上游更新分析报告（新增功能 / 改进与优化 / Bug 修复 / 破坏性变更 / 其他 + 详细提交记录表），吸收自 github-repo-sync 的独有能力。
+
+### Changed
+- **github-personal-manager**：工作流一新增「第四步：生成上游更新分析报告」，合并 upstream 前先记录"合并前本地 tip"作为报告基准（严禁用合并后 HEAD，否则差异为空）；「输出格式约束」新增第 5 条"各工作流结构化报告硬规则"，要求所有工作流执行完毕输出结构化、大白话结果报告（操作对象 / 执行了什么 / 结果 / 风险与异常 / 下一步建议）。
+
+---
+
 ## [2026-07-23]
 
 ### Added
