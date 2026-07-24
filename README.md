@@ -100,7 +100,8 @@
   - **双远程别名约定**：`origin` = 个人远端 Fork，`upstream` = 上游原仓库（缺 `upstream` 时由用户提供 URL 添加）。
   - **默认仓库根目录**：`D:\Documents\AI_Work_Temp`（可被参数覆盖）。
   - **Windows 环境**假设；需目标路径确为 Git 仓库。
-- **备注**：纯流程编排技能，不引入第三方库；推送失败补救-重试循环最多 1 次。
+  - **路径核验防误报**：确认路径后、执行 git 前先 `ls "<目录>/.git"` 复核仓库有效性；git 命令用 `git -C "D:/绝对/Windows/路径"` 或先 `cd /d/绝对/路径` 再执行，**禁止** `git -C /d/...`（Unix 风格根路径，Git Bash 下会被 git 误报 `not a git repository`）。若 `git rev-parse` 报该错，先 `ls .git` 复核，`.git` 存在即视为命令格式问题、改用正确写法重测，不得判定"非 git 仓库"。
+  - **备注**：纯流程编排技能，不引入第三方库；推送失败补救-重试循环最多 1 次。
 
 ### 7. skill-creator（Skill 创建助手 · 元技能）
 

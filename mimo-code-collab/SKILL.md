@@ -59,7 +59,7 @@ agent_created: true
 
 **能力边界（务必先读，避免误用）**：
 - `mimo.code` 是**代码/文本智能体**，作用域限定在 `working_dir` 内的文件读写与技术讨论；
-- 它**不直接操作 GitHub / git / 外部系统**。所有 git commit、push、开 PR、merge 等真实动作由**主Agent 用 gh/git 执行**；mimo 只负责"写什么内容"（代码 diff 建议、提交信息、PR 描述文本）；
+- 它**不直接操作 GitHub / git / 外部系统**。所有 git commit、push、开 PR、merge 等真实动作由**主Agent 用 gh/git 执行**；mimo 只负责"写什么内容"（代码 diff 建议、提交信息、PR 描述文本）；**主Agent 执行 git 时须遵循路径核验防误报规范**（先 `ls .git` 复核、用 `git -C "D:/绝对/Windows/路径"` 或先 `cd /d/绝对/路径` 再执行，禁止 `git -C /d/...`）。
 - 所有写操作默认作用于 `working_dir` 指定的目录；讨论/分析类任务须显式声明"只分析、不写文件"，避免误写；
 - **能力边界 / 权限约束之外的工作由主Agent 完成**：例如真实 git/gh 动作、需要主Agent 本地环境才能运行的验证（编译/测试/依赖安装）、需要访问主Agent 私有凭据或内部系统的操作，一律由主Agent 执行，mimo 只提供可供主Agent 复核的内容。
 

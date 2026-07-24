@@ -13,7 +13,7 @@
 | 命令 | 作用 |
 |------|------|
 | `gh repo view [owner/repo]` | 查看仓库元信息（描述、语言、星标、README 文本）✅ |
-| `gh repo clone <repo>` | 克隆仓库（等价于 `git clone`，自动用 gh 协议） |
+| `gh repo clone <repo>` | 克隆仓库（等价于 `git clone`，自动用 gh 协议）；克隆到本地后，后续 git 命令用 `git -C "D:/绝对/Windows/路径"` 或先 `cd /d/绝对/路径` 再执行，避免 `git -C /d/...` 在 Git Bash 下误报 `not a git repository`（详见「路径核验防误报」规范） |
 | `gh repo fork <repo>` | Fork 到本人账号（标准流程阶段 1 前置） |
 | `gh repo create` | 新建仓库（private/public/desc） |
 | `gh repo list` | 列出当前账号/组织的仓库 |
