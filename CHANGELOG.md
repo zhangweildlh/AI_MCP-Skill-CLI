@@ -16,9 +16,13 @@
 
 ### Added
 - **github-personal-manager**：新增 `scripts/sop_sync_report.sh`，以"合并前本地 tip"为基准生成结构化的上游更新分析报告（新增功能 / 改进与优化 / Bug 修复 / 破坏性变更 / 其他 + 详细提交记录表），吸收自 github-repo-sync 的独有能力。
+- **mimo_mcp.py**：新增 `mimo.metrics` 可观测性工具（进程级调用计数 + 成功/失败/超时/错误分类 + 累计与最大耗时 + 上次错误），落实协同稳定性监控盲区；新增「形态A（dmcp.exe 中继）/ 形态B（宿主直连）」双形态说明块，底层同一脚本、跨平台可移植。
+- **mimo-code-collab**：新增离线冒烟测试 `test_mimo_mcp_smoke.py`，校验 v2.2.0 关键契约（版本号、`get_code_timeout` 默认 900、`mimo.metrics` 注册与分类计数守恒）。
 
 ### Changed
 - **github-personal-manager**：工作流一新增「第四步：生成上游更新分析报告」，合并 upstream 前先记录"合并前本地 tip"作为报告基准（严禁用合并后 HEAD，否则差异为空）；「输出格式约束」新增第 5 条"各工作流结构化报告硬规则"，要求所有工作流执行完毕输出结构化、大白话结果报告（操作对象 / 执行了什么 / 结果 / 风险与异常 / 下一步建议）。
+- **mimo_mcp.py**：默认任务超时 300s → 900s（匹配真实任务普遍 100–200s+ 耗时）；mcp.json 模板 `command` 改用绝对 venv python 路径以规避中继/连接器冷启动握手超时强杀；版本 v2.1.0 → v2.2.0。
+- **mimo-code-collab（v5 → v6）**：能力边界明确「mimo 可在 `working_dir` 内生成/修改文件（实测落盘）」纠正旧误区；形态A 具体化 `dmcp.exe` 中继并补充「中继侧超时/保活须随 `MIMO_CODE_TIMEOUT` 同步上调」「宿主改 mcp.json 后哈希信任需重载」两条跨平台部署要点；`invocation.md` 泛化 health 样本超时、`test-matrix.md` 新增 T-BND-09 可观测性用例、`cases-and-pitfalls.md` 补充 7 条测试实证陷阱（超时只阻断响应回传不丢产出→先读 `working_dir` 兜底 / 缺可观测性 / 中继超时未同步 / 宿主配置未重载信任 / 文件读写误区 / 上下文回灌自动化 / 显式收敛标准）。
 
 ---
 

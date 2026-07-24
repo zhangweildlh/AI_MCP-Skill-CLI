@@ -18,14 +18,16 @@
 
 `mimo.code` 在不同 Agent 上的暴露方式不同，**不要写死工具名**。首次使用先做接入探测，确认实际形态。`mimo.code` 只存在以下两种接入形态，本技能对两者通用：
 
-**形态 A — `mimo.code` 通过 `Dynamic-mcp` 工具中转连接到 Agent**
-经由动态工具通道（动态 MCP 代理）调用，由 Agent 侧的"调用动态工具"入口（如 `call_dynamic_tool`）转发：
+**形态 A — `mimo.code` 经 `Dynamic-mcp` 类可执行中继（典型实现如 `dmcp.exe`）中转连接到 Agent**
+经由动态工具通道（动态 MCP 代理）调用，由 Agent 侧的"调用动态工具"入口（如 `call_dynamic_tool`）转发。典型部署：宿主把 `mimo_mcp.py` + `mimo.exe` 登记为中继的一个 server group（分组名如 `mimo-mcp`，具体名随平台而定），中继再以动态工具入口暴露给 Agent：
 ```
 Tool: <你的动态工具调用入口>            # 例如 mcp__Dynamic-mcp__call_dynamic_tool
 args: { group: <你的 mimo 分组名>, name: "mimo.code", args: { ... } }
 ```
 - 探测：`list_groups`（或等价接口）确认 mimo 分组已连接；`get_dynamic_tools`（mode=full）取 `mimo.code` 精确 schema。
 - 分组名（如 `mimo-mcp`）因环境而异，**以探测到的为准**。
+- **中继侧超时/保活须同步上调（★ 关键）**：`dmcp.exe` 这类中继自身带握手超时与保活；`mimo_mcp.py` 的 `MIMO_CODE_TIMEOUT` 默认已 900s，中继的超时/保活配置也要一并调大。否则 mimo 真实耗时接近中继上限时，会在响应回传前被中继强杀（表现 `-32001` / 工具调用超时 / 串台），但 mimo 后台往往已落地文件——主Agent 可直接从 `working_dir` 读取结果兜底。
+- **宿主配置变更后需重载信任**：改宿主 MCP 配置（如 `mcp.json`）会触发 server 哈希信任校验，未重载则 server 可能被标 `untrusted`/`demoted` 不加载；变更后须按宿主要求重启或写审批表激活。
 
 **形态 B — `mimo.code` 以 MCP 服务方式直接连接 Agent**
 `mimo.code` 作为原生 MCP 工具直接暴露（工具名可能为 `mimo__code` 或 `<前缀>__code`，前缀取决于该 MCP 服务的注册名）：
@@ -92,7 +94,7 @@ args: { prompt: "...", working_dir: "...", format: "text", skip_permissions: tru
 - 默认模型：`mimo-v2.5`（对话可用变体如 `mimo-v2.5-pro`，但 `mimo.code` 走 `mimo run` 固定管线）；
 - API 端点：某小米侧端点（如 `api.xiaomimimo.com/v1`）；
 - 密钥来源：环境变量（如 `MIMO_API_KEY`），与主Agent 额度无关；
-- 代码任务超时：某秒数（如 `300` 秒），单任务超过会超时失败。
+- 代码任务超时：由 `MIMO_CODE_TIMEOUT` 环境变量控制，**默认 900 秒**（已上调，匹配真实任务普遍 100–200s+ 的耗时）；单任务超过该值会超时失败。**注意：若经 `dmcp.exe` 类中继接入，中继自身超时须同步调大**，否则会被中继先于 mimo 强杀（详见第 2 节形态 A 要点）。
 
 健康检查用途：连接异常时先跑一次，确认 mimo 在线且密钥有效，再排除是代理层/传输层瞬时失联（见陷阱第 2 条）。
 

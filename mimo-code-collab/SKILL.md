@@ -1,6 +1,6 @@
 ---
 name: mimo-code-collab
-version: "5"
+version: "6"
 description: 当需要与 mimo.code（小米 MiMo 代码智能体）协同开展任何工程任务时加载本技能——包括但不限于：代码编写、修改、BUG 修复、代码审核、项目分析与重构、技术方案/架构讨论与文档编写、非代码文件（配置/文档/规格）讨论与编写、GitHub 变更的内容生成与审阅。覆盖 mimo.code 的能力边界、环境无关的通用调用方法（同时适配「Dynamic-mcp 工具中转连接」与「MCP 服务方式直接连接」两种接入形态）、以及「主Agent × mimo.code 通用分工闭环 + 双范式（串行交替审核 / 并行交叉审核）+ 强制前置分析约束（子任务启动前先判定场景与范式）+ 防死锁」的协同工作流。即使完全未接触过 mimo.code，读完本技能也可正确调用并组织协同。
 agent_created: true
 ---
@@ -58,7 +58,7 @@ agent_created: true
 6. **内容生成**：为 GitHub 等场景生成提交信息、PR 描述、Review 意见、规格文档。
 
 **能力边界（务必先读，避免误用）**：
-- `mimo.code` 是**代码/文本智能体**，作用域限定在 `working_dir` 内的文件读写与技术讨论；
+- `mimo.code` 是**代码/文本智能体**，作用域限定在 `working_dir` 内的文件读写与技术讨论；**实测它确实会在 `working_dir` 内生成/修改文件**（如落盘 `*.md` 方案、`*.py` 脚本、Review 报告等），并非"只读"——这既是它的生产力来源，也是需显式约束写范围的原因（只读/讨论任务必须在 `prompt` 写明"不要写任何文件 / 只分析"）。若遇响应超时但任务疑似已完成，可先去 `working_dir` 查看是否已有落盘产物作为兜底。
 - 它**不直接操作 GitHub / git / 外部系统**。所有 git commit、push、开 PR、merge 等真实动作由**主Agent 用 gh/git 执行**；mimo 只负责"写什么内容"（代码 diff 建议、提交信息、PR 描述文本）；**主Agent 执行 git 时须遵循路径核验防误报规范**（先 `ls .git` 复核、用 `git -C "D:/绝对/Windows/路径"` 或先 `cd /d/绝对/路径` 再执行，禁止 `git -C /d/...`）。
 - 所有写操作默认作用于 `working_dir` 指定的目录；讨论/分析类任务须显式声明"只分析、不写文件"，避免误写；
 - **能力边界 / 权限约束之外的工作由主Agent 完成**：例如真实 git/gh 动作、需要主Agent 本地环境才能运行的验证（编译/测试/依赖安装）、需要访问主Agent 私有凭据或内部系统的操作，一律由主Agent 执行，mimo 只提供可供主Agent 复核的内容。
@@ -66,7 +66,9 @@ agent_created: true
 ## 通用调用方法（Invocation，环境无关）
 `mimo.code` 在不同 Agent 上的接入形态可能不同，本技能统一抽象为以下两种，**首次使用前先做接入探测**：
 
-- **形态 A — `mimo.code` 通过 `Dynamic-mcp` 工具中转连接到 Agent**：经动态工具通道（如 `call_dynamic_tool`）调用，参数为 `{group: <你的 mimo 分组名>, name: "mimo.code", args: {...}}`。探测：`list_groups` 确认分组已连接，`get_dynamic_tools` 取 `mimo.code` 精确 schema。
+- **形态 A — `mimo.code` 经 `Dynamic-mcp` 类可执行中继（典型实现如 `dmcp.exe`）中转连接到 Agent**：宿主平台先把本脚本（`mimo_mcp.py` + `mimo.exe`）登记为中继的一个 server group（分组名如 `mimo-mcp`，**具体名随平台而定**），再通过动态工具通道（如 `call_dynamic_tool`）调用，参数为 `{group: <你的 mimo 分组名>, name: "mimo.code", args: {...}}`。探测：`list_groups` 确认分组已连接，`get_dynamic_tools` 取 `mimo.code` 精确 schema。
+  - **中继侧超时/保活须同步上调（★ 关键部署要点）**：`dmcp.exe` 这类中继自身往往带握手超时与保活机制；当 `MIMO_CODE_TIMEOUT` 上调（本脚本默认已 900s）后，**中继的超时/保活配置也要一并调大**。否则 mimo 真实耗时接近中继上限时，会在响应回传前被中继强杀（表现为 `-32001` / 工具调用超时 / 串台）——但 mimo 后台往往**已落地文件**，主Agent 可直接从 `working_dir` 读取结果兜底，不必重跑。
+  - **宿主配置变更后需重载信任**：修改宿主的 MCP 配置（如 `mcp.json`）会触发宿主对 server 的哈希信任校验，未重载则 server 可能被标为 `untrusted` / `demoted` 而不加载；变更后须按宿主要求**重启或写审批表激活**，否则双范式与稳定性专项测试都跑不起来。
 - **形态 B — `mimo.code` 以 MCP 服务方式直接连接 Agent**：`mimo.code` 作为原生 MCP 工具直接暴露（工具名可能为 `mimo__code` 或 `<前缀>__code`）。探测：查阅当前 Agent 的 MCP 工具列表，确认 `mimo.code` 的确切工具名。
 
 > 分组名（如 `mimo-mcp`）与工具前缀因环境而异，**不要写死**；始终以探测到的实际命名为准。两种形态的参数语义完全一致，区别仅在"如何寻址到 mimo.code"。
