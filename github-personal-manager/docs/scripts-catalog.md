@@ -7,6 +7,7 @@
 | 脚本文件 | 中文名 | 功能 | 对应记忆章节 | 触发 |
 |---|---|---|---|---|
 | `sop_sync_precheck.sh` | 巡检前置预检 | 只读输出 remote、`main` 跟踪、工作区脏状态、本地↔origin 与 origin↔upstream 领先/落后计数 | 日常同步巡检·阶段0 | 菜单 |
+| `sop_sync_report.sh` | 上游更新结构化报告 | 以合并前 tip（或 upstream/main 最近20条）为基准输出上游新增提交结构化报告（新增功能/改进/Bug修复/破坏性变更/其他 + 详细提交记录表）；只读 | 日常同步巡检·第四步 | 菜单 |
 | `sop_pr_checks.sh` | 轮询 CI 状态 | `gh pr checks` + 最近 `gh run list`；只读 | CI 排错·第一步 | 菜单/右键 |
 | `sop_ci_failed_log.sh` | 下载失败日志 | 取最近失败 run 的 `--log-failed`；只读 | CI 排错·第一步 | 右键 |
 | `sop_branch_merged_status.sh` | 只读合并状态 | 输出 `--merged`/`--no-merged main` 与 fork 远程已合并分支；只读 | 分支清理·第一步 | 菜单 |
