@@ -31,6 +31,7 @@
 2. **本地独有文件（如 `.workbuddy`）隔离**：用 `.git/info/exclude`（本地专属、不提交不推送、位于 `.git` 内，`reset`/`checkout`/`pull upstream` 均不影响）写入忽略行，保持 fork 为上游干净镜像且无 `.gitignore` 分歧。若已被跟踪/推送过，先 `git rm --cached -r [路径]`（保留磁盘、下次 push 删远端）再忽略。`.workbuddy` 是项目记忆，绝不删除；忽略=不跟踪，不影响磁盘。
 3. **标签 SHA 核对坑**：`git ls-remote --tags origin v[version]` 返回的是**注解标签对象本身**的编号，不是它指向的提交(commit)编号。核对「标签是否已推送/指向是否正确」时，必须先用 `git rev-parse [tag]^{commit}`（或 `git rev-list -n 1 [tag]`）解引用出提交(commit) SHA 再与本地对比；切勿直接拿 `ls-remote` 的 SHA 与 `git rev-list` 的提交(commit) SHA 比较，否则会误判为「标签错位/未推送」。
 4. **分支保护实例**：`zhangweildlh/dynamic-mcp` 的 `origin/main` 已于 2026-07-15 用 `gh` GraphQL 开启保护（CI 严格全绿、禁强推、禁删分支、管理员可绕过、无审批、未强制 PR），作为「技术保护 + 约定」双保险，配置方法见上「关键问题与解决」第 12 点。
+5. **路径核验误报坑**：`git -C /d/Documents/...`（Unix 风格根路径）传给 git 的 `-C`，Git Bash 下会误报 `fatal: not a git repository`，但 `git -C "D:/..."`（Windows 盘符+正斜杠）与 `cd /d/... && git` 均正常；此外在"非仓库的当前目录"直接 `git rev-parse --show-toplevel` 也必误报。执行 git 前先用 `ls "<目录>/.git"` 复核，`.git` 存在则改用 `git -C "D:/绝对路径"` 或 `cd` 后执行，不得据此判定"非 git 仓库"或触发路径异常暂停。
 
 ## 约束/注意事项（fork 专属硬规则）
 - `git push` 只推 origin（fork），绝不推 upstream（亦见硬约束）。

@@ -62,7 +62,7 @@ args: { prompt: "...", working_dir: "...", format: "text", skip_permissions: tru
 | 真实仓库（默认） | mimo 直接写真实工作副本，产物落在真实仓库目录内 | 主Agent 直接对该真实仓库 `git add <文件>` → `git commit` → `gh pr create` | 不需要，产物本就在真实仓库；提交前照常 review |
 | 隔离沙箱（仅硬约束） | mimo 写 `<SANDBOX>`，真实仓库零接触 | 主Agent 先把经审核的沙箱产物**复制/移植**到真实仓库对应路径，再 `git add`/`commit` | 需要；搬运时只带经 review 的产物，不带沙箱测试垃圾 |
 
-> 无论哪种情形，**真实 git/gh 动作始终由主Agent 执行**，mimo 只产出内容（代码 diff、提交信息、PR 描述）。选沙箱只是隔离"mimo 的写动作"，不改变"主Agent 独占 git"的边界。
+> 无论哪种情形，**真实 git/gh 动作始终由主Agent 执行**，mimo 只产出内容（代码 diff、提交信息、PR 描述）。选沙箱只是隔离"mimo 的写动作"，不改变"主Agent 独占 git"的边界；主Agent 执行 git 时须遵循路径核验防误报规范（先 `ls .git` 复核、用 `git -C "D:/绝对/Windows/路径"` 或先 cd /d/绝对/路径 再执行，禁止 `git -C /d/...`）。
 
 **最小可用调用示例**（编写一段代码，两种形态的参数体相同；`working_dir` 默认填真实仓库目录，受硬约束时填 `<SANDBOX>`）：
 ```json

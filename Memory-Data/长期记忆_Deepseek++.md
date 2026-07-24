@@ -14,6 +14,7 @@
    - 本 Skill 使用**相对路径**（如 `./references/01-writing-standards.md` 或 `references/01-writing-standards.md`）加载、调用子 Skill或加载、阅读资源文件或者使用模板文件时，**必须**以此目录作为相对路径的解析根目录（如 `D:/Documents/AI_MCP-Skill-CLI/ref-material-writing/references/01-writing-standards.md` ），而不依赖于当前工作目录（CWD）。
 5. **[GitHub仓库根目录]**：所有 GitHub 仓库资产存放的根目录；默认路径为： `D:/Documents/AI_Work_Temp` 。
    - - 如果用户明确指定了绝对路径的 "GitHub仓库目录"，则**直接使用**该路径；如果用户明确指定了相对路径的 "GitHub仓库目录"，则将其解析为：[GitHub仓库根目录]/[相对路径]；否则使用**默认路径**。
+   - - **路径核验防误报**：执行 git 前先 `ls "<目录>/.git"` 确认仓库有效性（零歧义）；git 命令用 `git -C "D:/绝对/Windows/路径"` 或先 `cd /d/绝对/路径` 再执行。**禁止** `git -C /d/...`（Unix 风格根路径在 Git Bash 下会被 git 误报 `not a git repository`）。若 `git rev-parse` 报该错，先 `ls .git` 复核，`.git` 存在即视为命令格式问题、改用正确写法重测，不得判定"非 git 仓库"或触发路径异常暂停。
 6. **[临时目录]**：所有下载缓存、数据缓存、程序缓存（如本 Skill 构造的 .py 程序）等临时文件存放的父目录；默认路径为： `D:/System/UserTemp` 。
 7. **[Tool和CLI存放根目录]**：所有工具 Tool 和 CLI 存放的根目录；默认路径为： `D:/Tools/Assembly` 。
 

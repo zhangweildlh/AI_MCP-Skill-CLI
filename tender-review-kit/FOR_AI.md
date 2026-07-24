@@ -31,6 +31,7 @@
   没有 git 就下 zip 解压(`https://github.com/matongAI-lab/tender-review-kit/archive/refs/heads/main.zip`)。
 - 放哪由你定一个合理位置(比如用户主目录),**告诉用户放在哪了**即可,不要问小白"想放哪个路径"。
 - 之后所有命令都在项目根目录下执行。
+- **路径核验防误报**：clone/确认项目后，后续 git 命令统一用 `git -C "D:/绝对/Windows/路径"` 或先 `cd /d/绝对/路径` 再执行；**禁止** `git -C /d/...`（Unix 风格根路径，Git Bash 下会被 git 误报 `not a git repository`）。若 `git rev-parse` 报该错，先 `ls "<目录>/.git"` 复核，`.git` 存在即视为命令格式问题、改用正确写法重测，不得判定"非 git 仓库"或触发路径异常暂停。
 
 > **如果你没有执行命令的能力**(比如你是网页聊天版 AI):诚实告诉用户——"这个工具需要一个能操作你电脑的 AI 助手(比如 Claude Code),我这个版本帮不了你跑程序",并把用户引向仓库 README 的「怎么开始」一节。不要假装能跑。
 
