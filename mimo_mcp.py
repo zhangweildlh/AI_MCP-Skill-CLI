@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 =============================================================================
-  mimo-mcp v2.1.0  融合终版 — v1.1.1 架构规范 + v2.0.0 高容错运维
+  mimo-mcp v2.2.0  融合终版 — v2.1.0 架构规范 + 可观测性(metrics) + 默认超时上调至 900s
   （整合两版全部优势，修复双向全部已知 Bug，覆盖 22 项审计缺陷）
 =============================================================================
 
@@ -19,7 +19,7 @@
   MIMO_NPM_GLOBAL_PATH   自定义 npm 全局目录根路径，适配 nvm/自定义 prefix
   MIMO_OPENAI_PATH       openai 包所在目录，包不在默认环境时用
   MIMO_AUTH_PATH         自定义 auth.json 绝对路径
-  MIMO_CODE_TIMEOUT      mimo.code 执行超时秒数，默认 300
+  MIMO_CODE_TIMEOUT      mimo.code 执行超时秒数，默认 900（真实任务普遍 100–200s+，须 ≥ 实际耗时冗余）
   MIMO_CHAT_MAX_TOKENS   mimo.chat 单次最大输出 token，默认 4096
   MIMO_MCP_LOG_PATH      本地日志文件路径，留空则仅输出 stderr
 
@@ -27,8 +27,8 @@
   {
     "mcpServers": {
       "mimo-mcp": {
-        "command": "uv",
-        "args": ["run", "--project", "D:/Tools/Assembly/python/myenv", "python", "D:/path/to/mimo_mcp.py"],
+        "command": "D:/Tools/Assembly/python/myenv/Scripts/python.exe",
+        "args": ["D:/path/to/mimo_mcp.py"],
         "env": {
           "MIMO_API_KEY": "你的API Key",
           "MIMO_BASE_URL": "https://api.xiaomimimo.com/v1",
@@ -40,12 +40,27 @@
     }
   }
 
+  命令选择建议（影响冷启动与握手稳定性）：
+  - 推荐：直接用虚拟环境的 python 解释器（Windows 为 Scripts/python.exe，
+    Linux/macOS 为 bin/python），跳过 `uv run` 的解析/启动开销，显著缩短 MCP 握手
+    耗时——在 dmcp 等带握手超时/保活的中继形态下尤为关键，可避免握手阶段被强杀。
+  - 备选：若依赖随项目走，也可 `command: "uv", args: ["run", "--project", "<venv>", "python", "mimo_mcp.py"]`。
+  - 无论哪种，本脚本均不绑定具体路径/分组名/连接器，跨平台与跨 LLM 平台可移植。
+
+ 形态说明（本脚本同时服务两种接入形态，底层一致）：
+  - 形态 B（宿主直连）：上述 mcp.json 由宿主平台（如 WorkBuddy 或其他 LLM 平台）直接拉起本脚本即可。
+  - 形态 A（Dynamic-mcp 类中继，典型实现如 dmcp.exe）：在中继配置里把本脚本登记为一个 server group
+    （group 名如 mimo-mcp），宿主平台通过中继暴露的动态工具入口（如 call_dynamic_tool，参数
+    group + name:"mimo.code"）调用；中继自身往往也有超时/保活配置，须一并上调。无论哪种形态，
+    底层都是同一份本脚本 + mimo.exe，可移植性不受影响。
+
 =============================================================================
 """
 
 import sys
 import json
 import os
+import time
 import subprocess
 import threading
 import queue
@@ -225,9 +240,9 @@ def get_default_model() -> str:
 
 def get_code_timeout() -> int:
     try:
-        return int(os.environ.get("MIMO_CODE_TIMEOUT", "300"))
+        return int(os.environ.get("MIMO_CODE_TIMEOUT", "900"))
     except (ValueError, TypeError):
-        return 300
+        return 900
 
 
 def get_chat_max_tokens() -> int:
@@ -342,14 +357,35 @@ def managed_subprocess(cmd: List[str], cwd: Optional[str] = None, timeout: int =
     try:
         yield proc
     finally:
-        # 仅销毁仍在运行的进程（修复无条件 kill Bug）
+        # 仅销毁仍在运行的进程（修复无条件 kill Bug）；Windows 优先杀进程树
         if proc.poll() is None:
             try:
-                proc.kill()
+                _kill_tree(proc.pid)
                 proc.wait(timeout=5)
             except Exception:
-                pass
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
         logger.debug("子进程 %d 资源回收完成" % proc.pid)
+
+
+def _kill_tree(pid: int) -> None:
+    """Windows 下杀掉整个进程树（父进程 + 所有子孙），避免孙进程持有 stdout 管道
+    导致父进程 wait 挂起、进而突破 Python 超时上限触达 dmcp 超时并引发响应串台。
+    仅 Windows 生效；类 Unix 由 managed_subprocess 的 CREATE_NEW_PROCESS_GROUP 配合
+    SIGTERM 已覆盖。"""
+    if sys.platform != "win32":
+        return
+    try:
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", str(pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        )
+    except Exception:
+        pass
 
 
 # ===========================================================================
@@ -515,13 +551,16 @@ class MimoMCPServer:
     """
     MiMo MCP Server — 将 MiMo Code 和 MiMo API 包装为 MCP 工具。
 
-    v2.1.0 融合版：
+    v2.2.0 融合版：
       - 架构基底：v1.1.1 的 managed_subprocess / 独立校验 / importlib 溯源
       - 高容错：v2.0.0 的哨兵队列 / 5 类异常细分 / 全局异常兜底
       - Bug 修复：双方全部已知缺陷已修复
+      - 可观测性：新增 mimo.metrics 工具，进程级统计调用/成功/失败/超时/错误与耗时
+      - 默认超时：MIMO_CODE_TIMEOUT 由 300s 上调至 900s（匹配真实任务 100–200s+ 耗时）
+      - 双形态：同一份脚本同时服务 形态A（dmcp 类中继）/ 形态B（宿主直连），底层无差异
     """
 
-    VERSION = "2.1.0"
+    VERSION = "2.2.0"
 
     def __init__(self):
         self.api_key, self.api_key_source = get_api_key()
@@ -530,6 +569,21 @@ class MimoMCPServer:
         self.mimo_exe = find_mimo_exe()
         self.code_timeout = get_code_timeout()
         self.chat_max_tokens = get_chat_max_tokens()
+
+        # 可观测性指标（进程级，dmcp/宿主重启则归零）：
+        # 记录调用次数、成功/失败/超时/错误分类、累计与最大耗时、上次错误、进程启动时刻。
+        # 暴露于 mimo.metrics 工具，供两接入形态（形态A 中继 / 形态B 直连）统一观测稳定性。
+        self._metrics = {
+            "calls": 0,
+            "success": 0,
+            "failed": 0,
+            "timeouts": 0,
+            "errors": 0,
+            "total_ms": 0.0,
+            "max_ms": 0.0,
+            "last_error": None,
+            "start_time": time.time(),
+        }
 
         # OpenAI 客户端延迟构造：首次调用 mimo.chat / mimo.health 时才真正 import
         # 并构造，避免冷启动期加载重型 openai 包，缩短 dmcp 冷启动窗口。
@@ -564,7 +618,6 @@ class MimoMCPServer:
             "protocolVersion": "2024-11-05",
             "capabilities": {
                 "tools": {},
-                "experimental": {"progressNotifications": True},
             },
             "serverInfo": {
                 "name": "mimo-mcp",
@@ -661,6 +714,17 @@ class MimoMCPServer:
                     ),
                     "inputSchema": {"type": "object", "properties": {}},
                 },
+                {
+                    "name": "mimo.metrics",
+                    "description": (
+                        "可观测性指标：返回本进程自启动以来的调用统计与稳定性数据——"
+                        "总调用次数、成功/失败/超时/错误分类计数、累计与最大单次耗时（毫秒）、"
+                        "平均耗时、上次错误摘要、进程启动时刻、脚本版本与 mimo.exe 路径。"
+                        "用于排查 mimo.code 稳定性问题（如超时风暴、频繁失败）。"
+                        "注意：指标为进程级，dmcp 中继或宿主重启本进程后会归零。"
+                    ),
+                    "inputSchema": {"type": "object", "properties": {}},
+                },
             ]
         }
 
@@ -675,6 +739,7 @@ class MimoMCPServer:
             "mimo.code": self._mimo_code,
             "mimo.chat": self._chat,
             "mimo.health": self._health,
+            "mimo.metrics": self._metrics_tool,
         }
 
         handler = handlers.get(tool_name)
@@ -699,6 +764,22 @@ class MimoMCPServer:
 
     def _mimo_code(self, args: Dict) -> Dict:
         """
+        计时与指标采集包装器；实际执行逻辑在 _mimo_code_inner。
+        包装层负责：调用计数、累计/最大耗时（通用，所有返回路径统一生效）。
+        分类计数（成功/失败/超时/错误）由 _mimo_code_inner 各返回分支精确累加，
+        保证 calls == success + failed + timeouts + errors。
+        """
+        t0 = time.time()
+        result = self._mimo_code_inner(args)
+        elapsed = (time.time() - t0) * 1000.0
+        self._metrics["calls"] += 1
+        self._metrics["total_ms"] += elapsed
+        if elapsed > self._metrics["max_ms"]:
+            self._metrics["max_ms"] = elapsed
+        return result
+
+    def _mimo_code_inner(self, args: Dict) -> Dict:
+        """
         通过 mimo.exe run 非交互模式执行编程任务。
 
         关键实现：
@@ -710,9 +791,13 @@ class MimoMCPServer:
         # 前置参数校验
         err = validate_mimo_code_args(args)
         if err:
+            self._metrics["errors"] += 1
+            self._metrics["last_error"] = "arg_invalid: %s" % err[:200]
             return {"content": [{"type": "text", "text": err}], "isError": True}
 
         if not self.mimo_exe:
+            self._metrics["errors"] += 1
+            self._metrics["last_error"] = "mimo_exe_not_found"
             return {
                 "content": [{
                     "type": "text",
@@ -756,12 +841,18 @@ class MimoMCPServer:
                 try:
                     proc.wait(timeout=self.code_timeout)
                 except subprocess.TimeoutExpired:
-                    # 超时：先等线程读取已有数据，再 kill 进程
+                    # 超时：先等线程读取已有数据，再杀掉整个进程树（含孙进程），
+                    # 确保 mimo_mcp.py 在超时窗口内干净返回，避免突破 dmcp 超时引发串台。
                     logger.warning("mimo.code 超时（%ds），收集已捕获输出..." % self.code_timeout)
+                    self._metrics["timeouts"] += 1
+                    self._metrics["last_error"] = "timeout after %ds" % self.code_timeout
                     t_out.join(timeout=20)
                     t_err.join(timeout=20)
-                    proc.kill()
-                    proc.wait(timeout=5)
+                    _kill_tree(proc.pid)
+                    try:
+                        proc.wait(timeout=5)
+                    except Exception:
+                        pass
 
                     # drain queue 保留已捕获的部分输出
                     partial = _drain_queue(stdout_q)
@@ -783,6 +874,8 @@ class MimoMCPServer:
                 if proc.returncode != 0:
                     msg = err_text if err_text else "进程退出码 %d" % proc.returncode
                     logger.error("mimo.code 失败 | rc=%d | err=%s" % (proc.returncode, msg[:200]))
+                    self._metrics["failed"] += 1
+                    self._metrics["last_error"] = msg[:300]
                     return {"content": [{"type": "text", "text": "MiMo 执行失败: %s" % msg}], "isError": True}
 
                 # JSON 模式：直接返回原始事件流
@@ -810,14 +903,46 @@ class MimoMCPServer:
                     )
 
                 out_text = "\n".join(parts) if parts else "执行完成，无输出"
+                self._metrics["success"] += 1
                 return {"content": [{"type": "text", "text": out_text}]}
 
         except Exception as e:
             logger.error("mimo.code 异常: %s" % e, exc_info=True)
+            self._metrics["errors"] += 1
+            self._metrics["last_error"] = "runtime: %s" % str(e)[:300]
             return {
                 "content": [{"type": "text", "text": "运行异常: %s" % str(e)}],
                 "isError": True,
             }
+
+    # -----------------------------------------------------------------------
+    # 工具实现：mimo.metrics（可观测性）
+    # -----------------------------------------------------------------------
+
+    def _metrics_tool(self, _args: Dict) -> Dict:
+        """返回进程级可观测性指标（详见 mimo.metrics 工具说明）。"""
+        m = self._metrics
+        calls = m["calls"]
+        avg_ms = (m["total_ms"] / calls) if calls else 0.0
+        uptime_s = time.time() - m["start_time"]
+        stats = {
+            "version": self.VERSION,
+            "mimo_exe": self.mimo_exe,
+            "code_timeout_s": self.code_timeout,
+            "uptime_s": round(uptime_s, 1),
+            "calls": calls,
+            "success": m["success"],
+            "failed": m["failed"],
+            "timeouts": m["timeouts"],
+            "errors": m["errors"],
+            "success_rate": round(m["success"] / calls, 4) if calls else None,
+            "total_ms": round(m["total_ms"], 1),
+            "avg_ms": round(avg_ms, 1),
+            "max_ms": round(m["max_ms"], 1),
+            "last_error": m["last_error"],
+        }
+        text = json.dumps(stats, ensure_ascii=False, indent=2)
+        return {"content": [{"type": "text", "text": text}]}
 
     # -----------------------------------------------------------------------
     # 工具实现：mimo.chat
@@ -990,17 +1115,57 @@ class MimoMCPServer:
 
     def run(self):
         """
-        MCP 主循环：从 stdin 读取 JSON-RPC 请求，处理后写入 stdout。
-        使用 json.JSONDecoder.raw_decode 识别完整 JSON 对象，兼容跨行报文。
+        MCP 主循环（异步模式）：读线程负责从 stdin 取行，工具调用在后台线程执行，
+        主循环周期性醒来处理 inbound 请求与已完成的工具结果。
+        关键点：tools/call 长任务（mimo run 可能耗时数十秒）在后台线程执行，
+        主循环不被阻塞，连接器的 ping 健康检查可即时响应，避免连接超时重连。
         """
-        logger.info("mimo-mcp v%s main loop started" % self.VERSION)
+        logger.info("mimo-mcp v%s main loop started (async mode)" % self.VERSION)
 
         decoder = json.JSONDecoder()
+        inbound: "queue.Queue" = queue.Queue()
+        results: "queue.Queue" = queue.Queue()
+
+        def _reader():
+            try:
+                for line in sys.stdin:
+                    inbound.put(line)
+            except Exception:
+                pass
+            finally:
+                inbound.put(None)  # EOF 哨兵
+
+        def _exec(req_id, params):
+            """后台线程执行工具调用，结果回传 results 队列（不直接写 stdout）"""
+            try:
+                out = self.handle_tools_call(params)
+                results.put((req_id, {"jsonrpc": "2.0", "id": req_id, "result": out}))
+            except Exception as e:
+                logger.error("工具执行异常: %s" % e, exc_info=True)
+                results.put((req_id, {"jsonrpc": "2.0", "id": req_id, "result": {
+                    "content": [{"type": "text", "text": "工具执行异常: %s" % e}],
+                    "isError": True,
+                }}))
+
+        threading.Thread(target=_reader, daemon=True).start()
+
         buffer = ""
+        while True:
+            # 1) 先 flush 已完成的工具结果（非阻塞）
+            while not results.empty():
+                rid, resp = results.get_nowait()
+                print(json.dumps(resp, ensure_ascii=False), flush=True)
 
-        for raw_line in sys.stdin:
-            buffer += raw_line
+            # 2) 取 inbound 请求（带超时，确保周期性响应 ping / flush 结果）
+            try:
+                item = inbound.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if item is None:
+                logger.info("stdin EOF，退出主循环")
+                break
 
+            buffer += item
             idx = 0
             buf_len = len(buffer)
 
@@ -1008,7 +1173,6 @@ class MimoMCPServer:
                 # 跳过空白
                 while idx < buf_len and buffer[idx] in " \t\n\r":
                     idx += 1
-
                 if idx >= buf_len:
                     break
 
@@ -1024,7 +1188,6 @@ class MimoMCPServer:
                 req_id = req.get("id")
                 params = req.get("params", {})
 
-                # 通知类消息不需要响应
                 if method == "notifications/initialized":
                     logger.info("客户端握手完成")
                     continue
@@ -1032,6 +1195,7 @@ class MimoMCPServer:
                 logger.debug("收到请求: method=%s id=%s" % (method, req_id))
 
                 resp: Dict[str, Any] = {"jsonrpc": "2.0", "id": req_id}
+                skip_print = False
 
                 try:
                     if method == "initialize":
@@ -1039,17 +1203,19 @@ class MimoMCPServer:
                     elif method == "tools/list":
                         resp["result"] = self.handle_tools_list(params)
                     elif method == "tools/call":
-                        resp["result"] = self.handle_tools_call(params)
+                        # 长任务在后台线程执行，主循环不阻塞 → ping 可响应
+                        threading.Thread(target=_exec, args=(req_id, params), daemon=True).start()
+                        skip_print = True
+                    elif method == "ping":
+                        resp["result"] = {}
                     else:
-                        resp["error"] = {
-                            "code": -32601,
-                            "message": "未知方法: %s" % method,
-                        }
+                        resp["error"] = {"code": -32601, "message": "未知方法: %s" % method}
                 except Exception as e:
                     logger.error("处理请求异常: method=%s error=%s" % (method, e), exc_info=True)
                     resp["error"] = {"code": -32000, "message": str(e)}
 
-                print(json.dumps(resp, ensure_ascii=False), flush=True)
+                if not skip_print:
+                    print(json.dumps(resp, ensure_ascii=False), flush=True)
 
             # 截断已解析内容，保留未完整片段
             buffer = buffer[idx:]
