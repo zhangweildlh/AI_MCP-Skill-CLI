@@ -9,6 +9,29 @@
 
 ---
 
+## [2026-07-31]
+
+### Added
+- **github-personal-manager**：新增「提交前文档同步门禁」——`scripts/sop_docs_sync_check.sh`（按 Tier 1/2/3 分层检查清单，dry-run 只读、阻断类未同步时退出码 2）+ `references/docs-sync-checklist.md`（分层定义与免触发边界）；新增 `scripts/sop_resolve_repo.sh`，从 `git remote -v` 确定性提取「仓库三元组」`GH_USER`/`REPO_NAME`/`UPSTREAM`，供全任务复用。
+- **仓库新增技能**：`code-review-combo/`（review-spd + open-code-review-delegate 双子技能交叉验证，产出唯一合并审计报告）；`workbuddy-workspace-migration/`（工作区迁移技能）；根级新增 `Skill-memory-consolidate.md`、`Skill-workflow-distill.md`、`Skill-代码审查.md` 三个技能文件。
+- **github-personal-manager 冒烟测试**：新增 `smoke/tests/test_contracts.sh` 契约测试。
+
+### Changed
+- **github-personal-manager**：SKILL.md 重写——阶段 0 改用 `where.exe` 探测 git/gh 真实路径（路径不硬编码）；新增「二次显式授权铁律」第 6 条；新增「仓库目录解析与三元组提取」节；环境硬约束放宽（默认远程 CI，允许本机已装且在 PATH 的工具本地编译）；`scripts/lib/sop-common.sh` 新增 `_sop_resolve_remotes` 中央解析、被 `sop_sync_upstream.sh` 复用；配置模板 `github-sop.config.template.sh` 同步更新。
+- **tender-review-kit**：SKILL.md / SKILL-zw.md / FOR_AI / INSTALL / QUICKSTART / README 及多个 scripts（build_excel / check_* / cross_doc / export_contribution / extract_text / harvest_ai_words / promote_candidates / scan_* / run_pipeline）与 tests（generate_fixture / test_qa_full / test_smoke）全面更新。
+- **Memory-Data/GitHub_Deepseek++.md**：知识库内容大幅扩充（约 225 行）。
+- **mimo_mcp.py**：小幅调整（默认超时与形态说明等配套修订）。
+- **README.md / @文件读写通用模块.md / @Skill 调用子 Skill 和外部工具的范式.md / web-search/scripts/anysearch_cli.py**：配套微调。
+
+### Removed
+- **github-personal-manager/docs**：删除 `gitextensions-integration.md`、`scripts-catalog.md`、`sop-plan.md` 三份旧文档（能力已并入 SKILL.md 或转为脚本自文档化）。
+- **test_mimo_mcp_smoke.py**：离线冒烟测试文件退役（相关能力由新增冒烟测试体系承接）。
+
+### Docs
+- CHANGELOG 新增本条，记录本次仓库全量更新（含文档同步门禁能力落地）。
+
+---
+
 ## [2026-07-24]
 
 ### Removed

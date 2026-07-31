@@ -177,3 +177,123 @@ register_test "L2-契约: 开 PR 守卫" test_contract_pr_create
 register_test "L2-契约: 重跑 CI 需确认" test_contract_ci_rerun
 register_test "L2-契约: 重跑 CI 真实调用路径" test_contract_ci_rerun_realpath
 register_test "L2-契约: CI 只读查询(需真实仓库)" test_contract_pr_checks_ci
+
+# ---- 新增：sop_resolve_repo / sop_docs_sync_check 契约（含 BUG-GPM-1/2 子目录守卫回归） ----
+
+# 传入真实 git 根 → 正常解析三元组（rc=0），不误判父仓库
+test_contract_resolve_repo_valid_root() {
+  local pair; pair="$(setup_origin_and_local)"
+  local local="${pair#*|}"
+  local out rc
+  out="$("$ROOT_DIR/scripts/sop_resolve_repo.sh" "$local" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then fail "传入 git 根应成功 rc=$rc: $out"; return 1; fi
+  if assert_contains "REPO_NAME=" "$out"; then
+    pass "resolve_repo 传入 git 根: 正常解析三元组(rc=0)"; return 0
+  fi
+  fail "resolve_repo 输出异常: $out"; return 1
+}
+
+# 传入子目录（非 git 根）→ 必须报错，不得静默误解析为父仓库（BUG-GPM-1 回归）
+test_contract_resolve_repo_subdir_rejected() {
+  local pair; pair="$(setup_origin_and_local)"
+  local local="${pair#*|}"
+  mkdir -p "$local/sub"
+  local out rc
+  out="$("$ROOT_DIR/scripts/sop_resolve_repo.sh" "$local/sub" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then fail "传入子目录不应成功(应为非0): $out"; return 1; fi
+  if assert_contains "git 仓库根" "$out"; then
+    pass "resolve_repo 传入子目录: 显式报错『非 git 仓库根』，不再静默误解析父仓库(BUG-GPM-1 回归)"; return 0
+  fi
+  fail "传入子目录未报『git 仓库根』错误: $out"; return 1
+}
+
+# 传入子目录（非 git 根）→ 必须报错，不得静默扫描整个父仓库（BUG-GPM-2 回归）
+test_contract_docs_sync_subdir_rejected() {
+  local pair; pair="$(setup_origin_and_local)"
+  local local="${pair#*|}"
+  mkdir -p "$local/sub"
+  local out rc
+  out="$("$ROOT_DIR/scripts/sop_docs_sync_check.sh" "$local/sub" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then fail "传入子目录不应成功(应为非0): $out"; return 1; fi
+  if assert_contains "git 仓库根" "$out"; then
+    pass "docs_sync_check 传入子目录: 显式报错『非 git 仓库根』，不再静默扫描父仓库(BUG-GPM-2 回归)"; return 0
+  fi
+  fail "传入子目录未报『git 仓库根』错误: $out"; return 1
+}
+
+# 传入真实 git 根 → 正常执行文档同步检查，不得报非仓库错误
+test_contract_docs_sync_valid_root() {
+  local pair; pair="$(setup_origin_and_local)"
+  local local="${pair#*|}"
+  local out rc
+  out="$("$ROOT_DIR/scripts/sop_docs_sync_check.sh" "$local" 2>&1)"; rc=$?
+  if printf '%s' "$out" | grep -qF "git 仓库根"; then
+    fail "传入 git 根不该报非仓库错误: $out"; return 1
+  fi
+  pass "docs_sync_check 传入 git 根: 正常执行未报非仓库错误(rc=$rc)"; return 0
+}
+
+# _sop_parse_owner_repo 对尾部斜杠/无尾斜杠/ssh 形式均给出干净 owner/repo（P-GPM-2 回归）
+test_contract_parse_owner_repo_trailing_slash() {
+  ( # shellcheck disable=SC1091
+    source "$ROOT_DIR/scripts/lib/sop-common.sh"
+    local r1; r1="$(_sop_parse_owner_repo "https://github.com/owner/repo/")"
+    local r2; r2="$(_sop_parse_owner_repo "https://github.com/owner/repo")"
+    local r3; r3="$(_sop_parse_owner_repo "git@github.com:owner/repo.git")"
+    if [ "$r1" = "owner/repo" ] && [ "$r2" = "owner/repo" ] && [ "$r3" = "owner/repo" ]; then
+      pass "parse_owner_repo: 尾斜杠/无尾斜杠/ssh 均解析为 owner/repo(P-GPM-2 回归)"; return 0
+    fi
+    fail "解析异常 r1=[$r1] r2=[$r2] r3=[$r3]"; return 1
+  )
+}
+
+# help 文本从标记块提取，运行 -h 应能正常打印用法（P-GPM-1 回归：不再依赖硬编码行号 2-9）
+test_contract_docs_sync_help() {
+  local out rc
+  out="$("$ROOT_DIR/scripts/sop_docs_sync_check.sh" -h 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then fail "运行 -h 应成功 rc=$rc: $out"; return 1; fi
+  if assert_contains "用法" "$out" && assert_contains "sop_docs_sync_check.sh" "$out"; then
+    pass "docs_sync_check -h: 从标记块提取 help 并正常打印用法(P-GPM-1 回归)"; return 0
+  fi
+  fail "help 输出异常: $out"; return 1
+}
+
+# 相对路径传入子目录（非 git 根）→ 仍正确报错，路径归一化不得误判（BUG-GPM-4 回归）
+test_contract_resolve_repo_relative_subdir() {
+  local pair; pair="$(setup_origin_and_local)"
+  local local="${pair#*|}"
+  mkdir -p "$local/sub"
+  local parent; parent="$(cd "$local/.." && pwd)"
+  local out rc
+  # 在 parent 目录下以相对路径 "local/sub" 指向子目录调用（cwd 基准场景）
+  out="$(cd "$parent" && "$ROOT_DIR/scripts/sop_resolve_repo.sh" "local/sub" 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then fail "相对路径传入子目录不应成功(应为非0): $out"; return 1; fi
+  if assert_contains "git 仓库根" "$out"; then
+    pass "resolve_repo 相对路径子目录: 稳定报错(路径归一化正确, BUG-GPM-4 回归)"; return 0
+  fi
+  fail "相对路径子目录未报『git 仓库根』错误: $out"; return 1
+}
+
+# 相对路径传入真正 git 根 → 不得误判为「非 git 仓库根」（BUG-GPM-4 false positive 回归）
+test_contract_resolve_repo_relative_root() {
+  local pair; pair="$(setup_origin_and_local)"
+  local local="${pair#*|}"
+  local parent; parent="$(cd "$local/.." && pwd)"
+  local out rc
+  # 在 parent 目录下以相对路径 "local" 指向真正的 git 仓库根调用
+  out="$(cd "$parent" && "$ROOT_DIR/scripts/sop_resolve_repo.sh" "local" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then fail "相对路径传入真正 git 根应成功 rc=$rc: $out"; return 1; fi
+  if assert_contains "REPO_NAME=" "$out"; then
+    pass "resolve_repo 相对路径指向 git 根: 正常解析(未被误判为非根, BUG-GPM-4 回归)"; return 0
+  fi
+  fail "相对路径 git 根输出异常: $out"; return 1
+}
+
+register_test "L2-契约: 仓库解析-传入git根正常" test_contract_resolve_repo_valid_root
+register_test "L2-契约: 仓库解析-传入子目录报错(BUG-GPM-1回归)" test_contract_resolve_repo_subdir_rejected
+register_test "L2-契约: 文档同步-传入子目录报错(BUG-GPM-2回归)" test_contract_docs_sync_subdir_rejected
+register_test "L2-契约: 文档同步-传入git根正常" test_contract_docs_sync_valid_root
+register_test "L2-契约: owner/repo解析-尾斜杠(P-GPM-2回归)" test_contract_parse_owner_repo_trailing_slash
+register_test "L2-契约: 文档同步help标记块(P-GPM-1回归)" test_contract_docs_sync_help
+register_test "L2-契约: 仓库解析-相对路径子目录报错(BUG-GPM-4回归)" test_contract_resolve_repo_relative_subdir
+register_test "L2-契约: 仓库解析-相对路径git根正常(BUG-GPM-4回归)" test_contract_resolve_repo_relative_root

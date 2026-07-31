@@ -285,7 +285,7 @@ def _render_doc():
         _c = _json.load(_f)
     _tpl = _tpl.replace("{{LANG_NAME}}", "Python")
     _tpl = _tpl.replace("{{LANG_CODEBLOCK}}", "")
-    _tpl = _tpl.replace("{{LANG_INVOKE}}", "python scripts/anysearch_cli.py")
+    _tpl = _tpl.replace("{{LANG_INVOKE}}", "uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py")
     _tpl = _tpl.replace("{{DOMAINS_SPACE}}", " ".join(_c["available_domains"]))
     return _tpl
 # END GENERATED:DOC_SPEC

@@ -10,7 +10,7 @@ skill 第一步:确认运行环境就绪。
 即使项目依赖都没装,这个脚本也能跑起来告诉用户该装啥。
 
 用法:
-    python scripts/check_env.py
+    uv run --project D:/Tools/Assembly/python/myenv python scripts/check_env.py
 """
 import sys
 import shutil
@@ -105,7 +105,7 @@ def main():
         print("=" * 60)
         print("✓ 环境完全就绪,可以开始审标书。")
         print()
-        print("下一步:python scripts/extract_text.py <你的招标文件.pdf 或 .docx> --outdir workspace")
+        print("下一步:uv run --project D:/Tools/Assembly/python/myenv python scripts/extract_text.py <你的招标文件.pdf 或 .docx> --outdir workspace")
         return
 
     print("=" * 60)
@@ -139,9 +139,9 @@ def main():
     print()
     if pip_pkgs:
         print("  ► Python 包(一条命令搞定):")
-        print(f"      pip install {' '.join(pip_pkgs)}")
+        print(f"      uv pip install --python D:/Tools/Assembly/python/myenv/.venv/Scripts/python.exe {' '.join(pip_pkgs)}")
         print(f"    或安装全部依赖:")
-        print(f"      pip install -r requirements.txt")
+        print(f"      uv pip install --python D:/Tools/Assembly/python/myenv/.venv/Scripts/python.exe -r requirements.txt")
         print()
     if not pdftotext_ok:
         print("  ► pdftotext(可选,各平台不同):")
@@ -157,7 +157,7 @@ def main():
 
     print("=" * 60)
     print("▎你的选择:")
-    print("  装 → 按上面命令装,装完再跑:python scripts/check_env.py")
+    print("  装 → 按上面命令装,装完再跑:uv run --project D:/Tools/Assembly/python/myenv python scripts/check_env.py")
     print("  不装 → skill 仍可用,但有上述限制(注意必须装的项不装会报错)")
     sys.exit(0 if not missing_required else 2)
 
