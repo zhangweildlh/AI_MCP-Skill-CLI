@@ -5,7 +5,7 @@
 **完全自包含**——只依赖 tests/fixtures/sample_tender.docx(合成样本),所有临时件写进
 系统临时目录,跑完自清。不碰任何真实标书、不依赖 workspace 状态。
 
-直接跑:  python tests/test_qa_full.py     (exit 0 = 全过,1 = 有失败)
+直接跑:  uv run --project D:/Tools/Assembly/python/myenv python tests/test_qa_full.py     (exit 0 = 全过,1 = 有失败)
 """
 import sys, json, subprocess, tempfile, shutil
 from pathlib import Path

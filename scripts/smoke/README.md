@@ -25,19 +25,19 @@
 
 ```bash
 # 仅列出发现的 Skill
-python scripts/smoke/run_all.py --list
+uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --list
 
 # 运行全部分层
-python scripts/smoke/run_all.py
+uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py
 
 # 仅 Tier0 + Tier1（日常改完、预提交钩子场景）
-python scripts/smoke/run_all.py --tier 0,1
+uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 0,1
 
 # CI 场景（不含行为级 Tier4），并产出 JSON 报告
-python scripts/smoke/run_all.py --tier 0,1,2,3 --json smoke-report.json
+uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 0,1,2,3 --json smoke-report.json
 
 # 严格模式：警告也视为失败
-python scripts/smoke/run_all.py --strict
+uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --strict
 ```
 
 ## 预提交钩子（自动门禁）
@@ -55,7 +55,7 @@ Python 不可用时钩子降级为警告并放行，避免锁死提交。
 默认关闭。需真实联网校验 AnySearch 端点时：
 
 ```bash
-SMOKE_PROBE_API=1 python scripts/smoke/run_all.py --tier 3
+SMOKE_PROBE_API=1 uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 3
 ```
 
 CI 中通过设置仓库变量 `SMOKE_PROBE_API=1` 开启。

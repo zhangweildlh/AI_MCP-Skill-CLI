@@ -152,35 +152,35 @@ Cursor / 通义灵码 / Trae / CodeBuddy 等客户端的 skill 目录机制不�
 
 ```bash
 # 0. 环境自检 ⭐ 首次必跑(自动告诉你缺什么 + 怎么装)
-python scripts/check_env.py
+uv run --project D:/Tools/Assembly/python/myenv python scripts/check_env.py
 # → 全 ✓ 就直接跳到 1;有 ✗ 会显示对应平台的安装命令,装好再跑一次确认
 
 # 1. 装依赖(若 check_env 提示缺,跑这一行即可)
-pip install -r requirements.txt
+uv pip install --python D:/Tools/Assembly/python/myenv/.venv/Scripts/python.exe -r requirements.txt
 # (PDF 提取建议装 pdftotext: Windows xpdf-tools / mac brew install poppler / ubuntu apt install poppler-utils。不装也能跑,自动回退 pypdf)
 
 # 2. 程序自动跑(取数 + 撒网 + 补词,几秒)
-python run_pipeline.py prep <招标文件.docx 或 .pdf>
+uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py prep <招标文件.docx 或 .pdf>
 
 # 3. 把 prep 结尾打印的那段提示发给你的 AI agent(Claude / Codex / Workbuddy 等)
 #    → agent 按 SKILL.md 步骤产出 workspace/<项目>.工作区.md
 #    → 含 AI 新发现的疑似判词(标 [AI发现])
 
 # 4. 程序自动跑(护栏 + 出 Excel,几秒)
-python run_pipeline.py verify workspace/<项目>.工作区.md
+uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py verify workspace/<项目>.工作区.md
 
 # 5. 如果 AI 发现了新判词,先看待审清单再拍板
-python scripts/harvest_ai_words.py workspace/<项目>.工作区.md --accept "词A,词B"
+uv run --project D:/Tools/Assembly/python/myenv python scripts/harvest_ai_words.py workspace/<项目>.工作区.md --accept "词A,词B"
 #    (选着收 --accept "词A,词B" / 全收 --accept-all / 全弃 --reject-all)
 #    (接受的进 data/local_keywords.json 用户本地积累,下次扫别的标书自动用上)
 
 # 6. (可选) 把普遍适用的新词加进开源词库,以后别人贡献的你也能拉到
-python scripts/export_contribution.py --github
+uv run --project D:/Tools/Assembly/python/myenv python scripts/export_contribution.py --github
 ```
 
 **自带 sample 试跑**(不需要真标书):
 ```bash
-python run_pipeline.py prep tests/fixtures/sample_tender.docx
+uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py prep tests/fixtures/sample_tender.docx
 ```
 
 ## 项目结构
@@ -231,11 +231,11 @@ tender-review-kit/
 **最有价值的贡献 = 扩判词库**:
 ```bash
 # 1. 审完标书后,审批 AI 发现的词(选着收 --accept "词" / 全收 --accept-all / 全弃 --reject-all)
-python scripts/harvest_ai_words.py workspace/<项目>.工作区.md --accept "词A,词B"
+uv run --project D:/Tools/Assembly/python/myenv python scripts/harvest_ai_words.py workspace/<项目>.工作区.md --accept "词A,词B"
 
 # 2. 把本地词库里普遍适用的词加进开源(自动脱敏,不含标书原文)
-python scripts/export_contribution.py            # 导出预览
-python scripts/export_contribution.py --github   # 一键提 Issue(需装 gh CLI 并登录)
+uv run --project D:/Tools/Assembly/python/myenv python scripts/export_contribution.py            # 导出预览
+uv run --project D:/Tools/Assembly/python/myenv python scripts/export_contribution.py --github   # 一键提 Issue(需装 gh CLI 并登录)
 ```
 工具会同时收集两条通道(程序补词 candidates.json + AI 发现 local_keywords.json),去掉原文片段,去重现有开源词库,生成干净的贡献表。`--github` 只是提交一个待审核 Issue,维护者确认后才会合并进 `data/keywords.json`。
 
