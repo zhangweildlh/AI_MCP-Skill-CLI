@@ -12,7 +12,7 @@
 纯标准库（json/re），零依赖。不设阈值——全部未覆盖列出，由人/主对话定夺。
 
 用法:
-    python check_coverage.py <hits.json> <工作区.md> [--tolerance 0] [--strict] [--out coverage.json]
+    uv run --project D:/Tools/Assembly/python/myenv python check_coverage.py <hits.json> <工作区.md> [--tolerance 0] [--strict] [--out coverage.json]
 """
 import sys
 import re

@@ -143,7 +143,7 @@ allowed-tools: Bash(git:*) Bash(jq:*) Read
 |------|----------|------|
 | uvx | `uvx ruff@0.8.0 check .` | Python 包，隔离环境 |
 | pipx | `pipx run 'black==24.10.0' .` | 成熟替代方案 |
-| npx | `npx eslint@9 --fix .` | npm 包，随 Node.js |
+| npx | `npm install -g eslint@9; eslint --fix .` | npm 包，随 Node.js |
 | bunx | `bunx eslint@9 --fix .` | Bun 环境 |
 | deno run | `deno run npm:eslint@9 .` | Deno 环境 |
 | go run | `go run golang.org/x/tools/cmd/goimports@v0.28.0 .` | Go 包 |
@@ -200,10 +200,10 @@ end
 
 ```bash
 # 直接执行
-python3 scripts/process.py --input data.json
+uv run --project D:/Tools/Assembly/python/myenv python scripts/process.py --input data.json
 
 # 管道组合（仅限 ; 和 |）
-cd scripts; python3 validate.py; python3 process.py
+cd scripts; uv run --project D:/Tools/Assembly/python/myenv python validate.py; uv run --project D:/Tools/Assembly/python/myenv python process.py
 ```
 
 ### 3. 卸载机制

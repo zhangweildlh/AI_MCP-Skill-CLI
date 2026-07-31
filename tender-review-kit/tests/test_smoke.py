@@ -7,7 +7,7 @@
 
 不依赖任何真实标书。Fixture 由 generate_fixture.py 生成,内容完全公开可控。
 
-直接 `python tests/test_smoke.py` 跑,无 pytest 依赖。
+直接 `uv run --project D:/Tools/Assembly/python/myenv python tests/test_smoke.py` 跑,无 pytest 依赖。
 """
 import sys
 import json
@@ -64,7 +64,7 @@ def main():
 
     if not FIXTURE.exists():
         print(red("✗ fixture 不存在: " + str(FIXTURE)))
-        print("  请先跑: python tests/generate_fixture.py")
+        print("  请先跑: uv run --project D:/Tools/Assembly/python/myenv python tests/generate_fixture.py")
         sys.exit(1)
 
     # 跑取数 + 撒网(每次跑测试都重新生成,验证全链路)

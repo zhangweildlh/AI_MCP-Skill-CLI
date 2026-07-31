@@ -25,6 +25,9 @@ for a in "$@"; do
   esac
 done
 _sop_require_repo "${REPO:-}" || exit 1
+# 运行时解析远端三元组（origin/upstream 的 owner/repo），补全 GH_USER 与 UPSTREAM_REPO，
+# 使 M>0 的 PR 核查不再依赖 config 是否手填 UPSTREAM_REPO，而是直接用仓库实际 upstream 远端。
+_sop_resolve_remotes
 
 # 守卫1: 工作区脏 → 硬停止
 if ! _sop_is_clean; then
@@ -66,7 +69,8 @@ if [ "$M" -gt 0 ]; then
       exit 0
     fi
   else
-    echo "⚠️ 未配置 UPSTREAM_REPO/GH_USER，跳过 PR 核查。按记忆 M>0 需人工判断，暂停等指令。"
+    echo "⚠️ 未检测到 upstream 远端（或 UPSTREAM_REPO 为空），跳过 PR 核查。按记忆 M>0 需人工判断，暂停等指令。"
+    echo "   提示：本脚本已尝试从 git remote -v 解析 upstream；若确无 upstream 远端，请按记忆补充上游地址。"
     exit 0
   fi
 fi

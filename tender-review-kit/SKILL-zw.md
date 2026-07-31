@@ -12,7 +12,7 @@ description: 招标文件审标 / tender document review for bidders。审的是
 - **Python 项目和虚拟环境是通过 UV 创建和管理的**。Python 项目名称 `myenv` ，项目路径为： D:\Tools\Assembly\python\myenv 。Python 项目 `myenv` 的虚拟环境名称 `.venv` ，虚拟环境路径为： D:\Tools\Assembly\python\myenv\.venv 。
 - 每一次执行 UV 命令和使用 Python 前，**必须**先设定 $env:VIRTUAL_ENV = "D:\Tools\Assembly\python\myenv\.venv" 。
 - **必须严格按照 UV 的方式安装依赖包和软件**。**优先**使用命令： uv add --project D:\Tools\Assembly\python\myenv <依赖包路径 + 依赖包包名> 。**当 `uv add --project` 命令安装失败后**，**才能使用**命令 uv add --directory D:\Tools\Assembly\python\myenv <依赖包路径 + 依赖包包名> 。**仅仅只有** `uv add` 命令全部失败后，**才能使用**命令：  uv pip install <依赖包路径 + 依赖包包名> --python D:\Tools\Assembly\python\myenv\.venv\Scripts\python.exe 安装依赖包和软件。
-  - **严禁使用纯 `pip install` 命令安装**。
+  - **严禁使用纯 `pip install` 命令安装（一律改用 `uv add` / `uv pip install`）**。
 - 运行 Python 程序，比如 *.py ，**必须**使用命令： uv run --project D:\Tools\Assembly\python\myenv python <py程序路径 + *.py> 。
   - **严禁使用纯 `python <py程序路径 + *.py>` 命令运行程序**。
   - 当用户输入或者运行文档(运行脚本)中使用了 `python <py程序路径 + *.py>` 命令，**必须**等效果替换为 uv run --project D:\Tools\Assembly\python\myenv python <py程序路径 + *.py> 。
@@ -149,7 +149,7 @@ officecli get <file> <path> --depth N           # Get a node and its children [-
 ## 端到端流程(招标文件 → Excel)
 
 ### -1. 环境自检(首次必跑) ⭐ [程序]
-`python scripts/check_env.py`
+`uv run --project D:/Tools/Assembly/python/myenv python scripts/check_env.py`
 
 → 自动检查 Python 版本 / python-docx / pypdf / openpyxl / pdftotext,**缺什么直接告诉用户怎么装**(Windows / macOS / Linux 各给一条命令)。
 
@@ -162,7 +162,7 @@ officecli get <file> <path> --depth N           # Get a node and its children [-
 > Claude / agent 接到用户首次请求时,**先跑这一步**,不要直接跳进 §0。如果是熟悉用户(已确认环境就绪),可跳过。
 
 ### 0. 取数　[程序]
-`python scripts/extract_text.py <招标文件> --outdir workspace`
+`uv run --project D:/Tools/Assembly/python/myenv python scripts/extract_text.py <招标文件> --outdir workspace`
 → `<项目>.lines.txt`(带行号,一切定位的锚点) + `.tables.json`。支持 .docx/.pdf;.doc 先另存为 docx/pdf。
 
 ### 1. 摸底 + 对照审标清单　[Claude 判断]
@@ -176,11 +176,11 @@ Grep 章节标题,定位 4 必扫产物的**行号范围**:投标人须知 / 评
 **两次扫描角色不同,务必区分。建议同时跑,几秒钟。**
 
 **① 撒网(必做,为当前这份标书):**
-`python scripts/scan_keywords.py workspace/<项目>.lines.txt`
+`uv run --project D:/Tools/Assembly/python/myenv python scripts/scan_keywords.py workspace/<项目>.lines.txt`
 → `.hits.json`:用现有判词库(5 类、100+ 词)逐行扫,5 类命中(判决词 / 二级 / 关系门槛 / 证明文件 / ▲★,▲★ 自适应识别、少量也不丢;表格摊平成一行时按多个标识拆分)。**宽撒网、含噪音**,去噪留给 subagent。**不跑这步,后面 subagent 没线索池可用,流程断。**
 
 **② 补词(顺手跑,为未来攒词库):**
-`python scripts/scan_candidates.py workspace/<项目>.lines.txt --hits workspace/<项目>.hits.json`
+`uv run --project D:/Tools/Assembly/python/myenv python scripts/scan_candidates.py workspace/<项目>.lines.txt --hits workspace/<项目>.hits.json`
 → `workspace/<项目>.candidates.json`:扫"像判决词、未入库"的新短语(用 8 个句式模式 + 已知判决词邻近度加分),进候选区,**强制 `pending_review`、绝不自动入库**。候选文件含**原文片段**,随项目留在 workspace(不进仓库);入库时 `promote_candidates.py` 只把词+scope 写进 keywords.json,不带原文。
 
 **关键认知**(开源贡献者必看):
@@ -222,7 +222,7 @@ Grep 章节标题,定位 4 必扫产物的**行号范围**:投标人须知 / 评
 > 建议分类格式:`类别/scope`(类别=primary/secondary/customization/certifications;scope=bid_phase/evaluation_phase/contract_phase)。
 
 ### 5.5. 列出待审新词 + 当前标书临时回扫　[程序,自动跑]
-`python scripts/harvest_ai_words.py <工作区.md>` (verify 阶段自动调用)
+`uv run --project D:/Tools/Assembly/python/myenv python scripts/harvest_ai_words.py <工作区.md>` (verify 阶段自动调用)
 解析 `## AI发现疑似判词` 表格 → 写 `workspace/<项目>.pending_words.json`(**待审清单,尚未入库**)→ 用这些词建立**临时词库**回扫当前 `lines.txt` → 打印新增命中。
 
 > ⭐ **当前补漏 ≠ 入库沉淀**:AI 已经发现的疑似判词,必须先用于当前标书补漏;这一步不写 `data/local_keywords.json`,不需要用户同意。用户后面接受/拒绝,只决定这些词以后扫别的标书是否自动命中。
@@ -244,9 +244,9 @@ AI 用自然对话告知用户:
 > - 全部拒绝 → 跑 `--reject-all`
 
 用户答复后,AI 调用:
-- 部分:`python scripts/harvest_ai_words.py <工作区.md> --accept "词A,词B"`
-- 全接受:`python scripts/harvest_ai_words.py <工作区.md> --accept-all`
-- 全拒绝:`python scripts/harvest_ai_words.py <工作区.md> --reject-all`
+- 部分:`uv run --project D:/Tools/Assembly/python/myenv python scripts/harvest_ai_words.py <工作区.md> --accept "词A,词B"`
+- 全接受:`uv run --project D:/Tools/Assembly/python/myenv python scripts/harvest_ai_words.py <工作区.md> --accept-all`
+- 全拒绝:`uv run --project D:/Tools/Assembly/python/myenv python scripts/harvest_ai_words.py <工作区.md> --reject-all`
 
 接受的词进 `data/local_keywords.json`(gitignored)。拒绝入库只表示这些词以后不自动用于新标书,**不代表当前标书可以忽略**;当前标书仍按 5.5 的临时回扫结果逐条判断补漏。
 
@@ -261,13 +261,13 @@ AI 看新增命中,逐条判断:
 
 ### 6. 两层护栏　[防漏命根子]
 **第一层 · 程序(防"漏抄")**:
-- `python scripts/check_coverage.py <hits.json> <工作区.md> [--strict]` —— 撒网命中是否被废标清单覆盖,未覆盖按严重度列出,**逐条核**(未覆盖 ≠ 漏,不卡覆盖率阈值)。容差默认 **±0 精确匹配**(放宽会把相邻不同条款误判已覆盖);`--strict` 在有 high 级未覆盖时非零退出,供自动流程 gate。
-- `python scripts/check_completeness.py <工作区.md> --hits <hits.json> [--strict]` —— 条数通用基线 / 评分梯度含"分"字 / ▲ ≥ 撒网 ×80%;`--strict` 有 warning 时非零退出。
+- `uv run --project D:/Tools/Assembly/python/myenv python scripts/check_coverage.py <hits.json> <工作区.md> [--strict]` —— 撒网命中是否被废标清单覆盖,未覆盖按严重度列出,**逐条核**(未覆盖 ≠ 漏,不卡覆盖率阈值)。容差默认 **±0 精确匹配**(放宽会把相邻不同条款误判已覆盖);`--strict` 在有 high 级未覆盖时非零退出,供自动流程 gate。
+- `uv run --project D:/Tools/Assembly/python/myenv python scripts/check_completeness.py <工作区.md> --hits <hits.json> [--strict]` —— 条数通用基线 / 评分梯度含"分"字 / ▲ ≥ 撒网 ×80%;`--strict` 有 warning 时非零退出。
 
 **第二层 · Claude(防"判断死角")** —— 见下「质量旋钮」。
 
 ### 7. 出报告　[程序]
-`python scripts/build_excel.py <out.xlsx> <各专项 md...>` → 多 sheet Excel(废标红 / 评分绿 / ▲橙 / 证明紫 / 时间蓝,冻结首行、可筛选)。另存一份 Markdown 总览。
+`uv run --project D:/Tools/Assembly/python/myenv python scripts/build_excel.py <out.xlsx> <各专项 md...>` → 多 sheet Excel(废标红 / 评分绿 / ▲橙 / 证明紫 / 时间蓝,冻结首行、可筛选)。另存一份 Markdown 总览。
 
 ### 8. 收尾：开源词库的互惠机制（固定说明 + 可选贡献）　[Claude 询问]
 出完 Excel 后,**必须用 2-3 句话复述词库机制**:本地词库只在用户机器上;开源词库靠大家脱敏贡献;定期 `git pull` 可以拿到别人贡献的新词。然后检查 `data/local_keywords.json` 是否存在且非空（本次或历次审标接受入库的词）。如果有,**用自然对话询问用户是否愿意贡献普遍适用的词**:
@@ -285,7 +285,7 @@ AI 看新增命中,逐条判断:
 >
 > 完全自愿。要把这些词加进开源吗?
 
-- 用户说好 → 跑 `python scripts/export_contribution.py --github`(自动从 `data/local_keywords.json` 读取并创建 GitHub Issue,供维护者审核后再合并)。如果没装 gh CLI,改用 `export_contribution.py`(无 --github)导出文件,告诉用户粘贴到 https://github.com/matongAI-lab/tender-review-kit/issues/new
+- 用户说好 → 跑 `uv run --project D:/Tools/Assembly/python/myenv python scripts/export_contribution.py --github`(自动从 `data/local_keywords.json` 读取并创建 GitHub Issue,供维护者审核后再合并)。如果没装 gh CLI,改用 `export_contribution.py`(无 --github)导出文件,告诉用户粘贴到 https://github.com/matongAI-lab/tender-review-kit/issues/new
 - 用户说不 → 正常结束,不再提。**也顺便告诉用户:即使不贡献,follow 仓库 + 定期 `git pull` 就能持续拿到别人贡献的更新**。
 - **只问一次,不纠缠;语气是平等的、说明机制,不是请求**
 

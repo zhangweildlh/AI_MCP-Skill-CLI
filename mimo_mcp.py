@@ -235,7 +235,7 @@ def get_base_url() -> str:
 
 
 def get_default_model() -> str:
-    return os.environ.get("MIMO_DEFAULT_MODEL", "mimo-v2.5-pro")
+    return os.environ.get("MIMO_DEFAULT_MODEL", "mimo-v2.5")
 
 
 def get_code_timeout() -> int:
@@ -693,8 +693,8 @@ class MimoMCPServer:
                             },
                             "model": {
                                 "type": "string",
-                                "default": "mimo-v2.5-pro",
-                                "description": "模型名称，默认 mimo-v2.5-pro",
+                                "default": "mimo-v2.5",
+                                "description": "模型名称，默认 mimo-v2.5",
                             },
                             "max_tokens": {
                                 "type": "integer",

@@ -9,7 +9,7 @@
 需要 Python 3.8+。没装过的去 [python.org](https://www.python.org/downloads/) 下载安装，勾选 "Add to PATH"。
 
 ```bash
-pip install -r requirements.txt
+uv pip install --python D:/Tools/Assembly/python/myenv/.venv/Scripts/python.exe -r requirements.txt
 ```
 
 > pdftotext 可选装不装。不装也能跑 PDF（自动回退 pypdf，效果略差）。
@@ -17,7 +17,7 @@ pip install -r requirements.txt
 ## 2. 自动阶段：取数 + 扫描（几秒）
 
 ```bash
-python run_pipeline.py prep <你的招标文件.docx>
+uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py prep <你的招标文件.docx>
 ```
 
 跑完后 `workspace/` 里会有：带行号文本、判决词命中、候选新词。
@@ -35,7 +35,7 @@ agent 会读 SKILL.md 和 references/，产出工作区清单。
 ## 4. 验证阶段：护栏 + 出 Excel（几秒）
 
 ```bash
-python run_pipeline.py verify workspace/xxx.工作区.md
+uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py verify workspace/xxx.工作区.md
 ```
 
 跑完得到 Excel（多 sheet、带颜色、可筛选）。如果护栏报 warning，让 agent 补漏后重跑。
@@ -45,7 +45,7 @@ python run_pipeline.py verify workspace/xxx.工作区.md
 仓库自带测试样本，可以先跑通感受流程：
 
 ```bash
-python run_pipeline.py prep tests/fixtures/sample_tender.docx
+uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py prep tests/fixtures/sample_tender.docx
 # → workspace/ 下产出 sample_tender.lines.txt + .hits.json + .candidates.json
 ```
 

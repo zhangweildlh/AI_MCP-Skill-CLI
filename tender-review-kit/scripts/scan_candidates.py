@@ -16,7 +16,7 @@
 词+scope 转进 keywords.json，绝不带原文，确保 data/ 不沾任何用户标书内容。
 
 用法:
-    python scan_candidates.py <lines.txt> [--keywords data/keywords.json] [--hits hits.json] [--out workspace/<项目>.candidates.json]
+    uv run --project D:/Tools/Assembly/python/myenv python scan_candidates.py <lines.txt> [--keywords data/keywords.json] [--hits hits.json] [--out workspace/<项目>.candidates.json]
 """
 import sys
 import re
