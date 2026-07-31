@@ -15,7 +15,7 @@
 纯标准库（json/re），零额外依赖。
 
 用法:
-    python scan_keywords.py <file.lines.txt> [--keywords data/keywords.json] [--out hits.json]
+    uv run --project D:/Tools/Assembly/python/myenv python scan_keywords.py <file.lines.txt> [--keywords data/keywords.json] [--out hits.json]
 """
 import sys
 import re

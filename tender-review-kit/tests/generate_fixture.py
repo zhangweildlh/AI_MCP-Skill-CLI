@@ -8,7 +8,7 @@
   - ▲ 标识参数(技术规格)
   - 证明文件要求(检测报告/CCC 认证 等)
 
-跑一次:`python tests/generate_fixture.py` → tests/fixtures/sample_tender.docx
+跑一次:`uv run --project D:/Tools/Assembly/python/myenv python tests/generate_fixture.py` → tests/fixtures/sample_tender.docx
 test_smoke.py 用它做回归基准,不依赖任何真实标书。
 
 合成内容**完全虚构**(公司名/数字/参数全是占位符),开源仓库可以放心带这份文件。

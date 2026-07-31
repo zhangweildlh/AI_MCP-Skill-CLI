@@ -1,6 +1,6 @@
 # gh 能力全览
 
-> 依据本机已验证环境：`D:\Tools\Assembly\gh.exe`（v2.96.0；已登录 `zhangweildlh`；scopes 含 repo/workflow/admin:org）。✅ 表示本会话已实跑验证。
+> 本表为 `gh` CLI 能力清单（占位符 `<owner>/<repo>` 等，不写死具体账号/路径）。✅ 表示已在某环境实跑验证、可放心使用。版本与 scopes 取决于运行环境的 `gh`（`gh --version` / `gh auth status` 自查）。
 
 ## 认证与配置
 | 命令 | 作用 |
@@ -111,3 +111,4 @@
 | 渲染 Markdown 为网页（导航/图片/样式） | 仅取原始文本，渲染需 Web |
 | 直接读取非默认分支被代码搜索索引的内容 | 代码搜索仅索引默认分支 |
 | 修改他人仓库（无写权限时） | 只读；改动须走 Fork+PR |
+| `gh api repos/<owner>/<repo>/tags` 默认分页（常仅返最新 ~30 个标签） | 核对标签**全集**差集须用 `git ls-remote --tags <remote>`（无分页），勿凭 `gh api tags` 单页推断"本地独有/缺失"——单页易漏判而误删 |

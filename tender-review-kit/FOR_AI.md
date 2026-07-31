@@ -38,7 +38,7 @@
 ### 第 1 步:环境自检(首次必跑)
 
 ```bash
-python scripts/check_env.py
+uv run --project D:/Tools/Assembly/python/myenv python scripts/check_env.py
 ```
 
 - 全 ✓ → 直接进第 2 步。
@@ -52,7 +52,7 @@ python scripts/check_env.py
 ### 第 3 步:程序自动跑(几秒)
 
 ```bash
-python run_pipeline.py prep <招标文件路径>
+uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py prep <招标文件路径>
 ```
 
 产出在 `workspace/`:带行号文本(.lines.txt)、判词命中(.hits.json)、候选新词(.candidates.json)。
@@ -68,7 +68,7 @@ python run_pipeline.py prep <招标文件路径>
 ### 第 5 步:护栏 + 出 Excel(几秒)
 
 ```bash
-python run_pipeline.py verify workspace/<项目>.工作区.md
+uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py verify workspace/<项目>.工作区.md
 ```
 
 - 护栏报 warning(漏覆盖/条数异常)→ **回第 4 步补漏,重跑 verify,直到干净**。这是程序在审计你,别跳过。
@@ -88,12 +88,12 @@ verify 之后如果出现 `workspace/<项目>.pending_words.json`,说明你在�
 1. **把每个新词 + 它的原文语境列给用户看**,问用户:"这几个词要不要收进你的本地词库?收了以后扫别的标书会自动用上。"
 2. 按用户的答复执行(全收 / 收一部分 / 全不收):
    ```bash
-   python scripts/harvest_ai_words.py workspace/<项目>.工作区.md --accept "词A,词B"
+   uv run --project D:/Tools/Assembly/python/myenv python scripts/harvest_ai_words.py workspace/<项目>.工作区.md --accept "词A,词B"
    ```
    用户明确说"全部接受"时才用 `--accept-all`;用户说"都不要"时用 `--reject-all`。
 3. 无论本次有没有入库,交付收尾都要**复述一次词库互惠机制和隐私声明**:"本地词库只在你机器上;开源词库靠大家脱敏贡献;贡献完全自愿,不给也能正常用;我们不拿你的标书、Excel、工作区、原文片段、项目名称或行号上下文,只拿你愿意分享的几个判词短语及分类/scope;你贡献的词别人能用,别人贡献的你 `git pull` 也能拉到。"如果已有本地词库,再问:"这里面有没有普遍适用(不含你项目隐私)的词,愿意贡献给开源词库?"用户明确同意才跑:
    ```bash
-   python scripts/export_contribution.py --github
+   uv run --project D:/Tools/Assembly/python/myenv python scripts/export_contribution.py --github
    ```
 
 > ⚠ 三条红线:**当前标书补漏不等用户入库**;**绝不擅自 `--accept-all`**(入库要用户拍板);**绝不未经明确同意对外贡献**(导出虽已脱敏,但同意权在用户,且默认只提 Issue 给维护者审核)。用户说"不用问了都收"之类的明确授权除外。

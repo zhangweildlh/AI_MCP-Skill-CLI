@@ -8,7 +8,7 @@
 - 自动跳过非清单 section（如"实质性要求范围定位"这种说明文字）
 
 依赖：openpyxl。用法：
-    python build_excel.py <out.xlsx> <md1> [md2 ...]
+    uv run --project D:/Tools/Assembly/python/myenv python build_excel.py <out.xlsx> <md1> [md2 ...]
 """
 import sys
 import re
@@ -95,7 +95,7 @@ def needs_workflow_cols(title):
 
 def main():
     if len(sys.argv) < 3:
-        print("用法: python build_excel.py <out.xlsx> <md1> [md2 ...]")
+        print("用法: uv run --project D:/Tools/Assembly/python/myenv python build_excel.py <out.xlsx> <md1> [md2 ...]")
         sys.exit(1)
     out, files = sys.argv[1], sys.argv[2:]
     wb = Workbook()

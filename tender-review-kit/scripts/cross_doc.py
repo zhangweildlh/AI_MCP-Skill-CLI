@@ -15,7 +15,7 @@
 纯标准库(re),零依赖。
 
 用法:
-    python cross_doc.py <lines1.txt> <lines2.txt> [lines3.txt ...]
+    uv run --project D:/Tools/Assembly/python/myenv python cross_doc.py <lines1.txt> <lines2.txt> [lines3.txt ...]
 """
 import sys
 import re
@@ -97,7 +97,7 @@ def extract_subsystem_count(text):
 
 def main():
     if len(sys.argv) < 3:
-        print("用法: python cross_doc.py <lines1.txt> <lines2.txt> [lines3.txt ...]")
+        print("用法: uv run --project D:/Tools/Assembly/python/myenv python cross_doc.py <lines1.txt> <lines2.txt> [lines3.txt ...]")
         sys.exit(1)
     paths = [Path(p) for p in sys.argv[1:]]
     docs = [(p.name, load_text(p)) for p in paths]

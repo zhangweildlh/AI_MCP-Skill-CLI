@@ -7,7 +7,7 @@ tender-review-skill 的地基程序：把任意格式的招标文件转成统一
 行号是提取后「自编的定位锚点」（文件本身没有行号，PDF/Word 都没有）。
 
 用法:
-    python extract_text.py <file.docx|file.pdf> [--outdir DIR]
+    uv run --project D:/Tools/Assembly/python/myenv python extract_text.py <file.docx|file.pdf> [--outdir DIR]
 
 输出:
     <outdir>/<stem>.lines.txt    每行: 行号<TAB>文本（正文段落 + 表格摊平，统一连续编号）

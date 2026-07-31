@@ -17,9 +17,9 @@
   3. 默认      输出到 contribution.md，手动粘贴到 Issue
 
 用法：
-    python export_contribution.py <candidates.json> [candidates2.json ...]
-    python export_contribution.py workspace/*.candidates.json --github
-    python export_contribution.py workspace/*.candidates.json --pr
+    uv run --project D:/Tools/Assembly/python/myenv python export_contribution.py <candidates.json> [candidates2.json ...]
+    uv run --project D:/Tools/Assembly/python/myenv python export_contribution.py workspace/*.candidates.json --github
+    uv run --project D:/Tools/Assembly/python/myenv python export_contribution.py workspace/*.candidates.json --pr
 """
 import sys
 import json
@@ -283,7 +283,7 @@ def main():
         out.write_text(md, encoding="utf-8")
         print("✓ 贡献文件已导出: %s" % out)
         print("  请复制内容到 GitHub Issue: https://github.com/matongAI-lab/tender-review-kit/issues/new")
-        print("  或直接跑: python export_contribution.py <files...> --github")
+        print("  或直接跑: uv run --project D:/Tools/Assembly/python/myenv python export_contribution.py <files...> --github")
 
 
 if __name__ == "__main__":
