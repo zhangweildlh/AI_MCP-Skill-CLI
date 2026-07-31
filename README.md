@@ -78,7 +78,7 @@
   - **`gh` CLI（可选）**：仅当用户愿意把新发现的判词贡献回开源词库时，用于自动建 GitHub Issue；未装则导出文件让用户手动粘贴。
   - **无 MCP 依赖**。
   - **内置资产**：`scripts/*.py`（取数/撒网/补词/护栏/出 Excel）、`references/`（废标对照总清单、商务线、技术线）、`data/keywords.json`（120+ 判词库，命根子）。
-- **备注**：首次必跑 `python scripts/check_env.py` 自检环境；护栏程序（防漏抄/防判断死角）是流程命根子。
+- **备注**：首次必跑 `uv run --project D:/Tools/Assembly/python/myenv python scripts/check_env.py` 自检环境；护栏程序（防漏抄/防判断死角）是流程命根子。
 
 ### 5. web-search（深度联网搜索与下载）
 

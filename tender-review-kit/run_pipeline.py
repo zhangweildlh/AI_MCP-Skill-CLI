@@ -7,12 +7,12 @@
   verify — 护栏检查 + 出 Excel（agent 写完工作区 md 后跑）
 
 用法：
-  python run_pipeline.py prep   <招标文件.docx/.pdf> [--outdir workspace]
-  python run_pipeline.py verify <工作区.md> [--out 输出.xlsx]
+  uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py prep   <招标文件.docx/.pdf> [--outdir workspace]
+  uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py verify <工作区.md> [--out 输出.xlsx]
 
 示例（用自带测试样本跑通全流程）：
-  python run_pipeline.py prep   tests/fixtures/sample_tender.docx
-  python run_pipeline.py verify workspace/sample_tender.工作区.md
+  uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py prep   tests/fixtures/sample_tender.docx
+  uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py verify workspace/sample_tender.工作区.md
 """
 import sys
 import subprocess
@@ -84,7 +84,7 @@ def prep(tender_file, outdir):
     print('  ─── 复制结束 ───')
     print()
     print("  2. agent 写完工作区 md 后，跑：")
-    print("     python run_pipeline.py verify %s" % (outdir / (stem + ".工作区.md")))
+    print("     uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py verify %s" % (outdir / (stem + ".工作区.md")))
 
 
 def verify(worklist_file, out_xlsx):
@@ -146,7 +146,7 @@ def verify(worklist_file, out_xlsx):
         print()
         print("  注意:入库只影响以后标书;当前标书补漏已经在 Step 5+ 用临时词库回扫过。")
         print("  请先让用户审批，再按选择入库:")
-        print("    python scripts/harvest_ai_words.py %s --accept \"词A,词B\"" % worklist)
+        print("    uv run --project D:/Tools/Assembly/python/myenv python scripts/harvest_ai_words.py %s --accept \"词A,词B\"" % worklist)
         print("    （用户明确全部接受才用 --accept-all；全部拒绝用 --reject-all）")
 
     print()
@@ -161,11 +161,11 @@ def verify(worklist_file, out_xlsx):
         print()
         print("  你接受入库的判词已留在本地,下次扫别的标书会自动用上。")
         print("  把本地词库里适合公开共享的词贡献给开源 keywords.json:")
-        print("    python scripts/export_contribution.py --github  # 一键提 Issue")
-        print("    python scripts/export_contribution.py           # 先导出预览(脱敏,不含原文)")
+        print("    uv run --project D:/Tools/Assembly/python/myenv python scripts/export_contribution.py --github  # 一键提 Issue")
+        print("    uv run --project D:/Tools/Assembly/python/myenv python scripts/export_contribution.py           # 先导出预览(脱敏,不含原文)")
     else:
         print("  当前还没有本地词库;以后接受新词后,可用:")
-        print("    python scripts/export_contribution.py           # 导出预览(脱敏,不含原文)")
+        print("    uv run --project D:/Tools/Assembly/python/myenv python scripts/export_contribution.py           # 导出预览(脱敏,不含原文)")
 
 
 def main():
@@ -184,7 +184,7 @@ def main():
                 rest = rest[:i] + rest[i + 2:]
                 break
         if not rest:
-            print("用法: python run_pipeline.py prep <招标文件> [--outdir workspace]")
+            print("用法: uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py prep <招标文件> [--outdir workspace]")
             sys.exit(1)
         prep(rest[0], outdir)
 
@@ -197,7 +197,7 @@ def main():
                 rest = rest[:i] + rest[i + 2:]
                 break
         if not rest:
-            print("用法: python run_pipeline.py verify <工作区.md> [--out 输出.xlsx]")
+            print("用法: uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py verify <工作区.md> [--out 输出.xlsx]")
             sys.exit(1)
         verify(rest[0], out)
 

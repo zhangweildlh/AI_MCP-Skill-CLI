@@ -5,7 +5,7 @@ license: Apache-2.0
 metadata:
   author: zhangweildlh
   version: "2.0.0"
-compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个命令行工具，并登录 GitHub 账号。不写死工具路径——运行时自动探测 PATH；若找不到会暂停并请你给出路径或安装方式。本地 GitHub 仓库默认存放于 D:\Documents\AI_Work_Temp。
+compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个命令行工具，并登录 GitHub 账号。git/gh 工具路径**不硬编码**——每次进入本技能先 `where.exe git` / `where.exe gh` 取实际路径（详见阶段 0）。本地 GitHub 仓库根目录默认值 `REPO_ROOT` = `D:/Documents/AI_Work_Temp`（该目录本身不是仓库项目，仅为存放各仓库的根；此为允许的硬编码默认值，可在 config 改），用户给出绝对路径的仓库目录时以用户输入优先。GitHub 用户名默认值 `GH_USER=zhangweildlh`（允许的硬编码默认值，可由 origin 远端拥有者覆盖）。
 ---
 
 # GitHub 个人管理助手
@@ -28,37 +28,38 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
    - feat 分支 → 功能分支(feat)
 3. 代码块内的 `git`/`gh` 命令保留原样（如 `git pull origin main`），仅正文叙述使用上述映射。
 4. 脚本已尽可能用中文输出；你把脚本回显转述给用户时，同样用纯中文大白话，不堆砌原始命令输出。
+5. **内部推理与工具调用输出也用中文（与「永久记忆·回答风格规则三」一致）**：本技能所有内部思考、推理、分析、设计方案、比较、逻辑推演及工具调用过程与输出，一律使用中文，严禁纯英文或中英文混合；一旦检测到英文或中英混用，立即纠正为中文重述。本规则覆盖全部会话、优先于任何默认语言习惯。
 
 ## 阶段 0：工具探测（每次使用本技能的第一件事，强制）
 **目的**：本技能依赖 `git` 与 `gh` 两个命令行工具。若本机没有（或只有其一），后续一切操作都会失败或报晦涩错误。因此**每次进入本技能，第一件事就是探测这两个工具**。
 
 **探测方法（用大白话执行）**：
-- `command -v git` —— 看 `git` 是否在 PATH 里；
-- `command -v gh` —— 看 `gh` 是否在 PATH 里；
+- `where.exe git` —— 取 `git` 实际路径（Windows 下首选；非 Windows 环境回退 `command -v git`）；**每次进入本技能必须先跑这一句**，得到真实路径后用于后续所有 git 调用。
+- `where.exe gh` —— 取 `gh` 实际路径（同理）；
 - `gh auth status --hostname github.com` —— 看 `gh` 是否已登录 GitHub。
 
 **缺失处理（强制暂停）**：
 - 若 `git` 或 `gh` 其一缺失（或都没装）：**立刻暂停，绝不继续任何后续步骤**。用纯中文大白话告诉用户：
   - 缺了哪个工具、为什么这个技能必须有它；
   - 怎么装（git 去 https://git-scm.com ，gh 去 https://cli.github.com ；本机也可把工具加到 PATH）；
-  - 或者请用户**明确给出工具绝对路径**（如 `D:/Tools/Assembly/git/cmd/git.exe`、`D:/Tools/Assembly/gh.exe`）。
-- **必须等用户明确给出路径或指令后，再按指令继续**。例如用户给了路径，你就用该路径继续（后续命令里用 `GIT_BIN=用户给的路径 git ...` 或在配置里写入）。
+  - 或者请用户**明确给出工具绝对路径**（如 `<git 绝对路径>`、`<gh 绝对路径>`）。
+- **必须等用户明确给出路径或指令后，再按指令继续**。若用户给了路径，就把它作为该次调用的工具路径（脚本层会优先用 config 显式指定的 `GIT_BIN`/`GH_BIN`，否则一律以 `where.exe` 解析结果为准）。
 - 若两个都在且已登录 → 进入各工作流。
 
 > 说明：脚本层（`scripts/lib/sop-common.sh` 的 `_sop_probe_tools`）也有同样的探测，即使绕过 Agent 直接运行脚本（如双击 GitExtensions 外挂），工具缺失时也会用纯中文优雅报错并退出，不会甩出一堆看不懂的 bash 错误。这是双层防护。
 
 ## 脚本调用约定（关键：明确告诉你要跑哪个脚本、怎么跑）
-- 本技能所有可执行脚本位于**技能根目录**下的 `scripts/` 子目录（即与本 SKILL.md 同级的 `scripts/`）。
-- **技能根目录 = 包含本 SKILL.md 的目录**。运行脚本前，请先 `cd` 到该目录。
+- 本技能所有可执行脚本位于**技能根目录**下的 `scripts/` 子目录（即与本 SKILL.md 同级的 `scripts/`）。脚本内部通过 `BASH_SOURCE` 自定位，依赖**相对路径**解析，不依赖任何写死的安装位置字符串。
+- **技能根目录 = 包含本 SKILL.md 的目录**。**经技能系统按名加载本技能时，运行环境已提供该目录，直接 `cd` 到该目录即可**；资源文件、脚本文件、程序文件的调用/加载一律以该目录为根，用**相对路径**拼接（如 `bash scripts/sop_*.sh`、`source lib/sop-common.sh`），**不得写死任何安装位置字符串**（无论是 `~/.workbuddy/skills/...`、`{workspace}/.workbuddy/skills/...` 还是 `D:/Documents/AI_MCP-Skill-CLI/...`）。
 - 调用一律用**相对路径**，格式：`bash scripts/sop_sync_precheck.sh <参数>`（示例脚本，其余 `sop_*.sh` 同理，脚本清单见各工作流）。
 - **不要**让 Agent 自行猜测或改写脚本内部逻辑；每个工作流已明确列出要跑的脚本与参数。
 - 每个"写操作"脚本默认只打印它将执行什么（即 dry-run 干跑模式），加 `--confirm` 才真正执行。这是公开动作的二次安全门，务必遵守。
 - 绝大多数脚本接受可选的第一个参数"仓库路径"；若不传，则对"当前目录"操作（前提是你已 `cd` 进目标仓库）。
 
-## 环境配置与工具定位（不写死工具路径）
-1. 仓库根目录：默认 `D:\Documents\AI_Work_Temp`。本地 GitHub 仓库均为其一级子目录（可在"仓库解析规则"中按绝对路径覆盖）。
-2. `git` / `gh`：位置**不写死**。优先用本机配置 `config/github-sop.config.sh` 里的 `GIT_BIN`/`GH_BIN`；若没配，则自动探测 PATH 上的 `git`/`gh`；都找不到则按"阶段 0"暂停。
-3. GitHub 用户名：`zhangweildlh`；邮箱：`157947621@qq.com`（仅用于提交身份，非工具路径）。
+## 环境配置与工具定位（REPO_ROOT/GH_USER 为允许的硬编码默认值；工具路径不硬编码）
+1. 仓库根目录：默认值 `D:/Documents/AI_Work_Temp`（允许的硬编码默认值；`AI_Work_Temp` 本身不是仓库项目，仅作各仓库存放根）。由 `config/github-sop.config.sh` 的 `REPO_ROOT` 设定，可改；**用户给出的绝对路径仓库目录优先于此默认值**（见仓库解析规则）。
+2. `git` / `gh`：**路径不得硬编码**。每次进入本技能（阶段 0）必须先 `where.exe git` / `where.exe gh` 取实际路径；若 config 显式指定 `GIT_BIN`/`GH_BIN` 且可用则优先用（可选覆盖），否则一律以 `where.exe` 解析结果为准。缺失则按阶段 0 暂停。
+3. GitHub 用户名默认值 `GH_USER=zhangweildlh`（允许的硬编码默认值）；邮箱由 `GH_EMAIL` 提供（仅用于提交身份，非工具路径）；实际用户名以 `sop_resolve_repo.sh` 从 origin 远端提取的拥有者为准，缺 origin 时回退到该默认值。
 4. 排除目录：`.mimocode` 与 `.workbuddy` 及其下所有文件一律不视为 GitHub 仓库或代码文件，任何操作均排除这两目录。
 5. 工具分工：本地版本控制用 `git`，远端读取/搜索/PR/CI/Release 用 `gh`；标准流程不依赖任何 MCP。
 
@@ -68,10 +69,11 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 3. 正常（非强推）推送(push)到 main 不受限（如推标签、走 PR 合并(merge)后自动更新）。
 4. 标签移动/重推一律用「删远端标签 + 重推」，严禁强推标签。
 5. 凡涉及 main + `--force`/`--delete`/分支删除，一律先暂停、大白话说明后果、等明确指令。
+6. **二次显式授权铁律（与「永久记忆·顶级全局禁令」一致，优先级高于一切便利）**：任何"强推/删除自家 main（或任何受保护分支）"的操作，必须走三段式——① 用户先显式授权（表达要做）；② 我必须主动暂停，大白话说明后果、列出将执行的精确动作；③ 用户给出**第二次**显式授权后，方可执行。缺任一环节（尤其第二次授权）一律不执行。凡一次性授权执行过的强推/删除，绝不自动沿用为惯例。标签删除/分支删除等其它破坏性操作不受此铁律限制，但仍遵循各自门禁（先列清单+状态、暂停等确认）。
 
 ## 环境硬约束
 1. 本机无 Docker，任何涉及 Docker 的安装/部署方案一律忽略，改用原生路径。
-2. 本机禁止编译代码；需要构建产物时一律走远程 CI（GitHub Actions），不在本地编译。
+2. 默认走远程 CI（GitHub Actions）构建二进制/产物；若仅用本机已安装且已在 PATH 注册的工具（如 `node`、`uv`/Python、本机已预装编译器）即可完成本地编译、且无需安装新编译工具链（MSVC Build Tools、MinGW-w64 等），则允许本地编译。
 
 ## 输入参数
 | 参数名 | 类型 | 必填 | 说明 |
@@ -80,23 +82,44 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 | 任务指令 | 字符串 | 否 | 用户想执行的具体 GitHub 操作；未提供则列举可用操作清单 |
 | 分支主题 | 字符串 | 否 | 功能分支(feat) 的主题词，用于 `feat/[topic]` |
 | 上游仓库 | 字符串 | 否 | 上游仓库(upstream) 的 `owner/repo` 标识 |
-| Fork 仓库 | 字符串 | 否 | fork 仓库的 `zhangweildlh/[fork]` 标识 |
+| Fork 仓库 | 字符串 | 否 | fork 仓库的 `<login>/[fork]` 标识（`<login>` 取 config 的 `GH_USER`） |
 | 版本号 | 字符串 | 否 | Release 版本号，格式 `v[version]` |
 | 日期 | 字符串 | 否 | CHANGELOG/标签用的日期 `YYYY-MM-DD` |
 | Run ID | 字符串 | 否 | CI workflow run 的 ID |
 | 产物文件 | 字符串 | 否 | Release 要上传的本地构建产物路径 |
 
+## 仓库目录解析与三元组提取（核心能力：免用户反复输出三项）
+每当任务首次涉及某个仓库目录，必须**一次性提取**并在当前任务中**复用**以下三项；后续步骤不再向用户索取：
+- **用户名(GH_USER)**：`origin` 远端的拥有者（fork 即你的登录名）。
+- **远端仓库名(REPO_NAME)**：`origin` 远端的仓库名。
+- **上游仓库(UPSTREAM)**：`upstream` 远端的 `owner/name`（无则空）。
+
+**提取方式（脚本化、确定性）**：运行
+`bash scripts/sop_resolve_repo.sh <仓库路径>`
+脚本从 `git remote -v` 解析三项并原样输出 `GH_USER=...` / `REPO_NAME=...` / `UPSTREAM=...`，同时打印中文摘要。
+
+**复用规则（硬规则）**：
+1. 提取后，在当前任务后续所有步骤（同步、开 PR、看 CI、发版、清理分支、搜索等）直接套用这三项；若用户只说"同步""开PR""看CI"等动词而不重报三项，直接套用已提取的值。
+2. 若仓库无 `upstream` 远端，`UPSTREAM` 为空；涉及上游同步/PR 时再提示用户补充上游地址，不擅自假定。
+3. 双重保险：每个脚本调用都会从目标仓库的 `git remote -v` 重新提取三项，不会因会话上下文遗忘而失效；Agent 只需在转述与决策时复用，不必担心丢失。
+   - **统一实现**：`scripts/lib/sop-common.sh` 的 `_sop_resolve_remotes` 中央解析 origin/upstream 并补全 `GH_USER`（← origin 拥有者，缺则回退 `zhangweildlh`）与 `UPSTREAM_REPO`（← upstream 远端）。`sop_resolve_repo.sh` 与 `sop_sync_upstream.sh` 均复用此函数——**配置即使留空 `UPSTREAM_REPO`，只要仓库真实配了 upstream 远端，同步/PR 核查也能自动取到上游身份**，不再依赖手填。
+4. 用户给出绝对路径仓库目录时，以该路径为准；仅给名称时按"仓库解析规则"在 `REPO_ROOT`（`D:/Documents/AI_Work_Temp`）下搜索对应子目录并校验是否为标准 GitHub 仓库（含 `.git`）。
+
 ## 仓库解析规则
 1. 用户必须明确指定目标仓库（仓库名 或 绝对路径）。未指定时，直接要求用户明确，绝不猜测、不默认。
 2. 若用户提供的是仓库名（非绝对路径）：
-   - 检查默认根目录（如 `D:\Documents\AI_Work_Temp`）的一级子目录中是否存在该名称（排除 `.mimocode`、`.workbuddy`）。
-   - 存在 → 以该路径作为仓库目录，继续。
-   - 不存在 → 立即要求用户提供绝对路径的仓库目录；同时调用 `gh` 搜索远端是否存在该仓库（如 `gh repo view zhangweildlh/[仓库名]` 或 `gh search repos "[仓库名]"`）。
+   - 检查 `REPO_ROOT` 根目录（默认值 `D:/Documents/AI_Work_Temp`；用户给出绝对路径时优先）的一级子目录中是否存在该名称（排除 `.mimocode`、`.workbuddy`）。
+   - 存在 → 校验该子目录是否为标准 GitHub 仓库（含 `.git`）；是则以该路径作为仓库目录继续，否则报告"该名称目录不是标准 GitHub 仓库"并终止。
+   - 不存在 → 立即要求用户提供绝对路径的仓库目录；同时调用 `gh` 搜索远端是否存在该仓库（如 `gh repo view <login>/[仓库名]` 或 `gh search repos "[仓库名]"`，`<login>` 默认 `zhangweildlh`，取 config 的 `GH_USER`）。
    - 若远端搜索也无结果 → 报告错误并终止：「仓库 [仓库名] 在本地根目录与远端 GitHub 均不存在，请确认名称或提供绝对路径」。
    - 若远端存在但本地无、用户又未给绝对路径 → 大白话说明「远端有、本地没有」，提供两条明确出路二选一，暂停等指令：其一提供本地绝对路径继续；其二用 `gh repo clone [owner/仓库名] [本地目标目录]` 克隆到本地后继续，不擅自选。
    - 若远端存在、且用户已提供有效绝对路径 → 使用该本地路径继续。
 3. 若用户提供的是绝对路径 → 直接使用；若本地不存在该路径 → 报告错误并终止。
-4. **路径核验防误报**：确认仓库目录后、执行任何 git 前，先 `ls "<目录>/.git"` 确认 `.git` 存在（仓库有效）；git 命令统一用 `git -C "D:/绝对/Windows/路径"` 或先 `cd /d/绝对/路径` 再执行。**禁止** `git -C /d/...`（Unix 风格根路径，Git Bash 下会被 git 误报 `fatal: not a git repository`）。若 `git rev-parse` 报 `not a git repository`，**先排除路径格式误报**：先 `ls ".git"` 复核，`.git` 存在则视为命令格式问题、改用正确写法重测，不得据此判定"非 git 仓库"或触发路径异常暂停。
+4. **路径核验硬规则（最高优先级，与「永久记忆·新任务文件夹路径核验」一致）**：任何 git/gh/文件读写前，先核验要操作的目录，绝不直接对根目录执行 git 操作。
+   - **推荐顺序（先 `ls .git` 再执行 git，防误报）**：① `ls "<目录>/.git"` 确认 `.git` 存在（零歧义）；② 再用 `git -C "D:/绝对/Windows/路径" rev-parse --show-toplevel`（`D:/` 盘符格式）或 `cd /d/绝对/路径 && git ...` 确认仓库根。
+   - **禁止写法**：`git -C /d/...`（Unix 风格根路径，Git Bash 下必误报 `fatal: not a git repository`）；在非目标仓库的当前目录直接 `git rev-parse --show-toplevel` 也必误报。
+   - **误报判定铁律**：`git rev-parse` 报 `not a git repository` 时，**先怀疑路径格式/当前目录错误，绝不直接判定"该目录不是 git 仓库"**；必须先 `ls "<目录>/.git"` 复核，`.git` 真实存在则视为命令格式问题、改用正确写法重测，不得据此触发"路径异常暂停"或向用户发告警。
+   - **发现异常先问**：一旦路径异常（指向非预期仓库、根目录意外出现 `.git` 等），立即暂停，大白话说明，先与用户对齐"要操作的文件夹路径"后再继续，绝不绕过路径对齐直接进入执行。
 
 ## 可用操作清单（用户未指定具体任务时）
 当用户仅说"帮我搞下 GitHub"或未给出具体指令时，按以下编号列举你可执行的操作用于确认。第 1–7 项在本技能「核心工作流」中有完整步骤（并明确调用脚本）；第 8–13 项为 `gh` 单命令类操作，具体命令详见 references/gh-capability.md：
@@ -112,7 +135,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 10. Release/制品管理（创建/上传/下载）——详见 references/gh-capability.md
 11. 密钥/变量管理（CI 用）——详见 references/gh-capability.md
 12. 标签/规则集管理（分支保护开启）——详见 references/gh-capability.md 与 references/fork-ci-pitfalls.md
-13. 编译与构建（GitHub Actions CI，禁本地编译）——见工作流三/四与 references/fork-ci-pitfalls.md
+13. 编译与构建（默认 GitHub Actions CI；仅用本机已装工具、不安装新工具链即可本地编译）——见工作流三/四与 references/fork-ci-pitfalls.md
 
 ## 核心工作流
 
@@ -138,6 +161,13 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 前提：阶段 0 工具可用。先 `cd` 到技能根目录。
 1. 阶段 0 闸门：完整性（无 WIP/TODO/空实现）、正确性（逐文件 Read + `git diff` 复核）、静态校验（仅可跑不触发本地编译的格式化类检查；编译型 lint/test 一律交 CI）。未过则先修复。
 2. 同步与建分支（手动 `git`，无专门脚本）：`git switch main && git pull upstream main && git push origin main`；`git switch -c feat/[topic]`（先建分支再提交(commit)）。
+- **提交前文档同步门禁（分层检查清单，提交(commit)动作之前必须过）**：
+  - **流程**：先 `bash scripts/sop_docs_sync_check.sh <仓库路径>`（只读 dry-run，无需 `--confirm`），脚本按 `references/docs-sync-checklist.md` 的「分层检查清单」——① 取本次真实变化（`git status`/`git diff`/`ls-files`）；② 推导改动类型（命令/配置/功能/接口/依赖/重命名/行为/文案/示例/文档）；③ 查仓库是否存在清单中的 Tier 1/2/3 文件；④ 对存在文件分析是否已纳入变更；输出 `【文档同步状态】已同步 / 未同步` 及分层明细（Tier 1 阻断 / Tier 2 强建议 / Tier 3 提示）。
+  - **Tier 1（根 README/README_EN/CHANGELOG，阻断）未同步 → 必须先补文档**：用 `git diff` / `git status` 复核真实变化，再**基于真实变化**更新对应文档相应章节（命令·配置项·依赖·接口·功能·目录结构等在 README/README_EN 体现；功能性/可见行为变化在 CHANGELOG 顶部追加条目），并把文档一并 `git add` 进同一次提交(commit)。**严禁在 Tier 1 未同步时直接 `git commit` 代码。**
+  - **Tier 2（docs/、CONTRIBUTING、配置样例、接口契约、i18n、examples，强建议）未同步 → 提交(commit)前须处理或显式说明为何不改**：按改动类型定位相关文件（如功能/接口改动查 docs/ 与契约、文案改动查 i18n、示例改动查 examples），需更新则一并 `git add`。加 `--strict` 运行脚本可让 Tier 2 未同步同样阻断（`exit 2`）。
+  - **Tier 3（测试、包清单、锁文件，提示）**：行为/依赖变动建议补测试或同步锁文件，仅提示不阻断。
+  - **已同步 / 仅文档类变更 / 无真实代码变化 → 正常继续**到步骤 3 提交(commit)。
+  - 适用范围、"免触发"边界与完整分层定义见「永久记忆·第四模块·提交前文档同步门禁（分层检查清单）」与 `references/docs-sync-checklist.md`；本门禁不绕过任何顶级全局禁令/路径核验。
 3. 提交/推送/触发 CI（手动 `git`）：`git add [文件]` → `git commit -m "清晰描述，一 PR 一主题"` → `git push -u origin feat/[topic]`。
 4. **开 PR（必须走脚本，不手写 gh）**：运行
    `bash scripts/sop_pr_create.sh <仓库路径> --base <分支>` —— dry-run，打印将执行的 push + `gh pr create`；
@@ -153,7 +183,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 前提：阶段 0 工具可用。先 `cd` 到技能根目录。
 1. **下载失败日志（脚本，只读）**：运行 `bash scripts/sop_ci_failed_log.sh <仓库路径>`，自动取最近一次 workflow run 并打印失败步骤日志，无需打开网页。
 2. **轮询 CI 状态（脚本，只读）**：运行 `bash scripts/sop_pr_checks.sh <仓库路径>`。
-3. 按现象对号入座（详见 references/fork-ci-pitfalls.md）：fmt 失败 → 格式化；clippy `-D warnings` → 改 feat 重验；`action_required` → 等维护者；整 CI 红且无关代码 → 取消 pinned SHA 勾选；发布 job 失败 → 加 `if: false`；CHANGELOG 缺段 → 补段。
+3. 按现象对号入座（详见 references/fork-ci-pitfalls.md）：fmt 失败 → 格式化；clippy `-D warnings` → 改 feat 重验；`action_required` → 等维护者；整 CI 红且无关代码 → 取消 pinned SHA 勾选；发布 job 失败 → 给发布 job 加 `if: github.repository == '<upstream>'` 守卫（⚠️ actionlint 拒绝纯常量 `if: false`，须用非常量仓库名比较）；CHANGELOG 缺段 → 补段。
 4. **重跑 CI（脚本，需确认）**：运行
    `bash scripts/sop_ci_rerun.sh <仓库路径>` —— dry-run，打印将执行的 `gh run rerun`；
    `bash scripts/sop_ci_rerun.sh <仓库路径> --confirm` —— 真正重跑失败 job。
@@ -161,7 +191,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 
 ### 工作流四：Release 发版
 前提：阶段 0 工具可用。本工作流无专门脚本，按以下手动流程（均为公开动作，需暂停确认）。
-1. 发版前检查：CHANGELOG 顶部有对应 `## [X.Y.Z] - [date]` 段；`release.yml` 发布类 job 已加 `if: false`；未勾 pinned SHA；fork Settings → Actions → Workflow permissions = Read and write。
+1. 发版前检查：CHANGELOG 顶部有对应 `## [X.Y.Z] - [date]` 段；`release.yml` 发布类 job 已加 `if: github.repository == '<upstream>'` 守卫（⚠️ 禁止写纯常量 `if: false`，actionlint 会报 `constant expression` 致整条 CI 失败）；未勾 pinned SHA；fork Settings → Actions → Workflow permissions = Read and write。
 2. 打标签(tag) 触发（公开动作，暂停等指令）：`git tag -a v[version] -m "release v[version]"` → `git push origin v[version]`。重触发用「删远端标签 + 重推」（`git push origin :refs/tags/v[version]` → `git push origin v[version]`），禁强推标签。推前大白话说明版本号、触发工作流、产物，暂停确认。
 3. 监控与取产物：`gh run watch` → `gh release view v[version]` → `gh release download v[version]`。无自动发布时 `gh release create v[version] --generate-notes` + `gh release upload v[version] [产物文件]`。
 4. 硬前提：fork 发版仅自取构建产物，绝不发布到 crates.io/PyPI。
@@ -211,14 +241,14 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 ### 示例三（工具缺失，阶段 0 暂停）
 用户输入：「帮我同步 dynamic-mcp」
 助手处理：
-1. 阶段 0：运行 `command -v git` / `command -v gh`。若发现 `gh` 不在 PATH。
-2. **立即暂停**，用大白话告诉用户：「本机没找到 gh（GitHub 命令行工具），这个技能必须有它才能查 PR/CI。请从 https://cli.github.com 安装并加入 PATH，或告诉我 gh 的绝对路径（如 D:/Tools/Assembly/gh.exe）。」
+1. 阶段 0：先运行 `where.exe git` / `where.exe gh` 取实际路径。若发现 `gh` 不在 PATH（where.exe 无结果）。
+2. **立即暂停**，用大白话告诉用户：「本机没找到 gh（GitHub 命令行工具），这个技能必须有它才能查 PR/CI。请从 https://cli.github.com 安装并加入 PATH，或告诉我 gh 的绝对路径（如 `<gh 绝对路径>`）。」
 3. 等用户明确给出路径或安装方式后，再继续。
 
 ### 示例四（异常场景）
 用户输入：「清理分支 feat/old 在 my-missing-repo」
 助手处理：
-1. 解析仓库：my-missing-repo 不在默认根目录一级子目录 → 要求用户提供绝对路径，并调用 `gh repo view zhangweildlh/my-missing-repo` 搜索远端。
+1. 解析仓库：my-missing-repo 不在默认根目录一级子目录 → 要求用户提供绝对路径，并调用 `gh repo view <login>/my-missing-repo`（`<login>` 取 config 的 `GH_USER`）搜索远端。
 2. 远端亦无结果 → 报告错误：「仓库 my-missing-repo 在本地根目录与远端 GitHub 均不存在，请确认名称或提供绝对路径」并终止。
 
 ## 边界与限制
