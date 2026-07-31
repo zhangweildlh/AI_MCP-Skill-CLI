@@ -17,9 +17,20 @@ if [ -f "$ROOT_DIR/config/github-sop.config.sh" ]; then
   source "$ROOT_DIR/config/github-sop.config.sh"
 fi
 
-# 默认值（配置留空时回退 PATH）
-GIT_BIN="${GIT_BIN:-git}"
-GH_BIN="${GH_BIN:-gh}"
+# 默认值（配置留空时回退）：优先 where.exe 解析实际路径（Windows 首选），否则 PATH 上的裸命令。
+# 与 SKILL.md「阶段 0」「工具路径不硬编码」契约保持一致——不得写死 git/gh 路径。
+if [ -z "${GIT_BIN:-}" ]; then
+  if command -v where.exe >/dev/null 2>&1; then
+    GIT_BIN="$(where.exe git 2>/dev/null | head -n1)"
+  fi
+  [ -z "${GIT_BIN:-}" ] && GIT_BIN="git"
+fi
+if [ -z "${GH_BIN:-}" ]; then
+  if command -v where.exe >/dev/null 2>&1; then
+    GH_BIN="$(where.exe gh 2>/dev/null | head -n1)"
+  fi
+  [ -z "${GH_BIN:-}" ] && GH_BIN="gh"
+fi
 MAIN_BRANCH="${MAIN_BRANCH:-main}"
 ORIGIN_REMOTE="${ORIGIN_REMOTE:-origin}"
 UPSTREAM_REMOTE="${UPSTREAM_REMOTE:-upstream}"

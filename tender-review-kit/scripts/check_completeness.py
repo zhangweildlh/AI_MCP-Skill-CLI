@@ -15,7 +15,7 @@
 纯标准库（json/re），零依赖。
 
 用法:
-    python check_completeness.py <工作区.md> [--hits <hits.json>]
+    uv run --project D:/Tools/Assembly/python/myenv python check_completeness.py <工作区.md> [--hits <hits.json>]
 """
 import sys
 import re

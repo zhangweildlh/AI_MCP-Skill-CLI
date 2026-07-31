@@ -16,11 +16,11 @@ q → 退出。
 默认读 workspace/ 下最新的 *.candidates.json;也可 --candidates 指定具体文件。
 
 用法:
-    python scripts/promote_candidates.py                    # 交互式(默认最新 workspace 候选)
-    python scripts/promote_candidates.py --candidates workspace/<项目>.candidates.json
-    python scripts/promote_candidates.py --list             # 只列,不审
-    python scripts/promote_candidates.py --decisions FILE   # 批量(FILE 每行 "y 视为xxx")
-    python scripts/promote_candidates.py --no-regression    # 改完不跑回归
+    uv run --project D:/Tools/Assembly/python/myenv python scripts/promote_candidates.py                    # 交互式(默认最新 workspace 候选)
+    uv run --project D:/Tools/Assembly/python/myenv python scripts/promote_candidates.py --candidates workspace/<项目>.candidates.json
+    uv run --project D:/Tools/Assembly/python/myenv python scripts/promote_candidates.py --list             # 只列,不审
+    uv run --project D:/Tools/Assembly/python/myenv python scripts/promote_candidates.py --decisions FILE   # 批量(FILE 每行 "y 视为xxx")
+    uv run --project D:/Tools/Assembly/python/myenv python scripts/promote_candidates.py --no-regression    # 改完不跑回归
 """
 import sys
 import json

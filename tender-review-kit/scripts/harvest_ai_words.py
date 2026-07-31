@@ -10,13 +10,13 @@ AI 在 Step 5 读条款时可能发现 keywords.json 没覆盖的判决性语言
 2. 未来自动扫描:用户明确接受后,才写入 data/local_keywords.json。
 
 Step 1. 列出待审 + 当前补漏回扫 (默认行为,不写本地库):
-    python harvest_ai_words.py <工作区.md>
+    uv run --project D:/Tools/Assembly/python/myenv python harvest_ai_words.py <工作区.md>
     → 解析表格 → 写 pending_words.json → 临时回扫当前标书 → 打印新增命中
 
 Step 2. 用户/AI 拍板后,只决定是否入本地库:
-    python harvest_ai_words.py <工作区.md> --accept-all          # 全接受
-    python harvest_ai_words.py <工作区.md> --accept "词A,词B"     # 部分接受
-    python harvest_ai_words.py <工作区.md> --reject-all          # 全拒绝(清空 pending)
+    uv run --project D:/Tools/Assembly/python/myenv python harvest_ai_words.py <工作区.md> --accept-all          # 全接受
+    uv run --project D:/Tools/Assembly/python/myenv python harvest_ai_words.py <工作区.md> --accept "词A,词B"     # 部分接受
+    uv run --project D:/Tools/Assembly/python/myenv python harvest_ai_words.py <工作区.md> --reject-all          # 全拒绝(清空 pending)
 
 接受的词写入 data/local_keywords.json(用户本地积累,gitignored),供以后标书自动命中。
 """
@@ -390,9 +390,9 @@ def main():
         print("─" * 60)
         print("⚠  这些词【尚未入库】。入库只影响以后标书;当前标书补漏以上方临时回扫为准。请审批:")
         print()
-        print("  全部接受  →  python scripts/harvest_ai_words.py %s --accept-all" % md_path)
-        print("  部分接受  →  python scripts/harvest_ai_words.py %s --accept \"词A,词B\"" % md_path)
-        print("  全部拒绝  →  python scripts/harvest_ai_words.py %s --reject-all" % md_path)
+        print("  全部接受  →  uv run --project D:/Tools/Assembly/python/myenv python scripts/harvest_ai_words.py %s --accept-all" % md_path)
+        print("  部分接受  →  uv run --project D:/Tools/Assembly/python/myenv python scripts/harvest_ai_words.py %s --accept \"词A,词B\"" % md_path)
+        print("  全部拒绝  →  uv run --project D:/Tools/Assembly/python/myenv python scripts/harvest_ai_words.py %s --reject-all" % md_path)
         print()
         print("  待审清单已保存: %s" % pending_path)
         return

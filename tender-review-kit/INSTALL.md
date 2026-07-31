@@ -13,7 +13,7 @@
 打开终端(Windows 开始菜单搜 **PowerShell**;macOS 用 **Terminal**;Linux 用你的 shell),`cd` 进入 skill 目录,然后:
 
 ```bash
-python scripts/check_env.py
+uv run --project D:/Tools/Assembly/python/myenv python scripts/check_env.py
 ```
 
 ### 三种结果
@@ -31,9 +31,9 @@ python scripts/check_env.py
     不装的话:无法解析 .docx 文件(.pdf 仍可用)
 
 ▎安装命令:
-  pip install python-docx
+  uv pip install --python D:/Tools/Assembly/python/myenv/.venv/Scripts/python.exe python-docx
 ```
-→ **复制粘贴跑这一行**,再跑一次 `python scripts/check_env.py` 确认。
+→ **复制粘贴跑这一行**,再跑一次 `uv run --project D:/Tools/Assembly/python/myenv python scripts/check_env.py` 确认。
 
 **③ 有缺失 ⚠(可选项)**
 ```
@@ -61,7 +61,7 @@ winget install Python.Python.3.12
 ```
 装完关掉 PowerShell 重开一次,然后:
 ```powershell
-python --version    # 应该看到 Python 3.12.x
+uv run --project D:/Tools/Assembly/python/myenv python --version    # 应该看到 Python 3.12.x
 ```
 
 ### macOS
@@ -91,11 +91,11 @@ sudo dnf install python3.12 python3-pip
 
 ```bash
 cd <skill 目录>
-python scripts/check_env.py
+uv run --project D:/Tools/Assembly/python/myenv python scripts/check_env.py
 ```
 
 它会输出:
-- 哪些 Python 包没装 → 给你 `pip install xxx` 命令
+- 哪些 Python 包没装 → 给你 `uv pip install --python D:/Tools/Assembly/python/myenv/.venv/Scripts/python.exe xxx` 命令
 - 系统工具 pdftotext 装没装 → 给你对应平台的命令
 - **不装的话什么做不了**(让你判断"我要不要这个能力")
 
@@ -104,7 +104,7 @@ python scripts/check_env.py
 ## 装完之后
 
 ```bash
-python scripts/check_env.py
+uv run --project D:/Tools/Assembly/python/myenv python scripts/check_env.py
 # → 看到 "✓ 环境完全就绪" 就可以开始用了
 ```
 
@@ -114,10 +114,10 @@ python scripts/check_env.py
 
 ## 常见问题
 
-**Q1:`pip install` 报权限错误怎么办?**
-A:加 `--user` 参数,装到用户目录:
+**Q1:`uv pip install --python D:/Tools/Assembly/python/myenv/.venv/Scripts/python.exe` 报权限错误怎么办?**
+A:uv 会把依赖直接装入指定的 myenv 虚拟环境,不会触碰系统 Python,通常不存在系统级权限问题;若仍报权限错误,多为目标路径被占用或防病毒软件拦截,请确认 `D:/Tools/Assembly/python/myenv` 目录可写后重试:
 ```bash
-pip install --user -r requirements.txt
+uv pip install --python D:/Tools/Assembly/python/myenv/.venv/Scripts/python.exe -r requirements.txt
 ```
 
 **Q2:`python` 命令找不到,但我刚装完?**
@@ -134,4 +134,4 @@ A:试试 `which pdftotext` 看一下;如果还是没有,可能要把 `/usr/bin` 
 
 ---
 
-**任何时候**,跑一遍 `python scripts/check_env.py` 都会告诉你当前环境状态——这是你的"故障排查第一招"。
+**任何时候**,跑一遍 `uv run --project D:/Tools/Assembly/python/myenv python scripts/check_env.py` 都会告诉你当前环境状态——这是你的"故障排查第一招"。
