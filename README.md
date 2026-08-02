@@ -52,7 +52,7 @@
   - **GitHub 账号 + 网络**：用于远端读取/搜索/PR/CI/Release。
   - **本地仓库根目录**：默认 `D:\Documents\AI_Work_Temp`（一级子目录即各仓库）。
   - **参考文件**：`references/gh-capability.md`、`references/fork-ci-pitfalls.md`。
-  - **不依赖任何 MCP**；本机无 Docker、禁止本地编译（构建产物走远程 CI）。
+  - **不依赖任何 MCP**；本机无 Docker，默认走远程 CI，允许本机已装且在 PATH 的工具本地编译（不安装新工具链）。
 - **备注**：含硬约束——禁止强推/删 main、标签重推用"删远端标签+重推"、本地 main 跟踪 origin/main。
 
 ### 3. ref-material-writing（参考资料驱动文档撰写）
