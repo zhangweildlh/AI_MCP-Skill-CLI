@@ -17,19 +17,28 @@ test_contract_precheck() {
 test_contract_fetch_prune() {
   local pair; pair="$(setup_origin_and_local)"
   local local="${pair#*|}"
-  local out; out="$("$ROOT_DIR/scripts/sop_fetch_prune.sh" "$local" 2>&1)"
-  if assert_contains "fetch --prune" "$out"; then
-    pass "fetch_prune 执行 git fetch --prune 且不报错（只清本地过时引用）"; return 0
+  # 默认模式：进入 [dry-run] 预览，不真正执行 git fetch --prune（与写操作默认干跑契约一致）
+  local out_dry; out_dry="$("$ROOT_DIR/scripts/sop_fetch_prune.sh" "$local" 2>&1)"
+  if ! assert_contains "[dry-run]" "$out_dry"; then
+    fail "fetch_prune 默认未进入 dry-run 预览: $out_dry"; return 1
   fi
-  fail "fetch_prune 异常: $out"; return 1
+  # --confirm 模式：真正执行 git fetch --prune，只清本地过时引用
+  local out_run; out_run="$("$ROOT_DIR/scripts/sop_fetch_prune.sh" "$local" --confirm 2>&1)"
+  if assert_contains "git fetch --prune" "$out_run"; then
+    pass "fetch_prune: 默认[dry-run]预览、--confirm 真正执行 git fetch --prune 且仅清本地过时引用（不动远程）"; return 0
+  fi
+  fail "fetch_prune --confirm 异常: $out_run"; return 1
 }
 
 test_contract_branch_merged_status() {
   local pair; pair="$(setup_origin_and_local)"
   local local="${pair#*|}"
-  local out; out="$("$ROOT_DIR/scripts/sop_branch_merged_status.sh" "$local" 2>&1)"
-  if assert_contains "已合并" "$out" && assert_contains "未合并" "$out"; then
-    pass "branch_merged_status 输出合并状态（只读）"; return 0
+  local out rc
+  out="$("$ROOT_DIR/scripts/sop_branch_merged_status.sh" "$local" 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then fail "脚本异常退出 rc=$rc: $out"; return 1; fi
+  if assert_contains "已合并" "$out" && assert_contains "未合并" "$out" \
+     && assert_contains "仍挂开放(open) PR" "$out"; then
+    pass "branch_merged_status 输出合并状态 + open PR 反向识别段（只读、不崩溃）"; return 0
   fi
   fail "branch_merged_status 异常: $out"; return 1
 }
