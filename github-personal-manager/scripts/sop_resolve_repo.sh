@@ -13,13 +13,23 @@ SOP_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SOP_SELF_DIR/lib/sop-common.sh"
 _sop_load_config
 
+# 支持 -h/--help（与其他 sop_*.sh 保持一致）
+for _a in "$@"; do
+  case "$_a" in
+    -h|--help) sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; echo "用法: bash sop_resolve_repo.sh [仓库路径] [--quiet]"; exit 0 ;;
+  esac
+done
 REPO_PATH="${1:-}"
 QUIET=0
 [ "${2:-}" = "--quiet" ] && QUIET=1
 
 # 进入仓库并校验是 git 工作树（复用公共函数），随后一次性解析远端三元组（含 GH_USER/UPSTREAM_REPO 补全）
 _sop_require_repo "$REPO_PATH" || exit 1
-_sop_resolve_remotes
+# L2 修复：遵守 _sop_resolve_remotes 的 return 1 契约——GH_USER 无法解析时给出明确告警（不再静默输出空 GH_USER= 误导调用方），
+# 但 REPO_NAME 等仍可输出，由调用方据告警自行决定是否中止。
+if ! _sop_resolve_remotes; then
+  echo "⚠️ 无法解析 GH_USER（远端非 github.com 域名或 config 未设置）；REPO_NAME 等仍输出，但 GH_USER 为空，调用方需自行处理。" >&2
+fi
 
 # 映射公共库解析结果到本脚本输出语义
 GH_USER="${SOP_ORIGIN_OWNER:-$GH_USER}"

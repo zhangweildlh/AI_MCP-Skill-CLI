@@ -9,6 +9,16 @@
 
 ---
 
+## [2026-08-02] · 发版 v2.2.1
+
+### Fixed
+- **github-personal-manager**：修复 `_sop_resolve_remotes` 远端三元组解析中 `UPSTREAM_REPO` 漏填（M1）；`sop_branch_merged_status.sh` 在 `GH_USER` 未解析时干净跳过 open PR 查询段、强化 `_sop_pr_open_list` 守卫避免畸形 `gh pr list --repo /`（M2/M3）；`sop_fetch_prune.sh` dry-run 改用 `git fetch --prune --dry-run` 与 confirm 模式范围一致（L1）；`sop_resolve_repo.sh`/`sop_sync_upstream.sh` 解析失败时优雅降级并给出明确告警、消除"静默空 GH_USER"误导（L2）；`sop_resolve_repo.sh` 补 `-h/--help` 解决风格不一致（L5，附带）。
+
+### Added
+- **github-personal-manager 冒烟测试**：新增 `smoke/tests/test_contracts_extra.sh` 契约测试（M4），覆盖 open PR 反向识别、GH_USER 未解析干净跳过、sync_upstream M>0 PR 核查三处边界；冒烟用例总数 +3（PASS=59 SKIP=1）。
+
+---
+
 ## [2026-07-31]
 
 ### Added
