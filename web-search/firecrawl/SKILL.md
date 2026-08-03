@@ -6,8 +6,8 @@ description: web-search 的 Firecrawl 轨道适配层。封装官方 firecrawl C
 # Firecrawl 适配层（firecrawl/cli）
 
 ## 前置
-- 官方 CLI 已全局安装（落在 `D:\Tools\Assembly\nodejs\node_global`，PATH 已注册）；`firecrawl --version` 可验证。
-- 密钥 `FIRECRAWL_API_KEY`（父 `.env` 持有），调用前注入环境变量。
+- 官方 CLI 已全局安装（全局 `firecrawl` 命令，PATH 已注册）；`firecrawl --version` 可验证。
+- 密钥 `FIRECRAWL_API_KEY` 由 `firecrawl login`（全局凭据）提供，**不**放入 `web-search/.env`；缺失则轨道降级。
 
 ## 命令模板（具体 flag 以 `firecrawl <cmd> --help` 为准，上游 openapi.json 跟进时同步）
 - 搜索：`firecrawl search "<查询>"`
@@ -15,12 +15,15 @@ description: web-search 的 Firecrawl 轨道适配层。封装官方 firecrawl C
 - 爬取：`firecrawl crawl <URL>`
 - 站点地图：`firecrawl map <URL>`
 - 智能体任务：`firecrawl agent "<任务描述>"`
-- 交互：`firecrawl interact <URL> --task "<操作>"`
+- 交互：`firecrawl interact <URL> --prompt "<操作>"`（先有 scrape 产物；`-s/--scrape-id` 默认上次 scrape）
 
 ## 密钥注入（调用前，PowerShell 示例）
 ```powershell
-# 从父 .env 解析 FIRECRAWL_API_KEY 真实值后注入当前进程
-$env:FIRECRAWL_API_KEY = $keyValue
+# FIRECRAWL_API_KEY 由 `firecrawl login` 写入全局凭据；如需显式注入，可从凭据或环境变量取真实值
+# 方式A：使用 firecrawl 自带 env 子命令拉取并写入本地 .env
+firecrawl env
+# 方式B：从凭据读出真实值后注入当前进程
+$env:FIRECRAWL_API_KEY = (firecrawl env | Select-String 'FIRECRAWL_API_KEY=(.+)' | ForEach-Object { $_.Matches.Groups[1].Value })
 firecrawl search "查询"
 ```
 
