@@ -19,11 +19,12 @@ version: 1.0.0
 
 ### 阶段A：双轨独立并行（互不依赖，各自跑完）
 - 轨道1 AnySearch：见 `{SKILL_ROOT}/anysearch-skill/SKILL.md`。运行（严格 uv，禁裸 python）：
-  `uv run --project D:\Tools\Assembly\python\myenv python {SKILL_ROOT}/anysearch-skill/scripts/anysearch_cli.py search "查询" --max_results 5`
-  密钥 `ANYSEARCH_API_KEY` 从父级 `.env` 读取并注入进程环境变量。
-- 轨道2 Firecrawl：见 `{SKILL_ROOT}/firecrawl/SKILL.md`。调用官方 CLI（全局 `firecrawl` 命令，已装于 `D:\Tools\Assembly\nodejs\node_global`）：
+  `uv run --with requests python {SKILL_ROOT}/anysearch-skill/scripts/anysearch_cli.py search "查询" --max_results 5`
+  - 密钥 `ANYSEARCH_API_KEY` 由 `anysearch_cli.py` 自动从 `{SKILL_ROOT}/.env` 加载（脚本已向上探测父技能 .env）；亦可 `--api_key` 或环境变量覆盖。
+  - vertical 域（finance/academic/travel/legal 等）查询：**必须先** `get_sub_domains` 发现 `sub_domain`，再 `search --domain --sub_domain --sdp`，否则可能漏检；通用查询可直接 `search`。
+- 轨道2 Firecrawl：见 `{SKILL_ROOT}/firecrawl/SKILL.md`。调用官方 CLI（全局 `firecrawl` 命令，PATH 已注册）：
   `firecrawl search "查询"`
-  密钥 `FIRECRAWL_API_KEY` 从父级 `.env` 读取并注入环境变量。
+  - 密钥 `FIRECRAWL_API_KEY` 由 `firecrawl login`（全局凭据）提供，**不**放入 `{SKILL_ROOT}/.env`；缺失时本轨道按阶段C/D 降级。
   若 `firecrawl` 命令不可用（未安装/无 key/网络失败），本轨道标记失败，进入阶段C补台。
 
 ### 阶段B：多来源印证
