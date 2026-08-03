@@ -1,8 +1,8 @@
 # =====================================================================
 # AI_MCP-Skill-CLI 仓库级 .gitignore
 # 用途：私有仓库，用于日常生产环境 + 云端备份。
-# 规则依据：用户 2026-07-17 需求（Memory-Data 规则于 2026-08-02 调整为整体排除）
-#   - Memory-Data 目录整体不入库（用户 2026-08-02 指令：整个目录排除，本地保留）
+# 规则依据：用户 2026-07-17 需求
+#   - Memory-Data 目录内「非 .md 文件」不入库（.md 文件保留入库）
 #   - .workbuddy 为本地项目配置，不入库（仅本地读取）
 #   - Syncfolders 同步数据库、*.7z 压缩包不入库
 #   - 用户明确允许：anysearch-skill/.env、web-search/.env、
@@ -11,8 +11,8 @@
 
 # ---------- 用户明确排除 ----------
 .workbuddy/
-# Memory-Data 整体排除（用户 2026-08-02 指令：整个目录不入库，本地保留）
-Memory-Data/
+Memory-Data/*
+!Memory-Data/*.md
 Syncfolders_Database_db
 *.7z
 *.zip

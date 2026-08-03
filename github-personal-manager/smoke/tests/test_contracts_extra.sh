@@ -25,7 +25,7 @@ test_contract_all_help() {
     if [ "$rc" -ne 0 ]; then echo "    $(basename "$s") -h rc=$rc"; fail=1; fi
     if ! printf '%s' "$out" | grep -q "用法"; then echo "    $(basename "$s") -h 无'用法'"; fail=1; fi
   done
-  if [ "$fail" -eq 0 ]; then pass "全部 12 个脚本 -h 均正常打印用法(exit 0)"; return 0; fi
+  if [ "$fail" -eq 0 ]; then pass "全部 $(ls "$ROOT_DIR"/scripts/sop_*.sh 2>/dev/null | wc -l | tr -d ' ') 个脚本 -h 均正常打印用法(exit 0)"; return 0; fi
   fail "部分脚本 -h 异常"; return 1
 }
 
@@ -35,7 +35,7 @@ test_contract_unknown_opt_exit2() {
     out="$("$ROOT_DIR/scripts/$s.sh" --bogus-opt-xyz 2>&1)"; rc=$?
     if [ "$rc" -ne 2 ]; then echo "    $s 未知选项 rc=$rc(期望2)"; fail=1; fi
   done
-  if [ "$fail" -eq 0 ]; then pass "7 个带选项脚本对未知选项均 rc=2 退出"; return 0; fi
+  if [ "$fail" -eq 0 ]; then pass "$(echo $_STRICT_OPT_SCRIPTS | wc -w | tr -d ' ') 个带选项脚本对未知选项均 rc=2 退出"; return 0; fi
   fail "未知选项处理异常"; return 1
 }
 
@@ -453,62 +453,8 @@ register_test "L2-补充: upstream M>0 查PR路径" test_contract_upstream_ahead
 register_test "L2-补充: upstream 非 main 守卫" test_contract_upstream_notmain
 register_test "L2-补充: upstream 脏区硬停" test_contract_upstream_dirty
 
-# ===== M4 补齐：open PR 反向识别（branch_merged_status）与 upstream PR 核查路径（gh 桩） =====
-
-# 让 _sop_resolve_remotes 成功解析（默认本地裸仓库路径无法解析 GH_USER）：将 origin 改写为 github.com 形式。
-# 验证 open PR 反向识别真正生效——gh 桩返回的 PR 分支名出现在输出，且确实触发了 gh pr list 调用。
-test_contract_branch_merged_status_open_pr_stub() {
-  local pair; pair="$(setup_origin_and_local)"
-  local local="${pair#*|}"
-  "$GIT_BIN" -C "$local" remote set-url origin "https://github.com/zhangweildlh/test-repo.git"
-  local gh_stub; gh_stub="$(make_fixture)/gh_stub.sh"
-  cat > "$gh_stub" <<'STUB'
-#!/usr/bin/env bash
-echo "$*" >> "$SMOKE_GH_LOG"
-case "$1 $2" in
-  "pr list") printf '123\topen\tfeat: demo\tfeature/open-pr-test\n124\topen\tfix: bug\tbugfix/another\n' ;;
-  *) : ;;
-esac
-STUB
-  chmod +x "$gh_stub"
-  local log; log="$(make_fixture)/gh_calls.log"; : > "$log"
-  local cfg="$ROOT_DIR/config/github-sop.config.sh"
-  local cfg_bak=""
-  if [ -f "$cfg" ]; then cfg_bak="$(make_fixture)/cfg.bak"; mv "$cfg" "$cfg_bak"; fi
-  trap 'if [ -n "$cfg_bak" ] && [ -f "$cfg_bak" ]; then mv -f "$cfg_bak" "$cfg"; fi' RETURN
-  export SMOKE_GH_LOG="$log"
-  export GH_BIN="$gh_stub"
-  local out rc; out="$("$ROOT_DIR/scripts/sop_branch_merged_status.sh" "$local" 2>&1)"; rc=$?
-  if [ "$rc" -ne 0 ]; then fail "脚本异常退出 rc=$rc: $out"; return 1; fi
-  if ! grep -q "pr list" "$log"; then fail "未触发 gh pr list 调用: $(cat "$log")"; return 1; fi
-  if ! assert_contains "feature/open-pr-test" "$out"; then fail "open PR 分支名未出现在反向识别段: $out"; return 1; fi
-  if ! assert_contains "删除源分支将使对应 PR" "$out"; then fail "反向门禁提示缺失: $out"; return 1; fi
-  pass "branch_merged_status: open PR 反向识别生效（gh 桩返回分支名出现在输出，并触发 pr list 调用）"
-}
-
-# GH_USER 未解析时（默认本地裸仓库路径）：应干净跳过 PR 段（rc=0），且不得发起任何畸形 gh pr list 调用（M2/M3 回归）。
-test_contract_branch_merged_status_unresolved_skip() {
-  local pair; pair="$(setup_origin_and_local)"
-  local local="${pair#*|}"
-  local gh_stub; gh_stub="$(make_fixture)/gh_stub.sh"
-  cat > "$gh_stub" <<'STUB'
-#!/usr/bin/env bash
-echo "$*" >> "$SMOKE_GH_LOG"
-STUB
-  chmod +x "$gh_stub"
-  local log; log="$(make_fixture)/gh_calls.log"; : > "$log"
-  local cfg="$ROOT_DIR/config/github-sop.config.sh"
-  local cfg_bak=""
-  if [ -f "$cfg" ]; then cfg_bak="$(make_fixture)/cfg.bak"; mv "$cfg" "$cfg_bak"; fi
-  trap 'if [ -n "$cfg_bak" ] && [ -f "$cfg_bak" ]; then mv -f "$cfg_bak" "$cfg"; fi' RETURN
-  export SMOKE_GH_LOG="$log"
-  export GH_BIN="$gh_stub"
-  local out rc; out="$("$ROOT_DIR/scripts/sop_branch_merged_status.sh" "$local" 2>&1)"; rc=$?
-  if [ "$rc" -ne 0 ]; then fail "解析失败应仍 rc=0 干净跳过: rc=$rc: $out"; return 1; fi
-  if ! assert_contains "跳过 PR 查询：远端三元组解析失败" "$out"; then fail "未打印干净跳过提示: $out"; return 1; fi
-  if grep -q "pr list" "$log"; then fail "解析失败不应触发任何 gh pr list 调用（避免畸形 --repo /）: $(cat "$log")"; return 1; fi
-  pass "branch_merged_status: GH_USER 未解析时干净跳过 PR 段(rc=0，且无畸形 gh 调用)（M2/M3 回归）"
-}
+# ===== M4 补齐：upstream PR 核查路径（gh 桩） =====
+# 注：branch_merged_status 的 open PR 反向识别段已在生产代码与 SKILL.md 中同步移除，对应回归测试一并删除（见审计报告 H1）。
 
 # upstream 同步 M>0 路径：中性化 config 后由环境变量注入 GH_USER/UPSTREAM_REPO（保留本地裸仓库路径做离线 fetch/push），
 # PR 核查应真实调用 gh pr list（桩返回空→输出『无 open PR』），证明 M>0 PR 核查路径被有效覆盖。
@@ -546,6 +492,4 @@ STUB
   pass "sync_upstream: M>0 路径触发 gh pr list 核查（桩返回空→输出『无 open PR』）"
 }
 
-register_test "M4-补齐: branch_merged_status open PR 反向识别(gh桩)" test_contract_branch_merged_status_open_pr_stub
-register_test "M4-补齐: branch_merged_status GH_USER未解析干净跳过(M2/M3回归)" test_contract_branch_merged_status_unresolved_skip
 register_test "M4-补齐: sync_upstream M>0 PR核查触发(gh桩)" test_contract_sync_upstream_pr_stub

@@ -52,7 +52,7 @@
 - 调用任意 GitHub REST 端点：`gh api repos/<owner>/<repo>/contents/<path>` 读文件、`gh api user` 看本人信息。
 - 支持 GraphQL：`gh api graphql -f query='...'`（分支保护即用此）。
 - 常用选项：`-H` 自定义头、`-F` 参数、`-q` jq 过滤、`--silent`、`--hostname`（GitHub Enterprise）。
-- REST 搜索等价：`gh api "/search/repositories?q=..."`。✅ 验证示例：`gh api repos/<owner>/<repo>/contents/<path> -q .content` 返 base64（解码后为 `# <repo>…`；已用真实仓库实测通过，此处以占位符 `<owner>/<repo>` 表达可移植）。
+- REST 搜索等价：`gh api "/search/repositories?q=..."`。✅ `gh api repos/asyrjasalo/dynamic-mcp/contents/README.md -q .content` 返 base64（解码后为 `# dynamic-mcp…`）。
 
 ## CI/CD（gh run / gh workflow）
 | 命令 | 作用 | 对应流程 |
