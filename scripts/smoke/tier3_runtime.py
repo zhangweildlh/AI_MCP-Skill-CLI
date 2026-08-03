@@ -81,17 +81,29 @@ def self_check(rep: Report) -> None:
     ws_tests = REPO_ROOT / "web-search" / "tests"
     if ws_tests.exists():
         # 被测脚本模块级 import requests：uv 可用时优先 `uv run --with requests`，否则退回当前解释器
+        # D10 修复：与上方脚本自检一致，采用 attempts 列表逐个回退（uv 优先、否则当前解释器），
+        # 全部失败后再按错误分类判定，避免 uv 不可用场景直接 FATAL 阻断可用路径。
+        attempts = [
+            [sys.executable, "-m", "unittest", "discover", "-s", "web-search/tests", "-v"],
+        ]
         if shutil.which("uv"):
-            cmd = ["uv", "run", "--with", "requests", "python",
-                   "-m", "unittest", "discover", "-s", "web-search/tests", "-v"]
-        else:
-            cmd = [sys.executable, "-m", "unittest", "discover",
-                   "-s", "web-search/tests", "-v"]
-        code, out, err = run_cmd(cmd, timeout=300)
+            attempts.insert(0, ["uv", "run", "--with", "requests", "python",
+                                "-m", "unittest", "discover", "-s", "web-search/tests", "-v"])
+        code, out, err = 0, "", ""
+        dep_error = False
+        for cmd in attempts:
+            code, out, err = run_cmd(cmd, timeout=300)
+            if code == 0:
+                break
+            combined_try = (out or "") + (err or "")
+            if "ModuleNotFoundError" in combined_try or "ImportError" in combined_try:
+                dep_error = True
         combined = (out or "") + (err or "")
         if code == 0:
             rep.ok("web-search", "tests", "审计修复回归测试通过（web-search/tests）")
-        elif "ModuleNotFoundError" in combined or "ImportError" in combined:
+        elif dep_error and "FAILED" not in combined:
+            # D1 修复：仅当失败*完全*由依赖缺失引起（输出无真实断言失败 FAILED 信号）才降级 WARN；
+            # 若输出同时含 FAILED（真实回归），一律判 FATAL 阻断，避免被依赖缺失掩盖。
             rep.warn("web-search", "tests",
                      "回归测试依赖未安装（requests），属环境问题未阻断；"
                      "建议 `uv run --with requests python -m unittest discover -s web-search/tests -v`")

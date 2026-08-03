@@ -11,6 +11,20 @@ credentials:
     storage: ".env file, environment variable, or --api_key CLI flag"
 ---
 
+## 本仓库本地化调用约定（重要覆盖说明）
+
+> **本文件为上游 `anysearch-ai/anysearch-skill`（v3.0.1）的扁平并入副本，非独立 clone、无嵌套 `.git`。**
+> 下文“Runtime Detection”“Platform Detection”与 `python`/`python3` 直调示例**仅供上游参考**；
+> 在本仓库内，**一律以父技能 `web-search/SKILL.md` 的调用契约为准**：
+>
+> ```bash
+> uv run --with requests python {SKILL_ROOT}/anysearch-skill/scripts/anysearch_cli.py search "查询" --max_results 5
+> ```
+>
+> - **禁止**裸 `python`/`python3` 直调（本机硬约束：一律 `uv run`；裸调在未装 `requests` 的解释器上必 `ModuleNotFoundError`）。
+> - 密钥由脚本 `_load_env` 自动从**父级 `web-search/.env`** 加载（三级探测，就近优先），无需在子目录放 `.env`。
+> - 升级上游时**直接覆盖**文件（保留本仓库对 `_load_env` 的父级 `.env` 探测补丁与本条 overlay），**切勿将其恢复为独立 clone**（否则会在父仓库内生成嵌套 `.git`）。
+
 ## Overview
 
 AnySearch is a unified real-time search service supporting general web search, vertical domain search, parallel batch search, and full-page content extraction. It exposes a single JSON-RPC 2.0 endpoint and requires no MCP server installation. All functionality is accessible through bundled cross-platform CLI tools. Use the configured runtime directly for routine `search`, `batch_search`, `extract`, and `get_sub_domains` calls; run the `doc` command only when the CLI interface is unknown or recovery information is needed (see Recommended Entry Point).

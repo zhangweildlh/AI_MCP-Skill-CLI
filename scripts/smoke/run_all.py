@@ -3,12 +3,12 @@
 """run_all.py —— 五层冒烟测试编排器。
 
 用法：
-  uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py                 # 运行全部分层
-  uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 0,1      # 仅运行 Tier0 + Tier1（预提交钩子场景）
-  uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 0,1,2,3  # CI 场景（不含行为级 Tier4）
-  uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --list          # 仅列出发现的 Skill
-  uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --strict        # WARN 也视为失败
-  uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --json out.json # 输出 JSON 报告
+  uv run --with requests python scripts/smoke/run_all.py                 # 运行全部分层
+  uv run --with requests python scripts/smoke/run_all.py --tier 0,1      # 仅运行 Tier0 + Tier1（预提交钩子场景）
+  uv run --with requests python scripts/smoke/run_all.py --tier 0,1,2,3  # CI 场景（不含行为级 Tier4）
+  uv run --with requests python scripts/smoke/run_all.py --list          # 仅列出发现的 Skill
+  uv run --with requests python scripts/smoke/run_all.py --strict        # WARN 也视为失败
+  uv run --with requests python scripts/smoke/run_all.py --json out.json # 输出 JSON 报告
 
 退出码：0 = 通过；1 = 存在致命(或 strict 下存在警告)；2 = 参数/用法错误。
 """

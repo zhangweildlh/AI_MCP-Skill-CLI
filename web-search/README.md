@@ -23,9 +23,8 @@ web-search/
 ### A. AnySearch（手动同步上游，非独立 clone）
 - 上游：`anysearch-ai/anysearch-skill`（默认分支 main，当前 v3.0.1）
 - 现状：本仓库已将 anysearch-skill **扁平并入** `web-search/anysearch-skill/`（**无嵌套 .git**），无法独立 `git pull`。
-- 升级（二选一）：
-  - 直接覆盖：从上游下载 `scripts/anysearch_cli.py`（及 `.js/.ps1/.sh`）、`SKILL.md`、`shared/` 覆盖到 `{SKILL_ROOT}/anysearch-skill/`（保留本仓库对 `_load_env` 的父级 .env 探测补丁）
-  - 或恢复独立 clone：删 `web-search/anysearch-skill/`，`git clone --depth 1 https://github.com/anysearch-ai/anysearch-skill web-search/anysearch-skill`，再重打 `_load_env` 补丁
+- 升级（直接覆盖，**禁止恢复独立 clone** —— 在父仓库内 `git clone` 会生成嵌套 `.git`，导致 `web-search/anysearch-skill/` 子目录文件全部脱离父仓库跟踪）：
+  - 从上游下载 `scripts/anysearch_cli.py`（及 `.js/.ps1/.sh`）、`SKILL.md`、`shared/` 覆盖到 `{SKILL_ROOT}/anysearch-skill/`，**保留本仓库对 `_load_env` 的父级 .env 探测补丁与子 SKILL.md 顶部的「本仓库本地化调用约定」overlay**；切勿在子目录内执行 `git clone`。
 - 校验：diff 上游 `scripts/anysearch_cli.py` 与本地，确认调用契约未变（尤其 `_load_env` 父级 .env 探测）
 - 同步记录表：
 
