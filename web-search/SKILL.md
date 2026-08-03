@@ -1,6 +1,6 @@
 ---
 name: web-search
-description: 双工具双轨联网搜索与抓取父技能。协调 AnySearch（Python CLI，uv 管理）与 Firecrawl（官方 CLI，Node）两源独立搜索，多来源印证 + 相互补台 + Agent 原生 web_search/web_fetch 兜底，输出唯一可信调研素材。
+description: 双工具双轨联网搜索与抓取父技能。协调 AnySearch（Python CLI，uv 管理）与 Firecrawl（官方 CLI，Node）两源独立搜索，多来源印证 + 相互补台 + Agent 原生 web_search/web_fetch 兜底，输出唯一可信调研素材。关键词：联网搜索、网页抓取、多来源印证、资料调研、事实核查。当用户需要联网查证、抓取网页内容、做多来源交叉验证或深度资料调研时触发此技能（如"帮我搜一下""查一下这个""联网找资料""抓取这个网页"）。不适用于：纯本地文件检索、无需联网的知识问答、代码仓库内搜索。
 version: 1.0.0
 ---
 
