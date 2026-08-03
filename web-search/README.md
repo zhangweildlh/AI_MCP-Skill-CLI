@@ -12,8 +12,10 @@ web-search/
 │   ├── SKILL.md
 │   ├── scripts/anysearch_cli.py
 │   └── .env.example
-└── firecrawl/        # 适配层（基于官方 CLI，非 clone）
-    └── SKILL.md
+├── firecrawl/        # 适配层（基于官方 CLI，非 clone）
+│   └── SKILL.md
+└── tests/            # 审计修复回归测试（stdlib unittest）
+    └── test_fixes.py
 ```
 
 ## 上游演进快速跟进指南
@@ -56,3 +58,25 @@ web-search/
 npm install -g firecrawl-cli
 firecrawl --version
 ```
+
+## 回归测试
+
+改动本技能（尤其是 `anysearch-skill/scripts/anysearch_cli.py` 的 `_load_env`、父/子 SKILL.md 的调用契约）后**必须**跑一遍：
+
+```bash
+# 必须走 uv：被测脚本模块级 import requests，裸 python 会 ModuleNotFoundError
+uv run --with requests python -m unittest discover -s web-search/tests -v
+```
+
+覆盖项（`tests/test_fixes.py`）：
+
+| 用例 | 守护的契约 |
+|------|-----------|
+| `test_f2_env_load_resolves_parent_env` | `_load_env` 能解析父级 `web-search/.env` 的 `ANYSEARCH_API_KEY`（解耦回归防线） |
+| `test_f4_no_hardcoded_assembly_path` | 父 SKILL.md 无本机绝对路径硬编码 |
+| `test_f7_interact_uses_prompt_not_task` | firecrawl `interact` 文档模板用 `--prompt` |
+| `test_c8_no_firecrawl_key_persisted_to_dotenv` | 适配层不给出把 `FIRECRAWL_API_KEY` 落盘写 `.env` 的指引 |
+| `test_c10_skill_and_readme_contract_consistent` | SKILL.md 与 README.md 的脚本路径/密钥位置/升级方式描述一致 |
+| `test_f7_cli_contract` | 真实执行 `firecrawl interact --help` 校验上游 CLI 契约（CLI 缺失则 skip） |
+
+该套件已接入仓库冒烟门禁 Tier 3（`scripts/smoke/tier3_runtime.py`），CI 会自动执行。
