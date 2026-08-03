@@ -168,7 +168,7 @@ _sop_parse_owner_repo() {
 
 # 解析远端三元组：从 `git remote -v` 提取 origin/upstream 的 owner/repo。
 # 设置全局变量：SOP_ORIGIN_OWNER / SOP_ORIGIN_REPO / SOP_UPSTREAM_OWNER_REPO
-# 并补全（当 config 为空时）：GH_USER（← origin owner，再回退仍空则报错退出，绝不写死具体账号以保持跨账号可移植）、UPSTREAM_REPO（← upstream owner/repo）。
+# 并补全（当 config 为空时）：GH_USER（← origin owner，再回退允许的硬编码默认值 zhangweildlh）、UPSTREAM_REPO（← upstream owner/repo）。
 # 调用前须已 _sop_load_config（确保 GIT_BIN/ORIGIN_REMOTE/UPSTREAM_REMOTE 就绪），且已 cd 进目标仓库。
 _sop_resolve_remotes() {
   local remotes_raw owner_repo line
@@ -183,19 +183,15 @@ _sop_resolve_remotes() {
   owner_repo="$(printf '%s\n' "$line" | awk '{print $2}' | _sop_parse_owner_repo)"
   SOP_UPSTREAM_OWNER_REPO="$owner_repo"
 
-  # 补全 config 空值（脚本层，绝不写死具体账号——优先用 origin owner 解析结果，仍空则报错退出）
-  if [ -z "${GH_USER:-}" ] && [ -n "$SOP_ORIGIN_OWNER" ]; then
+  # 补全 GH_USER：origin 拥有者优先于 config 默认值（避免 config 非空默认值锁死跨账号身份）。
+  # 仅当 origin 无法解析且 config 也未显式设定时才回退允许的硬编码默认值，并打印可观测告警。
+  if [ -n "$SOP_ORIGIN_OWNER" ]; then
     GH_USER="$SOP_ORIGIN_OWNER"
+  elif [ -z "${GH_USER:-}" ]; then
+    echo "⚠️ 警告：未从 origin 远端解析到拥有者，且 config 未显式设定 GH_USER，回退默认值 zhangweildlh（若非本人账号，请配置 config GH_USER 或检查 origin 远端）。" >&2
+    GH_USER="zhangweildlh"
   fi
-  # 补全 UPSTREAM_REPO（← upstream owner/repo）；置于 GH_USER 校验之前，
-  # 即使 GH_USER 后续解析失败（return 1 提前退出）也先填入，避免 UPSTREAM_REPO 漏填（M1 修复）。
   if [ -z "${UPSTREAM_REPO:-}" ] && [ -n "$SOP_UPSTREAM_OWNER_REPO" ]; then
     UPSTREAM_REPO="$SOP_UPSTREAM_OWNER_REPO"
-  fi
-  if [ -z "${GH_USER:-}" ]; then
-    # 既不能从 config 取，也不能从 origin owner 解析 → 无法继续，提示用户配置，绝不写死任一具体账号
-    echo "⚠️ 无法解析 GH_USER：本机 config 未设置 GH_USER，且仓库 origin remote 无可解析的 owner。" >&2
-    echo "   请在 config/github-sop.config.sh 设置 GH_USER（本机值不入库），或确保仓库已配置 origin remote（脚本据 origin owner 自动解析）。" >&2
-    return 1
   fi
 }

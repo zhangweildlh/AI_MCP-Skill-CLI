@@ -1,0 +1,9 @@
+{
+  "ownerId": "local-selfbuilt-360chrome",
+  "slug": "playwright-360chrome",
+  "version": "2.0.0",
+  "publishedAt": 1773251092810,
+  "agent_created": true,
+  "convertedFrom": "playwright@1.0.3 (clawhub market)",
+  "note": "2026-08-02 由市场版 playwright 转为本地自建技能；独立 slug 防止 clawhub sync 覆盖本机化改造（强制 360Chromex + 继承但不修改 User Data）。"
+}

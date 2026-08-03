@@ -1,6 +1,6 @@
 # Fork CI 实证要点与编译构建规则
 
-> 标准阶段见「标准代码修改工作流程」。本约记某 Rust CLI 项目 fork 升级（`v1.5.1→v1.8.2` 实操）中独有的坑与 fork 专属约束；所有账户/仓库/邮箱均已抽离，可移植（占位符 `<upstream>`/`<fork>`/`<feat>`/`<version>`）。
+> 标准阶段见「标准代码修改工作流程」。本约记 dynamic-mcp v1.5.1→v1.8.2 实操中独有的坑与 fork 专属约束；已抽离账户/仓库/邮箱，可移植（占位符 `<upstream>`/`<fork>`/`<feat>`/`<version>`）。
 
 ## 编译与构建规则
 1. 默认使用 GitHub Actions CI 构建；不主动安装任何编译工具链（MSVC Build Tools、MinGW 等）；若仅用本机已有工具/程序（不安装新工具）即可完成编译，则允许本地编译（见「环境硬约束（本地编译有条件放开）」）。
@@ -19,7 +19,7 @@
 8. **勿勾 “Require actions to be pinned to a full-length commit SHA”**：`ci.yml`/`release.yml` 用 tag 引用 action（`actions/checkout@v4`）时勾选必败（整 CI 红）。
 9. **clippy 坑（`-D warnings` 必查）**：如 `clippy::useless_conversion`（`serde_json::Value::Object(map.into())` 中 `map` 已是 `JsonObject`，`.into()` 为 identity）。修复提交到 **feat 分支**并 `git push origin feat`，重做验证。
 10. **rustfmt 关卡（`cargo fmt -- --check`）**：可装 minimal toolchain + 仅 rustfmt 组件（只解析语法、不编译、不需链接器）做精准格式化；或靠临时 push-to-main CI 间接确认。手写多行调用会被 rustfmt 折叠，是主要风险点。
-11. **CLI flag 重命名 / clippy 踩坑（版本升级实证）**：合并 `--http-host/--http-port/--http-path` 为 `--http-endpoint` 时连踩两处 CI 错误，根因都是「只改了一部分、没全仓扫」：
+11. **CLI flag 重命名 / clippy 踩坑（v1.8.1 实证）**：合并 `--http-host/--http-port/--http-path` 为 `--http-endpoint` 时连踩两处 CI 错误，根因都是「只改了一部分、没全仓扫」：
     - **改函数签名为 `&str` 后必须同步改全部下游 `&param`**：`check_singleton` 内 `format!(...)` 改直接用 `endpoint: &str` 参数，函数体内 4 处 `&endpoint`→`endpoint` 改了，却漏 `try_acquire_lock(&endpoint, …)`（singleton.rs:518），被 `clippy::needless-borrow` + `-D warnings` 升级为 CI 错误。
     - **重命名 CLI flag 必须全仓 grep 旧 flag 字符串**（含 `tests/`/`examples/`/`README*`）：只改 `tests/singleton_cli.rs` 的 L19-20，漏 L47-48 的另一个 `--http-port`，导致 Test 任务用已删除的旧参数启动二进制而失败。
     - **本地只跑 `cargo fmt --check` 预过 fmt 门；clippy 原则交 CI**（clippy 需 Rust 工具链，默认不本地跑；若本机已预装且可用则可本地跑）。
