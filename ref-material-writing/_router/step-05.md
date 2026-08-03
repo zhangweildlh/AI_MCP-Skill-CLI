@@ -88,7 +88,7 @@ AnySearch 垂直域多为**美国 / 国际向**（例：`legal`=US Congress、`e
                                   model="spark-1-pro", maxCredits=50})
    NEXT_TURN:
      ToolSearch(tool_names=["mcp__Dynamic-mcp__call_dynamic_tool"])
-     status = call_dynamic_tool(group="firecrawl-mcp", name="firecrawl_agent_status", args={id: TASK.id})
+     status = call_dynamic_tool(group="firecrawl-mcp", name="firecrawl_agent_status", args={id=TASK.id})
      IF status=="completed": result = read_agent_result(TASK.id); GOTO done
      IF status IN {"failed","expired"}: GOTO fb
      IF status=="processing": 再重索引 + 再查（最多补偿 2 次）；仍 processing → GOTO fb

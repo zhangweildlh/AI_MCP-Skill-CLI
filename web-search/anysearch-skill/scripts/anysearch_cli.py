@@ -29,7 +29,12 @@ def _load_env():
     variable to match the documented priority order.
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    for env_path in [os.path.join(script_dir, ".env"), os.path.join(script_dir, "..", ".env")]:
+    # 探测顺序：脚本同目录 -> 上游 anysearch-skill/ -> 父技能 web-search/（解耦后密钥落在此处）
+    for env_path in [
+        os.path.join(script_dir, ".env"),
+        os.path.join(script_dir, "..", ".env"),
+        os.path.join(script_dir, "..", "..", ".env"),
+    ]:
         if os.path.isfile(env_path):
             with open(env_path, "r", encoding="utf-8-sig") as f:
                 for line in f:

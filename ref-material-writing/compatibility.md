@@ -33,7 +33,7 @@
 | ANYSEARCH | 固定命令（内嵌自包含）：`uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py` | 基于技能目录的相对路径、非动态探测 | 步骤5 / 步骤2 双引擎之一（先执行）；支持通用/垂直搜索与网页 extract |
 | NATIVE_WEB | 原生 `web_search` + `web_fetch` | LLM 自带 | 双引擎任一不可用时的补偿通道（保双轨），或二者皆不可用时的单轨降级 |
 
-**版本差异声明**：`officecli` 命令参数随版本变化，任何命令失败必须 `officecli --help` 取权威 schema 重试（见 `references/02`、`04`）。
+**版本差异声明**：`officecli` 命令参数随版本变化，任何命令失败必须 `officecli --help` 取权威 schema 重试（见 `references/02-environment-setup.md`、`references/04-officecli-guide.md`）。
 
 ## 已知限制
 
@@ -110,7 +110,9 @@ ref-material-writing/               # Skill 根目录
     └── style-anchor.md             #   风格锚点（R4反稀释策略）
 ```
 
-**文件总数**：37
+> **内嵌脚本目录 `scripts/`（自包含，不依赖外部 Skill）**：`anysearch_cli.py`（AnySearch CLI 内嵌副本，步骤2/5 双引擎之一，固定调用命令见 `references/02-environment-setup.md` 约束15 / `references/13-anysearch-integration.md`）+ `shared/`（CLI 文档模板与常量，`doc` 子命令引用）；技能根 `.env` 含 `ANYSEARCH_API_KEY`，由脚本自加载。
+
+**文件总数**：40（含 `scripts/` 2 项与根 `.env`）
 
 ---
 
@@ -152,7 +154,7 @@ bootstrap.md → step-01 → step-02 → step-03 → step-04 → step-05
 | 文件 | 用途 | 被谁加载 |
 |------|------|---------|
 | `01-writing-standards.md` | 文风标准：论述密度≥5、平实严谨公文风格、禁止文学化表达。 | step-06（正文撰写前） |
-| `02-environment-setup.md` | 环境配置：Shell约束（`&&`/`||`替换为`;`+`{ read; }`）、命令长度限制、状态文件机制。 | SKILL.md（首次 shell_exec 前） |
+| `02-environment-setup.md` | 环境配置：Shell约束（`&&`/`||`/`&`替换为`;`或`|`）、命令长度限制、状态文件机制。 | SKILL.md（首次 shell_exec 前） |
 | `04-officecli-guide.md` | OfficeCLI 操作指南：Help-First Rule、版本差异声明、常用命令模式。 | step-09、step-10（Office文件读写时） |
 | `05-long-file-handling.md` | 超长文件处理：分段读取策略（docx>80段/xlsx>200行/pptx>20张）、分片写入批次控制。 | step-09、step-10（超长文件时条件加载） |
 | `06-knowledge-base.md` | 合规性规则库：AI幻觉检测规则、事实核对清单、引用溯源要求。 | step-07（合规性自检前） |
