@@ -23,7 +23,7 @@
 ### 2.2 按类型读取
 | 类型 | 读取策略（工具依映射表解析）|
 |------|------------------------------|
-| docx / xlsx / pptx | 遵循 `references/05` 分段读取，利用 OFFICE（officecli）|
+| docx / xlsx / pptx | 遵循 `references/05-long-file-handling.md` 分段读取，利用 OFFICE（officecli）|
 | pdf | AI 原生文件读取能力直接读取（不由 officecli 分片）；若 PDF 过大导致单次读取截断，按页码范围分段读取并记录已读范围 |
 | Markdown / Text | AI 原生文件读取能力直接读取 |
 | URL | **双轨抓取（并行 AnySearch）**：① 调用 WEB_FETCH（Firecrawl 形态见映射表：直连 `firecrawl_scrape` / 中继 `mcp__Dynamic-mcp__call_dynamic_tool(name="firecrawl_scrape")`）获取网页文本；② 同时调用 AnySearch `extract <url>` 补充抓取全文（命令：`uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py extract "<url>"`）。两路结果合并入同一分析卡片，互不替代。 |
@@ -32,7 +32,7 @@
 ### 2.3 单份资料结构化分析（生成分析卡片）
 对每份资料独立生成 JSON 分析卡片，字段以 `assets/analysis-card-template.json` 为准，至少含：资料ID、来源路径、资料类型、核心主题、核心结论、关键事实与数据、论点树、信息属性分类、关键段落位置、立场与局限、逻辑组织形式、内部自引用、读取状态。
 
-**「关键段落位置」填充规则**（数据来源为 `references/05` 第一步概览定向产出的映射表）：
+**「关键段落位置」填充规则**（数据来源为 `references/05-long-file-handling.md` 第一步概览定向产出的映射表）：
 - docx：段落序号或 @paraId；xlsx：行号或单元格地址；pptx：幻灯片编号；pdf：页码；md/txt：行号；url：章节标题 / 段落序号。
 - 每条记录含"段落索引 / 段落内容摘要 / 所在章节"三子字段。
 

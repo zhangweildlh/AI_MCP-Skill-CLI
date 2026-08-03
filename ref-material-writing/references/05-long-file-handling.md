@@ -14,6 +14,8 @@
 
 **原因**：`shell_exec` 每次调用启动独立的 PowerShell 会话。跨会话的驻留进程无法可靠共享——`create` 启动的驻留进程可能在前一个会话退出后变成"孤儿"进程，导致后续操作超时或写入失败。
 
+> **Shell 规范（与 `references/02-environment-setup.md` 一致）**：本文件所有 shell 命令示例均在独立 PowerShell 会话中执行，命令之间用 `;` 顺序串联；**严禁**使用 `&&` / `||` / `&`。代码块标注 `bash` 仅表示类 POSIX 命令形态，实际执行须遵循 02 的 PowerShell/`;` 规则（错误输出抑制 `2>/dev/null` 为本技能跨宿主兼容约定写法，PowerShell 等价 `2>$null`，不影响 `;` 串联语义）。
+
 ### 正确模式
 
 新建文件（推荐模式）：`create --force` → 直接 `add` → `close`

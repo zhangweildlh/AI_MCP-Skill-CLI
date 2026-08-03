@@ -118,5 +118,5 @@ compatibility: >-
 2. 按「步骤9」的标准模板组织最终文稿
 3. 数据和事实保持原始精度，不做近似处理
 4. 所有关键结论和数据的来源均需可追溯
-5. 输出为 Office 文件时，必须遵循分片写入和 QA 门禁流程（见步骤9/10 与 references/04、05）
+5. 输出为 Office 文件时，必须遵循分片写入和 QA 门禁流程（见步骤9/10 与 references/04-officecli-guide.md、references/05-long-file-handling.md）
 6. 禁止编造；无法核实的信息标注「[数据待核实]」
