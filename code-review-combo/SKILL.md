@@ -9,7 +9,7 @@ version: 1.0.0
 本技能将两个子技能组合，对代码改动做**交叉验证式**审查，最终产出**一份唯一的审计报告**。两个子技能已内嵌于本技能的子目录，**无需单独安装**，由本技能直接编排：
 
 - `./open-code-review-delegate/SKILL.md` —— 基于 open-code-review（OCR）的委托模式。OCR 承担确定性工程（范围筛选、规则解析、整库扫描），宿主承担语义审查；其 SKILL.md 内置 `ocr` CLI 的**自动安装与自检查**，无需 LLM Key 即可走委托模式。
-- `./review-spd/SKILL.md` —— findings-first 五焦点（正确性 / 回归兼容 / 测试 / 安全 / 性能并发）强制语义深度审查，自带 `scripts/review-context.py` 收集 git 上下文。
+- `./review-spd/SKILL.md` —— findings-first 五焦点（正确性 / 回归兼容 / 测试 / 安全 / 性能并发）强制语义深度审查，自带 `./review-spd/scripts/review-context.py` 收集 git 上下文。
 
 > **术语约定**：正文中的「open-code-review-delegate 子技能」与其底层工具「OCR / ocr」指代同一子技能；JSON 字段 `verified_by` 取值 `ocr-only` 即「仅 open-code-review-delegate 子技能发现」。
 
@@ -64,8 +64,8 @@ version: 1.0.0
 
 读取 `./review-spd/SKILL.md`，按其 Phase 1–6 流程执行，但采用**方案 B 交叉验证变体**：
 
-- **子目录目标的范围收敛（已支持 `--path`，C-1 修复）**：`review-context.py` 会切到 git 根（`require_git_repo()`），并支持 `--path <subdir>` 参数（相对仓库根的子目录）将收集范围精确收敛到该子目录——该参数把 `-- <subdir>` 注入所有 git 命令（status / diff / log），因此阶段二直接运行 `python <review-spd-skill-dir>/scripts/review-context.py --path <path_filter>` 即可得到子目录级上下文，无需宿主再手工 `git diff HEAD -- <path_filter>` 收敛。省略 `--path` 时脚本收集整个父仓库上下文，此时才需要宿主手工收敛或按「异常处理」告知范围已扩大到整个仓库。
-- **Phase 2 上下文增强**：除运行 `scripts/review-context.py` 收集 git 上下文外，**额外把阶段一的 diff 与报告 A 的发现列表**作为补充输入提供给审查者。
+- **子目录目标的范围收敛（已支持 `--path`，C-1 修复）**：`review-context.py` 会切到 git 根（`require_git_repo()`），并支持 `--path <subdir>` 参数（相对仓库根的子目录）将收集范围精确收敛到该子目录——该参数把 `-- <subdir>` 注入所有 git 命令（status / diff / log），因此阶段二直接运行 `python ./review-spd/scripts/review-context.py --path <path_filter>` 即可得到子目录级上下文，无需宿主再手工 `git diff HEAD -- <path_filter>` 收敛。省略 `--path` 时脚本收集整个父仓库上下文，此时才需要宿主手工收敛或按「异常处理」告知范围已扩大到整个仓库。
+- **Phase 2 上下文增强**：除运行 `./review-spd/scripts/review-context.py` 收集 git 上下文外，**额外把阶段一的 diff 与报告 A 的发现列表**作为补充输入提供给审查者。
   - **单提交模式（`commit_hash`）**：`review-context.py` 支持 `--branch` / `--base` / `--since` / `--until` / `--path`，但无 `--commit`。因此阶段二**不调用该脚本的 date-range / branch 参数**，而是直接以 `git show <commit_hash>` 的 diff（与阶段一同一来源）作为 git 上下文提供给 review-spd；同时照常把阶段一的报告 A 作为交叉验证输入。阶段三输出 JSON 的 `target.type` 取 `commit`、`target.commit` 填 `<commit_hash>`。
 - **Phase 4 子代理指令注入（关键）**：在每一个 focused reviewer 的指令中加入——
   > 「你已收到 open-code-review-delegate 的报告 A（JSON 发现列表）。请先逐一核对其标出的每项发现是否属实（读取实际代码验证，误报请标注为假阳性并说明原因）；随后再独立审查本焦点盲区，挖掘报告 A 未覆盖的缺陷。最终只产出你独立确认或新发现的、证据充分的发现。」

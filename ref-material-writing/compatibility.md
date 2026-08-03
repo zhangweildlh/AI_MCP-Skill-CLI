@@ -30,7 +30,7 @@
 | AGENT_SEARCH | 直连 `firecrawl_agent`+`firecrawl_agent_status`（或 `mcp__firecrawl__firecrawl_agent`）；中继 `mcp__Dynamic-mcp__call_dynamic_tool(group="firecrawl-mcp", name="firecrawl_agent")`+`firecrawl_agent_status` | Firecrawl（直连或中继，形态由 Gate-0 探测，见映射表；Firecrawl 轨道首选）| 步骤5 Firecrawl 轨道自主多站研究（异步轮询）|
 | EXTRACT | 直连 `firecrawl_extract`（或 `mcp__firecrawl__firecrawl_extract`）；中继 `mcp__Dynamic-mcp__call_dynamic_tool(group="firecrawl-mcp", name="firecrawl_extract")` | Firecrawl（直连或中继，形态由 Gate-0 探测，见映射表）| 结构化提取 |
 | OFFICE | `officecli` | shell_exec 调用 | Office 文件读写 |
-| ANYSEARCH | 固定外部命令：`uv run --project D:/Tools/Assembly/python/myenv python D:/Documents/AI_MCP-Skill-CLI/anysearch-skill/scripts/anysearch_cli.py` | 硬编码路径、非动态探测 | 步骤5 / 步骤2 双引擎之一（先执行）；支持通用/垂直搜索与网页 extract |
+| ANYSEARCH | 固定外部命令：`uv run --project D:/Tools/Assembly/python/myenv python [Skill技能根目录]/scripts/anysearch_cli.py` | 硬编码路径、非动态探测 | 步骤5 / 步骤2 双引擎之一（先执行）；支持通用/垂直搜索与网页 extract |
 | NATIVE_WEB | 原生 `web_search` + `web_fetch` | LLM 自带 | 双引擎任一不可用时的补偿通道（保双轨），或二者皆不可用时的单轨降级 |
 
 **版本差异声明**：`officecli` 命令参数随版本变化，任何命令失败必须 `officecli --help` 取权威 schema 重试（见 `references/02`、`04`）。
@@ -92,7 +92,7 @@ ref-material-writing/               # Skill 根目录
 │   ├── 11-examples.md              #   使用示例
 │   ├── 12-edge-cases.md            #   边界与异常处理
 │   ├── docx-format-standard.md     #   DOCX 公文格式标准（步骤9/10用）
-│   ├── 13-anysearch-integration.md #   AnySearch 双引擎集成契约（命令/垂直域/单一来源）
+│   ├── 13-anysearch-integration.md #   AnySearch 双引擎集成契约（内嵌自包含：命令/子命令/垂直域规则）
 │   ├── 14-firecrawl-guide.md       #   Firecrawl 高阶能力目录与决策矩阵
 │   ├── 15-resume-protocol.md       #   跨会话断点续跑协议（RESUME-PROBE/CHECK/LOAD）
 │   ├── 16-self-check-A.md          #   自检标准档 A：文本/Markdown 产出物（存在/非空/轻签名/结构）
