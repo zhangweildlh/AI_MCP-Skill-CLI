@@ -20,7 +20,9 @@ from common import (REPO_ROOT, Report, Severity, discover_skills,
 
 DESC_MIN, DESC_MAX = 1, 1024
 REF_RE = re.compile(r"\[[^\]]*\]\(\s*([^)\s]+)[^)]*\)")          # markdown 链接
-PATH_TOKEN_RE = re.compile(r"\b(?:references|scripts|assets)[\\/][\w./\\-]+\.\w+")
+# 允许 references/scripts/assets 前带任意层级前缀目录段，避免把
+# `{SKILL_ROOT}/anysearch-skill/scripts/x.py` 误截为 `scripts/x.py` 而产生假断链。
+PATH_TOKEN_RE = re.compile(r"(?:[\w.-]+[\\/])*(?:references|scripts|assets)[\\/][\w./\\-]+\.\w+")
 
 
 def check_skill(sk, rep: Report) -> None:

@@ -21,7 +21,7 @@
 - QA 流程（outline → text → validate）是否完成？
 - 分片写入 4 条错误检测规则是否通过？
 - QA 校验是否在 `close` 之后的独立 shell_exec 执行？
-- 是否与 `_正文过程稿.md` 内容一致？
+- 是否与 `_正文过程稿.md` 内容一致？（自动化建议：抽取 docx 全文 `officecli view "$FILE" text` 与 `_正文过程稿.md` 比对章节标题与关键锚点句是否齐全，可用 G2a 式 `grep` 校验关键句存在；章节数 / 标题须一一对应，缺失即回步骤6 补写，不得仅凭人工目检）
 - 是否严格遵循 `references/docx-format-standard.md`？
 - 是否已完成相似段落检测并将高相似段落字体设为蓝色？
 
@@ -47,7 +47,7 @@ fi
 # 用空白容忍正则取计数。
 # N3 稳定性（实测）：此处用属性存在式 'paragraph[outlineLvl]'（不指定值）统计标题层级总数；
 #   相等式 'paragraph[outlineLvl=1]' 偶发返回 0 误判，故固定用属性存在式，勿改回相等式。
-#   另注意：officecli 将 color=0000FF 存储为 color=#0000FF，查色须带 '#'（见 references/05 §三）。
+#   另注意：officecli 将 color=0000FF 存储为 color=#0000FF，查色须带 '#'（见 references/05-long-file-handling.md §三）。
 M=$(officecli query "$FILE" 'paragraph[outlineLvl]' --json 2>/dev/null | grep -oE '"matches"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+')
 if [ "${M:-0}" -ge 1 ]; then echo "G1b OK (outlineLvl=$M)"; else echo "REJECT G1b: 无标题大纲级别"; exit 1; fi
 # ── G2a 令牌/模板泄漏（$VAR / ${VAR} / TODO / xxxx / lorem）──
@@ -56,7 +56,7 @@ if [ "${N2:-0}" -eq 0 ]; then echo "G2a OK"; else echo "REJECT G2a: $N2 leak"; e
 # ── G2b 陈旧域字段（未刷新的目录占位符 "Update field to see"）──
 N3=$(officecli view "$FILE" text 2>/dev/null | grep -cE 'Update field to see')
 if [ "${N3:-0}" -eq 0 ]; then echo "G2b OK"; else echo "REJECT G2b: $N3 stale field (TOC 未刷新/未降级手动目录)"; exit 1; fi
-# ── G2c 空段落（对齐 references/05 §五；治 B3 默认空段落残留）──
+# ── G2c 空段落（对齐 references/05-long-file-handling.md §五；治 B3 默认空段落残留）──
 N4=$(officecli query "$FILE" 'p:empty' 2>/dev/null | grep -cE 'paraId')
 if [ "${N4:-0}" -eq 0 ]; then echo "G2c OK"; else echo "REJECT G2c: $N4 空段落（须回步骤9清理）"; exit 1; fi
 # ── G3 活 PAGE 字段（页脚预期时）──
