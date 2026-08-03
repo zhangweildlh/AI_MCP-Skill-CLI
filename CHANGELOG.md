@@ -9,6 +9,32 @@
 
 ---
 
+## [2026-08-03]
+
+### Added
+- **playwright-360chrome/**：新增浏览器自动化技能（Playwright + 360Chromex 内核，v2.0.0），含 SKILL.md 与 scraping/selectors/testing/debugging/ci-cd 参考文档，附 `pw_launch.mjs` / `test_pw_userdata.mjs` 启动与用户态(userDataDir)复用示例。
+- **github-personal-manager 多工作树并行开发 SOP**：新增 `scripts/sop_worktree_add.sh` / `sop_worktree_cleanup.sh` / `sop_worktree_merge.sh` 三件套；新增顶层方案文档 `multi-worktree-parallel-merge-sop.md`；冒烟测试新增 `smoke/tests/test_worktree.sh`。
+- **Memory-Data/**：新增 `GitHub_Deepseek++.md`、`长期记忆_Deepseek++.md`、`用户画像分析报告_土木工程主业版.md`；`Deepseek++系统提示词-2.md` 由根目录移入本目录。
+
+### Changed
+- **.gitignore**：调整 `Memory-Data` 忽略策略为「仅排除非 `.md` 文件」（`.md` 保留入库），撤销 2026-08-02 的"整体排除"。
+- **github-personal-manager**：SKILL.md / `scripts/lib/sop-common.sh` / `sop_fetch_prune.sh` / `sop_resolve_repo.sh` / `references/fork-ci-pitfalls.md` / `references/gh-capability.md` / `config/github-sop.config.template.sh` 多处调整；`smoke/tests/test_contracts.sh` 修订、`test_contracts_extra.sh` 重建；文档同步门禁明确"禁止本地编译"硬约束。
+- **.github/workflows/smoke.yml**：升级 actions 至 v7（消除 Node.js 20 弃用警告）。
+- **Memory-Data/GitHub_Deepseek++.md**：内容扩充。
+
+### Moved
+- **workbuddy-workspace-migration/** → `Workbuddy专属/workbuddy-workspace-migration/`（整体迁移至专属子目录）。
+- **Skill-memory-consolidate.md** → `Workbuddy专属/Skill-memory-consolidate.md`。
+- **Skill-workflow-distill.md** → `Workbuddy专属/Skill-workflow-distill.md`。
+
+### Removed
+- **Skill-代码审查.md**（根级单文件技能）：能力已并入 `code-review-combo`，不再独立维护。
+
+### Docs
+- **README.md**：技能总览由"12 个"重写为"14 个活跃技能"，移除已退役的 `github-repo-sync` 与已删除的 `anysearch-skill`，新增 `code-review-combo` / `mimo-code-collab` / `playwright-360chrome`（新增）及移入 `Workbuddy专属/` 的 `workbuddy-workspace-migration`；同步更新各技能详细说明、外部依赖归类与辅助体系章节。
+
+---
+
 ## [2026-08-02] · 发版 v2.2.1
 
 ### Fixed

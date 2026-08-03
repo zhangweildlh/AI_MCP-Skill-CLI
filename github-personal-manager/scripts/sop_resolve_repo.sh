@@ -7,32 +7,25 @@
 # 用途: 让 Agent 在任务首次涉及某仓库时一次性提取，后续步骤直接套用，免用户反复输出三项。
 #       脚本自身也具备"重解析"能力——每次调用都从 remote 重新提取，不会因会话遗忘失效。
 # 注意: 工具路径不硬编码，由 lib/sop-common.sh 经 where.exe 解析；脚本一律用相对路径自定位。
+# 用法: bash sop_resolve_repo.sh [仓库路径] [--quiet] [-h]
 set -uo pipefail
 SOP_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SOP_SELF_DIR/lib/sop-common.sh"
 _sop_load_config
 
-# 支持 -h/--help（与其他 sop_*.sh 保持一致）
-for _a in "$@"; do
-  case "$_a" in
-    -h|--help) sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; echo "用法: bash sop_resolve_repo.sh [仓库路径] [--quiet]"; exit 0 ;;
-  esac
-done
+case "${1:-}" in
+  -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+esac
 REPO_PATH="${1:-}"
 QUIET=0
 [ "${2:-}" = "--quiet" ] && QUIET=1
 
 # 进入仓库并校验是 git 工作树（复用公共函数），随后一次性解析远端三元组（含 GH_USER/UPSTREAM_REPO 补全）
 _sop_require_repo "$REPO_PATH" || exit 1
-# L2 修复：遵守 _sop_resolve_remotes 的 return 1 契约——GH_USER 无法解析时给出明确告警（不再静默输出空 GH_USER= 误导调用方），
-# 但 REPO_NAME 等仍可输出，由调用方据告警自行决定是否中止。
-if ! _sop_resolve_remotes; then
-  echo "⚠️ 无法解析 GH_USER（远端非 github.com 域名或 config 未设置）；REPO_NAME 等仍输出，但 GH_USER 为空，调用方需自行处理。" >&2
-fi
+_sop_resolve_remotes
 
-# 映射公共库解析结果到本脚本输出语义
-GH_USER="${SOP_ORIGIN_OWNER:-$GH_USER}"
+# 映射公共库解析结果到本脚本输出语义（GH_USER 已由 _sop_resolve_remotes 统一补全：origin 拥有者优先于 config 默认值）
 REPO_NAME="$SOP_ORIGIN_REPO"
 UPSTREAM_OWNER_REPO="$SOP_UPSTREAM_OWNER_REPO"
 
