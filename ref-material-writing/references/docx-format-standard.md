@@ -1,7 +1,7 @@
 # docx 文件格式标准（公文）
 
 > 本文件定义 docx 公文格式标准，供步骤9 / 步骤10 引用。
-> 命令示例对齐官方 `officecli-docx` Skill（见 `assets/officecli-command-templates.md` 与 `references/04-officecli-guide.md`）。**版本差异声明见 `references/02` / `04`：任何命令失败须 `officecli --help` 核实。**
+> 命令示例对齐官方 `officecli-docx` Skill（见 `assets/officecli-command-templates.md` 与 `references/04-officecli-guide.md`）。**版本差异声明见 `references/02-environment-setup.md` / `references/04-officecli-guide.md`：任何命令失败须 `officecli --help` 核实。**
 
 ---
 
@@ -45,4 +45,4 @@ officecli add "$FILE" /body --type paragraph --prop text="一、章节标题" --
 officecli add "$FILE" /body --type paragraph --prop text="正文段落内容。" --prop style=Normal --prop font='仿宋' --prop size=15pt --prop firstLineIndent=720 --prop lineSpacing=28pt --prop align=both
 ```
 
-> 注：标题层级必须用 outlineLvl + 直接格式化（见 step-09 强制工序）；空白 docx 仅含 Normal 样式，不可引用 HeadingN 样式。字体/字号/加粗依 `references/01` 与用户要求设置。
+> 注：标题层级必须用 outlineLvl + 直接格式化（见 step-09 强制工序）；空白 docx 仅含 Normal 样式，不可引用 HeadingN 样式。字体/字号/加粗依 `references/01-writing-standards.md` 与用户要求设置。

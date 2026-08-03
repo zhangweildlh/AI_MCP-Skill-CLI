@@ -2,7 +2,7 @@
 
 > 用途：将 Firecrawl 代码库（apps/api v2）挖掘出的 AI/LLM 可自主调用方法，转化为本技能步骤5 联网补全可用的操作指引。
 > 路由前提：本环境 Firecrawl 的**访问形态（直连 `firecrawl_*` / 中继经 Dynamic-mcp）由调用方环境决定**（见 `_router/bootstrap.md` 与 `references/02-environment-setup.md`）。本文件只规定"如何用 Firecrawl 工具"（能力枚举 / 决策矩阵 / 参数 / 异步），不规定接入路径。
-> 参数名/枚举/默认值均来自源码（`apps/api/src/controllers/v2/types.ts` 等），详见 `firecrawl_高阶用法研究.md`。
+> 参数名/枚举/默认值均来自源码（`apps/api/src/controllers/v2/types.ts` 等 Firecrawl 代码库）。
 
 ---
 

@@ -59,7 +59,7 @@
       "type": "string",
       "description": "存放待处理输入数据的父目录默认路径。选填。若未指定，使用用户本地环境配置的当前工作目录。",
     },
-    "默认Skill技能目录": {
+    "默认Skill技能根目录": {
       "type": "string",
       "description": "Skill 相关资产存放的父目录默认路径。选填。若未指定，使用用户本地环境配置的 Skill 技能目录。",
     },
@@ -125,5 +125,5 @@
 | 本次撰写的主题 | 中文字符，不含标点 | 由AI自动生成 |
 | 当前时间戳 | 格式 yyyy-MM-dd-HH-mm-ss | 由AI自动获取 |
 | 默认当前工作目录 | 有效路径字符串 | `D:\Documents\Downloads` |
-| 默认Skill技能目录 | 有效路径字符串 | `D:\Documents\AI_MCP-Skill-CLI` |
+| 默认Skill技能根目录 | 有效路径字符串 | `D:\Documents\AI_MCP-Skill-CLI` |
 | 流水线状态文件路径 | 有效路径字符串 | `[输出目录]/_流水线状态.md` |
