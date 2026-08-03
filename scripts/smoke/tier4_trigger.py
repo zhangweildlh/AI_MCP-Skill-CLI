@@ -28,7 +28,6 @@ EXPECTED_TRIGGERS = {
     "multi-file-analysis": ["多文件", "知识图谱", "分析"],
     "find-skill-to-xml": ["扫描", "xml", "标签"],
     "promotion-writer": ["推广", "文案", "文章"],
-    "anysearch-skill": ["搜索", "anysearch"],
     "web-search": ["联网搜索", "网页抓取"],
     "ref-material-writing": ["参考资料", "撰写", "写作"],
     "github-personal-manager": ["github", "仓库", "pr"],
