@@ -56,6 +56,7 @@ MUST_IGNORE = [
 MUST_TRACK = [
     "anysearch-skill/.env",
     "web-search/.env",
+    "ref-material-writing/.env",
     "Skill-滴答清单智能任务解析创建器.md",
 ]
 

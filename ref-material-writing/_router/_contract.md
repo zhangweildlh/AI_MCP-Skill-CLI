@@ -67,7 +67,7 @@
 | AGENT_SEARCH | 直连 `firecrawl_agent`（或 `mcp__firecrawl__firecrawl_agent`）+ `firecrawl_agent_status(id)`；中继 `mcp__Dynamic-mcp__call_dynamic_tool(group="firecrawl-mcp", name="firecrawl_agent", args={prompt})` + `firecrawl_agent_status(id)` | `firecrawl_search` + `firecrawl_scrape` |
 | SHELL | `shell_exec` | — |
 | OFFICE | `officecli` | — |
-| ANYSEARCH | 固定外部命令：`uv run --project D:/Tools/Assembly/python/myenv python D:/Documents/AI_MCP-Skill-CLI/anysearch-skill/scripts/anysearch_cli.py`（**硬编码路径、非动态探测**；禁止省略 `uv run --project D:/Tools/Assembly/python/myenv` 直接使用 `python`） | — |
+| ANYSEARCH | 固定外部命令：`uv run --project D:/Tools/Assembly/python/myenv python [Skill技能根目录]/scripts/anysearch_cli.py`（**硬编码路径、非动态探测**；禁止省略 `uv run --project D:/Tools/Assembly/python/myenv` 直接使用 `python`） | — |
 | NATIVE_WEB | 原生 `web_search` + `web_fetch` | LLM 原生网页搜索/下载，作为双引擎任一不可用时的补偿通道，保双轨并行 |
 
 > 双轨优先级：**非搜索功能原生 > MCP**；**联网搜索采用 AnySearch + Firecrawl 双引擎平权并行（步骤5）**，LLM 原生 `web_search`/`web_fetch`（NATIVE_WEB）为补偿/降级通道。具体以 `_router/bootstrap.md` 生成的「工具能力映射表」为准。

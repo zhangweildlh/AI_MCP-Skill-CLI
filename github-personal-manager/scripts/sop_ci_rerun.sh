@@ -15,7 +15,7 @@ CONFIRM=0
 REPO=""
 for a in "$@"; do
   case "$a" in
-    -h|--help) sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; echo "用法: bash sop_ci_rerun.sh [仓库路径] [--confirm]"; exit 0 ;;
+    -h|--help) sed -n '2,7p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; echo "用法: bash sop_ci_rerun.sh [仓库路径] [--confirm]"; exit 0 ;;
     --confirm) CONFIRM=1 ;;
     --dry-run) CONFIRM=0 ;;
     -*) echo "未知选项: $a" >&2; exit 2 ;;

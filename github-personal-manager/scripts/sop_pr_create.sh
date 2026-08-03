@@ -17,7 +17,7 @@ BASE="$MAIN_BRANCH"
 NEED_BASE=0
 for a in "$@"; do
   case "$a" in
-    -h|--help) sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; echo "用法: bash sop_pr_create.sh [仓库路径] [--base <分支>] [--confirm]"; exit 0 ;;
+    -h|--help) sed -n '2,7p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; echo "用法: bash sop_pr_create.sh [仓库路径] [--base <分支>] [--confirm]"; exit 0 ;;
     --confirm) CONFIRM=1 ;;
     --dry-run) CONFIRM=0 ;;
     --base) NEED_BASE=1 ;;

@@ -46,7 +46,7 @@
 | EXTRACT | 尝试直连 `firecrawl_extract`（或 `mcp__firecrawl__firecrawl_extract`）→ 否则中继 `mcp__Dynamic-mcp__call_dynamic_tool(group="firecrawl-mcp", name="firecrawl_extract", args={urls,schema})` → `firecrawl_scrape` | 绑定实际可用工具 |
 | SHELL | 确认 `shell_exec` 可用 | 固定 |
 | OFFICE | `where.exe officecli` → `officecli --version` → `officecli --help` | 固定 `officecli`；不可用则标记，步骤9 降级 `.md` |
-| ANYSEARCH | 固定外部命令（**非探测**，直接登记）：`uv run --project D:/Tools/Assembly/python/myenv python D:/Documents/AI_MCP-Skill-CLI/anysearch-skill/scripts/anysearch_cli.py`（路径硬编码；禁止省略 `uv run --project D:/Tools/Assembly/python/myenv` 直接用 `python`）。依赖其目录内 `.env` 的 API key，无需在命令中传 key | 固定 |
+| ANYSEARCH | 固定外部命令（**非探测**，直接登记）：`uv run --project D:/Tools/Assembly/python/myenv python [Skill技能根目录]/scripts/anysearch_cli.py`（路径硬编码；禁止省略 `uv run --project D:/Tools/Assembly/python/myenv` 直接用 `python`）。依赖其目录内 `.env` 的 API key，无需在命令中传 key | 固定 |
 | NATIVE_WEB | 原生 `web_search` + `web_fetch`（LLM 自带） | 双引擎（AnySearch / Firecrawl）任一不可用时的补偿通道，保双轨并行；二者皆不可用则单轨原生 |
 
 > **FILE_STAT 前置原则**：FILE_STAT（或等价验证工具）是整套验证闸门的基石。若开局未发现任何可用验证手段，**立即暂停并报告**，不得进入步骤1——因为后续所有"产出→验证"闭环将形同虚设。

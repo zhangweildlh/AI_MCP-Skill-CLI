@@ -24,6 +24,8 @@ test_contract_all_help() {
     out="$("$s" -h 2>&1)"; rc=$?
     if [ "$rc" -ne 0 ]; then echo "    $(basename "$s") -h rc=$rc"; fail=1; fi
     if ! printf '%s' "$out" | grep -q "用法"; then echo "    $(basename "$s") -h 无'用法'"; fail=1; fi
+    # 反向断言：帮助输出不得泄漏脚本代码行（防 v3-NEW-1 类 set -uo pipefail 越界打进 -h）
+    if printf '%s' "$out" | grep -Eq "set -uo pipefail|set -e|set -u|set -o pipefail|shellcheck disable=|SOP_SELF_DIR="; then echo "    $(basename "$s") -h 泄漏代码行(set -uo pipefail/shellcheck/SOP_SELF_DIR)"; fail=1; fi
   done
   if [ "$fail" -eq 0 ]; then pass "全部 $(ls "$ROOT_DIR"/scripts/sop_*.sh 2>/dev/null | wc -l | tr -d ' ') 个脚本 -h 均正常打印用法(exit 0)"; return 0; fi
   fail "部分脚本 -h 异常"; return 1
