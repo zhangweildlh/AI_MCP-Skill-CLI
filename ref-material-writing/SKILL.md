@@ -64,7 +64,7 @@ compatibility: >-
 | **提纲缺失** | 不暂停流程，在「步骤4」中自动草拟 |
 | **信息不足** | 启动「步骤5」双引擎联网搜索；每引擎 3 轮后仍不足则标注「[数据待核实]」 |
 | **双引擎搜索** | 步骤5 缺口补全：AnySearch 与 Firecrawl 平权、顺序执行（先 AnySearch 后 Firecrawl）、结果合并；每引擎每关键词 2–3 轮；垂直领域由 AI 按任务主题/诉求/思路/提纲判定并传入 AnySearch；交叉验证新增「双引擎互证」级；任一引擎不可用由 LLM 原生 web_search/web_fetch 补偿保双轨，二者皆不可用转单轨原生 |
-| **AnySearch 命令来源** | AnySearch 调用命令固定为 `uv run --project D:/Tools/Assembly/python/myenv python [Skill技能根目录]/scripts/anysearch_cli.py <子命令>`（指向本技能内嵌自包含的 AnySearch CLI 副本）；ref-material-writing 内部所有引用均为该值的镜像，须一致；变更须同步 rewrite 6 处镜像（bootstrap / _contract / step-02 / step-05 / compatibility / 02-environment-setup）。垂直域规则与实证结论（中文国策/标准无垂直域→通用搜索）见 `references/13-anysearch-integration.md` |
+| **AnySearch 命令来源** | AnySearch 调用命令固定为 `uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py <子命令>`（指向本技能内嵌自包含的 AnySearch CLI 副本；路径为基于技能目录的相对路径，运行时按技能目录拼接绝对路径）；ref-material-writing 内部所有引用均为该值的镜像，须一致；变更须同步 rewrite 6 处镜像（bootstrap / _contract / step-02 / step-05 / compatibility / 02-environment-setup）。垂直域规则与实证结论（中文国策/标准无垂直域→通用搜索）见 `references/13-anysearch-integration.md` |
 | **确认节点** | 「步骤1」和「步骤4」须用户确认；用户明确"无需确认"时可跳过 |
 | **状态文件读写** | 每个步骤执行前必须读取 `_流水线状态.md`，执行完成后必须更新 |
 | **工具调用** | 依「工具能力映射表」解析原语→实际工具；Firecrawl 与 AnySearch 为双引擎平权（步骤5 联网补全），原生文件工具优先于 MCP；原生搜索作为双引擎的补偿/降级通道 |

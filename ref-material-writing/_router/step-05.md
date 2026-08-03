@@ -17,8 +17,8 @@
 - `assets/_流水线状态.md`
 - 逻辑原语：READ_FILE、WRITE_FILE、FILE_STAT、WEB_SEARCH、WEB_FETCH、AGENT_SEARCH、EXTRACT、ANYSEARCH、NATIVE_WEB
 - **AnySearch 固定调用命令（硬编码，禁止改动）**：
-  `uv run --project D:/Tools/Assembly/python/myenv python [Skill技能根目录]/scripts/anysearch_cli.py <子命令> [选项]`
-  ⚠️ 严禁省略 `uv run --project D:/Tools/Assembly/python/myenv` 而直接使用 `python [Skill技能根目录]/scripts/anysearch_cli.py`。API key 由该目录内 `.env` 自动加载，无需在命令传参。
+  `uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py <子命令> [选项]`
+  ⚠️ 严禁省略 `uv run --project D:/Tools/Assembly/python/myenv` 而直接使用 `python scripts/anysearch_cli.py`。API key 由该目录内 `.env` 自动加载，无需在命令传参。
   > **⚠️ 路径分隔符（U1 修复，强制）**：本命令路径**统一用正斜杠 `/`**（如 `D:/Tools/...`）。若 `shell_exec` 宿主为 Bash（Git Bash 等 POSIX shell），反斜杠 `\` 会被 Bash 当作转义字符导致路径被吃字符、命令失败；**正斜杠在 Bash 与 PowerShell 宿主下均可用**，故此命令及本步骤所有命令路径一律写正斜杠（PowerShell 宿主下反斜杠虽可用，但为跨宿主一致，统一正斜杠）。
 
 ## [执行]
@@ -49,7 +49,7 @@
 ### 5.4 垂直领域判定（仅 AnySearch 轨道，由 AI 自主决策）
 - **判定依据**：本步读取的 12 维度参数——写作主题、写作目的（诉求）、写作思路、以及 `_提纲.md` 章节标题与关键词。AI 据此**自行分析并判断本次任务涉及哪些 AnySearch 垂直领域**（finance / business / legal / academic / health / energy / environment / agriculture / travel / film / gaming / security / ip / code / social_media / resource 等）。
 - **执行（一次性、会话内缓存）**：对判定出的每个领域调用一次
-  `uv run --project D:/Tools/Assembly/python/myenv python [Skill技能根目录]/scripts/anysearch_cli.py get_sub_domains --domains 领域1,领域2,...`
+  `uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py get_sub_domains --domains 领域1,领域2,...`
   解析返回的子领域（sub_domain）及其必填参数，会话内缓存，**不重复调用**。
 - 后续 AnySearch 搜索优先选用匹配的垂直子领域；纯百科类可走通用搜索（omit --domain）。
 
@@ -66,8 +66,8 @@ AnySearch 垂直域多为**美国 / 国际向**（例：`legal`=US Congress、`e
 #### 轨道 A — AnySearch（先跑完）
 对每个关键词执行 2 轮（不足可再 1 轮，最多 3 轮）：
 1. **通用 / 垂直搜索**：
-   - 通用：`uv run --project D:/Tools/Assembly/python/myenv python [Skill技能根目录]/scripts/anysearch_cli.py search "关键词"`
-   - 垂直（命中 5.4 判定领域）：`uv run --project D:/Tools/Assembly/python/myenv python [Skill技能根目录]/scripts/anysearch_cli.py search "关键词" --domain X --sub_domain Y [--sub_domain_params '{...}']`
+   - 通用：`uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py search "关键词"`
+   - 垂直（命中 5.4 判定领域）：`uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py search "关键词" --domain X --sub_domain Y [--sub_domain_params '{...}']`
    - 多关键词并行（单条命令内）：`uv run ... anysearch_cli.py batch_search --query "词1" --query "词2" ...`（或用 `--queries @file.json`，单调用 2–5 条）
 2. **正文抓取**：对搜索结果中需深读的高价值 URL 调用
    `uv run ... anysearch_cli.py extract "https://..."`（HTML 全文转 Markdown，截断 50k 字符）
