@@ -52,7 +52,7 @@
 - **用途**：严格依据用户提供的写作需求、提纲与多份参考资料完成高质量文档撰写（公文/报告/方案/建议书/综述），10 步流水线，最终输出 Office 文件（默认 `.docx`）。每处事实/数据可溯源、禁止编造；支持跨会话断点续跑。
 - **外部依赖 / 外部工具 / 外部需求**：
   - **OfficeCLI（`officecli`）**：外部命令，用于读写 `*.docx/*.xlsx/*.pptx`；命令失败必须 `officecli --help` 取权威 schema 重试。
-  - **AnySearch CLI**：联网补全双引擎之一，原 `anysearch-skill` 已于 2026-07-23 退役，其 CLI 现位于 `web-search/scripts/anysearch_cli.py`（ref-material-writing 内部引用路径待对齐）。
+  - **AnySearch CLI**：联网补全双引擎之一。ref-material-writing 已**自包含内嵌** AnySearch CLI 副本（`scripts/anysearch_cli.py` + `scripts/shared/` + 技能根 `.env`，API Key 由技能根 `.env` 自动加载），内部所有引用统一为基于技能目录的相对路径 `scripts/anysearch_cli.py`，**不依赖任何外部 Skill**（原 `anysearch-skill` 已于 2026-07-23 退役；`web-search` 亦自带独立副本）。
   - **Firecrawl MCP**：双引擎之二（search/scrape/extract/agent/map/crawl/batch/interact），经 Dynamic-mcp 中继或直接直连。
   - **Dynamic-mcp MCP**：`mcp__Dynamic-mcp__list_groups / get_dynamic_tools / call_dynamic_tool`。
   - **UV / Python 环境**：`uv run --project D:/Tools/Assembly/python/myenv` 运行 AnySearch CLI。

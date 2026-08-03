@@ -2,7 +2,7 @@
 
 > 本文件定义 `ref-material-writing` 的 AnySearch 双引擎接入方式。
 > **自 2026-08-03 起，本技能已内嵌自包含 AnySearch CLI 副本**（`scripts/anysearch_cli.py` + `scripts/shared/` + 技能根 `.env`），**不依赖任何外部 Skill 技能及其资源文件 / 脚本文件**。
-> 权威接口参考：运行 `uv run --project D:/Tools/Assembly/python/myenv python [Skill技能根目录]/scripts/anysearch_cli.py doc` 查看完整 CLI 规范（子命令、参数、输出格式均以该副本 `doc` 输出为准）。
+> 权威接口参考：运行 `uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py doc` 查看完整 CLI 规范（子命令、参数、输出格式均以该副本 `doc` 输出为准）。
 > 对接点：步骤2 URL 双轨抓取（`extract`）、步骤5 轨道A 全量使用。
 
 ---
@@ -10,10 +10,10 @@
 ## 1. 固定调用命令（内嵌自包含副本）
 
 ```
-uv run --project D:/Tools/Assembly/python/myenv python [Skill技能根目录]/scripts/anysearch_cli.py <子命令> [选项]
+uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py <子命令> [选项]
 ```
 
-- 路径解析：`[Skill技能根目录]` 为技能实际目录，解析后指向 `scripts/anysearch_cli.py`（本技能内嵌副本）；与 Firecrawl 平权双引擎。
+- 路径解析：命令采用**基于技能目录的相对路径** `scripts/anysearch_cli.py`（以本技能根目录 `ref-material-writing/` 为解析基准，运行时拼接为绝对路径），指向本技能内嵌副本；与 Firecrawl 平权双引擎。
 - API key 由技能根 `.env`（`ANYSEARCH_API_KEY`）自动加载（脚本启动时按 `scripts/.env` → 技能根 `.env` 顺序探测），**命令中无需传 key**。
 - 路径分隔符**统一正斜杠 `/`**（Bash / PowerShell 双宿主一致；Bash 下反斜杠 `\` 会被转义导致路径失败）。
 - **维护约定**：若 CLI 接口变更，改 `scripts/anysearch_cli.py` 并重跑 `doc` 复核；镜像同步 6 处（`_router/bootstrap.md`、`_router/_contract.md`、`_router/step-02.md`、`_router/step-05.md`、`compatibility.md`、`references/02-environment-setup.md`）；禁止只改镜像不改脚本（反之亦然）。

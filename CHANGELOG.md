@@ -21,6 +21,7 @@
 - **github-personal-manager**：SKILL.md / `scripts/lib/sop-common.sh` / `sop_fetch_prune.sh` / `sop_resolve_repo.sh` / `references/fork-ci-pitfalls.md` / `references/gh-capability.md` / `config/github-sop.config.template.sh` 多处调整；`smoke/tests/test_contracts.sh` 修订、`test_contracts_extra.sh` 重建；文档同步门禁明确"禁止本地编译"硬约束。
 - **.github/workflows/smoke.yml**：升级 actions 至 v7（消除 Node.js 20 弃用警告）。
 - **Memory-Data/GitHub_Deepseek++.md**：内容扩充。
+- **ref-material-writing**：自包含改造收口——将内部所有 AnySearch CLI 调用/引用/加载由 `[Skill技能根目录]/scripts/anysearch_cli.py` 占位符统一改为基于技能目录的相对路径 `scripts/anysearch_cli.py`（与脚本自生成 `doc` 输出一致；运行时按技能目录拼接绝对路径、不依赖 CWD）；同步修正自包含后已不准确的"固定外部命令/硬编码路径"措辞，并更新 `references/02`、`references/13`、`_router/*`、`compatibility.md`、`SKILL.md`、`assets/_流水线状态.md` 等镜像与路径解析说明；`README.md` 消除"内部引用路径待对齐"标注。Tier0+Tier1 门禁通过（ref-material-writing 结构合法、0 断链 WARN）。
 
 ### Moved
 - **workbuddy-workspace-migration/** → `Workbuddy专属/workbuddy-workspace-migration/`（整体迁移至专属子目录）。
