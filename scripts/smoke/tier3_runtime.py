@@ -5,6 +5,7 @@
   - 环境探测：确认 git / gh / uv / python / node 在 PATH（缺失仅 WARN，不阻断）
   - 脚本自检：
       * web-search / web-search/anysearch-skill：CLI ``--help`` 可正常执行（脚本存在却执行失败 = 致命）
+      * web-search/tests：审计修复回归测试（unittest，失败 = 致命；缺依赖则 WARN）
       * tender-review-kit：自带 pytest 测试（pytest 已装却失败 = 致命；未装则跳过）
   - 接口探活（默认关闭）：设置环境变量 SMOKE_PROBE_API=1 后，用 .env 中的
     ANYSEARCH_API_KEY 对 API 端点做一次最小探活。关闭时仅 INFO 提示，避免 CI 网络抖动。
@@ -44,14 +45,16 @@ def self_check(rep: Report) -> None:
         if not sp.exists():
             rep.info(skill, "script", f"未找到 {script}，跳过")
             continue
-        # uv 仅在存在时才作为兜底尝试；云端 CI 通常无 uv
+        # uv 仅在存在时才作为兜底尝试；云端 CI 通常无 uv。
+        # C12 修复：web-search/ 无 pyproject.toml，`uv run --project` 无法解析项目环境导致自检空转；
+        # 改用 `uv run --with requests`，与父 SKILL.md 的调用契约保持一致。
         attempts = [
             ["python", script, "--help"],
             ["python3", script, "--help"],
         ]
         if shutil.which("uv"):
-            attempts.append(["uv", "run", "--project", str(REPO_ROOT / skill),
-                            "python", script, "--help"])
+            attempts.append(["uv", "run", "--with", "requests",
+                             "python", script, "--help"])
         ok = False
         dep_error = False
         last_err = ""
@@ -73,6 +76,29 @@ def self_check(rep: Report) -> None:
         else:
             rep.fatal(skill, "script",
                       f"{script} --help 执行失败（stderr: {last_err[:160]}）")
+
+    # C7 修复：web-search 审计修复回归测试接入门禁（此前 tests/ 无任何 CI 触发，守护价值为零）
+    ws_tests = REPO_ROOT / "web-search" / "tests"
+    if ws_tests.exists():
+        # 被测脚本模块级 import requests：uv 可用时优先 `uv run --with requests`，否则退回当前解释器
+        if shutil.which("uv"):
+            cmd = ["uv", "run", "--with", "requests", "python",
+                   "-m", "unittest", "discover", "-s", "web-search/tests", "-v"]
+        else:
+            cmd = [sys.executable, "-m", "unittest", "discover",
+                   "-s", "web-search/tests", "-v"]
+        code, out, err = run_cmd(cmd, timeout=300)
+        combined = (out or "") + (err or "")
+        if code == 0:
+            rep.ok("web-search", "tests", "审计修复回归测试通过（web-search/tests）")
+        elif "ModuleNotFoundError" in combined or "ImportError" in combined:
+            rep.warn("web-search", "tests",
+                     "回归测试依赖未安装（requests），属环境问题未阻断；"
+                     "建议 `uv run --with requests python -m unittest discover -s web-search/tests -v`")
+        else:
+            tail = combined.strip().splitlines()[-6:] if combined.strip() else []
+            rep.fatal("web-search", "tests",
+                      f"审计修复回归测试未通过：{' | '.join(t[:80] for t in tail)}")
 
     # tender-review-kit pytest
     trk = REPO_ROOT / "tender-review-kit"
