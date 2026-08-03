@@ -30,6 +30,11 @@ uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py 
 | `get_sub_domains` | 发现垂直子域（垂直搜索前必调） | `--domain X` / `--domains X,Y` | `... anysearch_cli.py get_sub_domains --domains finance,health` |
 | `doc` | 离线查阅完整 CLI 参考（未知接口 / 失败恢复时；日常**不调用**） | 无 | `... anysearch_cli.py doc` |
 
+> **调用数量约束（与内嵌副本对齐，避免限流 / 拒答）**：
+> - `batch_search`：单条命令 `--query` 可重复 **2–5 条**（或用 `--queries @file.json`，单次调用 2–5 条）；超出 5 条副本直接报错退出。
+> - `get_sub_domains`：`--domains` 单次建议 **≤5** 个领域（逗号分隔或 JSON 数组），过多可能被后端拒绝。
+> - `search --max_results`：取值 **1–10**（默认 10）；垂直搜索 `--sub_domain_params` 中标记 `(required)` 的参数**必须**全部纳入（无适用值传空串 `{"required_key":""}`）。
+
 - `extract` **无格式选项**：禁止 `extract --format markdown/json` 等写法；输出已是 Markdown。
 - 垂直搜索必填参数：当 `get_sub_domains` 返回标记 `(required)` 的参数，**必须**全部纳入 `--sub_domain_params`（无适用值传空串 `{"required_key":""}`），缺省会触发后端校验错误。
 
