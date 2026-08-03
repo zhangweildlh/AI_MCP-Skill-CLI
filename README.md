@@ -72,17 +72,19 @@
   - **内置资产**：`scripts/*.py`（取数/撒网/补词/护栏/出 Excel）、`references/`（废标对照总清单、商务线、技术线）、`data/keywords.json`（120+ 判词库）。
 - **备注**：首次必跑 `uv run --project D:/Tools/Assembly/python/myenv python scripts/check_env.py` 自检环境。
 
-### 4. web-search（深度联网搜索与下载）
+### 4. web-search（深度联网搜索与下载 · 父 Skill 双轨架构）
 
-- **用途**：基于用户输入的深度联网搜索与信息下载，系统拆解搜索要素、多引擎（AnySearch + Firecrawl）双轨并行、多来源交叉印证，交付结构化中文报告 + 落盘 Markdown 素材文件（统一 schema，含来源标签与印证标记）。
+- **用途**：面向深度联网搜索与信息下载的**父 Skill**。采用「父协调 + 双子 Skill 双轨独立搜索 + 多来源印证 + 双工具相互补台 + Agent 原生 `web_search`/`web_fetch` 兜底」架构，产出结构化中文报告并落盘 Markdown 素材文件（统一 schema，含来源标签与印证标记）。父 Skill 持有全部本地化/私有化/定制化约束与裁决逻辑；两个子 Skill 各自独立演进，上游更新可低成本跟进。
+- **架构与子 Skill**：
+  - **轨道1 · AnySearch（`web-search/anysearch-skill/`）**：克隆自上游 `anysearch-ai/anysearch-skill` 的纯净副本（v3.0.1），承担 AnySearch 引擎搜索。经 `uv run --project D:/Tools/Assembly/python/myenv python web-search/anysearch-skill/scripts/anysearch_cli.py` 调用；上游更新走 `git pull` 即在 web-search 内升级（无需改父 Skill）。
+  - **轨道2 · Firecrawl（`web-search/firecrawl/SKILL.md` 适配层 + 全局 `firecrawl` CLI）**：适配层封装官方 Firecrawl CLI（npm 全局安装，落 `D:\Tools\Assembly\nodejs\node_global`，v1.19.27），覆盖 search/scrape/crawl/map/agent/interact，功能等价 MCP 但无需运行 MCP 服务。上游 API 演进由适配层经 `gh api` 追踪 `firecrawl/firecrawl` 的 `openapi.json` 跟进。
 - **外部依赖 / 外部工具 / 外部需求**：
-  - **内置 AnySearch（自带 CLI）**：技能自带 `scripts/anysearch_cli.py` + `uv` + Python 3.6+（需 `requests`）+ 网络；可选 `runtime.conf`、`.env` 配置 API Key。该 CLI 也是本仓库 AnySearch 能力的唯一落点（原 `anysearch-skill` 已退役）。
-  - **Firecrawl MCP**：经 Dynamic-mcp 中继或直接直连，由 LLM 按环境判定。
-  - **Dynamic-mcp MCP**：Firecrawl 的中继门面。
-  - **原生 `web_search` / `web_fetch`**：降级补偿通道。
-  - **配套参考**：`references/anysearch.md`、`references/firecrawl.md`、`references/orchestration.md`。
+  - **AnySearch 轨道**：`uv` + Python 3（myenv 环境）+ 网络；API Key 由 `web-search/anysearch-skill/.env`（从 `.env.example` 复制）加载。
+  - **Firecrawl 轨道**：全局 `firecrawl` CLI（Node.js 工具，已安装）；API Key 经环境变量 `FIRECRAWL_API_KEY` 注入。
+  - **原生 `web_search` / `web_fetch`**：双轨均不可用时的最终兜底补偿通道。
+  - **配套参考（已删除）**：原 `references/anysearch.md`、`references/firecrawl.md`、`references/orchestration.md` 已移除，知识已并入父 SKILL.md 与子 Skill 文档。
   - **网络访问**。
-- **备注**：完全自包含，不依赖/不加载其他技能定义；路径用正斜杠；隐私门禁（手机号/身份证/密码脱敏）前置。
+- **备注**：父 Skill 完全自包含、不依赖/不加载其他技能定义；路径一律相对路径（基于 `{SKILL_ROOT}` 注入），可移植部署任一目录不失效；隐私门禁（手机号/身份证/密码脱敏）前置。
 
 ### 5. code-review-combo（组合式代码审查）
 
@@ -180,8 +182,9 @@
 
 | 依赖类别 | 涉及技能 |
 |---|---|
-| **联网搜索/抓取服务** | ref-material-writing、web-search（内置 AnySearch CLI） |
-| **Firecrawl MCP** | ref-material-writing、web-search |
+| **联网搜索/抓取服务** | ref-material-writing、web-search（父 Skill + anysearch-skill 子目录 + Firecrawl CLI 双轨） |
+| **Firecrawl MCP** | ref-material-writing |
+| **Firecrawl CLI（全局）** | web-search（轨道2 适配层，无需 MCP/Dynamic-mcp） |
 | **Dynamic-mcp MCP** | ref-material-writing、web-search、mimo-code-collab（mimo.code 中转） |
 | **OfficeCLI（officecli）** | ref-material-writing |
 | **滴答清单(TickTick) MCP** | ticktick |
