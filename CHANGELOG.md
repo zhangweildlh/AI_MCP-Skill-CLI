@@ -23,6 +23,8 @@
 - **Memory-Data/GitHub_Deepseek++.md**：内容扩充。
 - **ref-material-writing**：自包含改造收口——将内部所有 AnySearch CLI 调用/引用/加载由 `[Skill技能根目录]/scripts/anysearch_cli.py` 占位符统一改为基于技能目录的相对路径 `scripts/anysearch_cli.py`（与脚本自生成 `doc` 输出一致；运行时按技能目录拼接绝对路径、不依赖 CWD）；同步修正自包含后已不准确的"固定外部命令/硬编码路径"措辞，并更新 `references/02`、`references/13`、`_router/*`、`compatibility.md`、`SKILL.md`、`assets/_流水线状态.md` 等镜像与路径解析说明；`README.md` 消除"内部引用路径待对齐"标注。Tier0+Tier1 门禁通过（ref-material-writing 结构合法、0 断链 WARN）。
 
+- **web-search**：解耦重构为「父 Skill 双轨架构」——父 `web-search/SKILL.md` + `web-search/README.md` 持有全部本地化/私有化约束与五级裁决逻辑（双轨并行 → 多来源印证 → 双工具补台 → 原生 `web_search`/`web_fetch` 兜底 → 父复审裁决）；AnySearch 轨道改为克隆上游 `anysearch-ai/anysearch-skill` 纯净版（`web-search/anysearch-skill/`，`git pull` 即升级）；Firecrawl 轨道由「MCP/Dynamic-mcp」改为全局官方 CLI（`firecrawl` v1.19.27，npm 全局落 `D:\Tools\Assembly\nodejs\node_global`），新增 `web-search/firecrawl/SKILL.md` 适配层封装，经 `gh api` 追踪 `firecrawl/firecrawl` 的 `openapi.json` 跟进上游 API 演进；删除冗余 `web-search/references/`（anysearch.md/firecrawl.md/orchestration.md，知识已并入父 SKILL.md 与子 Skill）；AnySearch 调用严格走 `uv run --project D:/Tools/Assembly/python/myenv python`。
+
 ### Moved
 - **workbuddy-workspace-migration/** → `Workbuddy专属/workbuddy-workspace-migration/`（整体迁移至专属子目录）。
 - **Skill-memory-consolidate.md** → `Workbuddy专属/Skill-memory-consolidate.md`。
