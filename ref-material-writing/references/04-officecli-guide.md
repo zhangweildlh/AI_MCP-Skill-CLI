@@ -21,7 +21,7 @@ officecli help docx <element> --json        # 机器可读 schema
 - **版本差异声明（强制）**：officecli 命令参数随版本变化。**任何命令执行失败后，必须运行 `officecli --help`（或 `officecli help docx <element>`）获取当前版本权威帮助，以此作为使用标准并重试，不得凭记忆硬编码 flag。** 本指南与 `assets/officecli-command-templates.md` 示例均以官方 `officecli-docx` 规范为准；若 installed 版本行为不同，以 `officecli --help` 为准。
 - 调用 OfficeCLI 前，先执行 `officecli --version` 验证是否安装。
 - 帮助命令等价关系：`officecli help` ≡ `officecli --help`，`officecli <cmd> --help` ≡ `officecli help <cmd>`。
-- OfficeCLI 参考文档位于 `[Skill技能根目录]/OfficeCLI/SKILL.md`。若该文件不可读或调用失败，则改用 `officecli help` 命令获取所需文档，不得因此中断工作流。
+- OfficeCLI 程序已在系统环境变量 PATH 注册，无需在本技能内自包含二进制文件。其参考文档采用**外部引用**：当 Agent 需要时，直接按 GitHub 仓库连接读取 `https://github.com/iOfficeAI/OfficeCLI/blob/main/SKILL.md`。若该链接不可读或调用失败，则改用 `officecli help` 命令获取所需文档，不得因此中断工作流。
 
 ## 对齐官方 `officecli-docx` 的关键约定
 

@@ -4,7 +4,7 @@
 
   - 环境探测：确认 git / gh / uv / python / node 在 PATH（缺失仅 WARN，不阻断）
   - 脚本自检：
-      * anysearch-skill / web-search：CLI ``--help`` 可正常执行（脚本存在却执行失败 = 致命）
+      * web-search / web-search/anysearch-skill：CLI ``--help`` 可正常执行（脚本存在却执行失败 = 致命）
       * tender-review-kit：自带 pytest 测试（pytest 已装却失败 = 致命；未装则跳过）
   - 接口探活（默认关闭）：设置环境变量 SMOKE_PROBE_API=1 后，用 .env 中的
     ANYSEARCH_API_KEY 对 API 端点做一次最小探活。关闭时仅 INFO 提示，避免 CI 网络抖动。
@@ -38,8 +38,7 @@ def probe_tools(rep: Report) -> None:
 
 def self_check(rep: Report) -> None:
     for skill, script in [
-        ("anysearch-skill", "anysearch-skill/scripts/anysearch_cli.py"),
-        ("web-search", "web-search/scripts/anysearch_cli.py"),
+        ("web-search", "web-search/anysearch-skill/scripts/anysearch_cli.py"),
     ]:
         sp = REPO_ROOT / script
         if not sp.exists():
@@ -96,7 +95,7 @@ def api_probe(rep: Report) -> None:
     if not os.environ.get("SMOKE_PROBE_API"):
         rep.info("__api__", "probe", "接口探活未启用（设置 SMOKE_PROBE_API=1 开启）")
         return
-    envf = REPO_ROOT / "anysearch-skill/.env"
+    envf = REPO_ROOT / "web-search/.env"
     key = ""
     if envf.exists():
         for line in envf.read_text(encoding="utf-8", errors="ignore").splitlines():

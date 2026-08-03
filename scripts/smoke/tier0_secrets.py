@@ -7,7 +7,7 @@
   2. .gitignore 策略校验：确保敏感目录被忽略、按策略应入库的文件未被忽略。
 
 关于 ANYSEARCH_API_KEY：
-  按用户明确决策（#10），anysearch-skill/.env 与 web-search/.env 中的真实
+  按用户明确决策（#10），web-search/.env 与 ref-material-writing/.env 中的真实
   ANYSEARCH_API_KEY 已授权入库。因此该 Key 被列入允许清单，扫描命中不报致命。
   若日后希望收紧，移除 ALLOW_PATTERNS 中对应条目即可。
 """
@@ -54,7 +54,6 @@ MUST_IGNORE = [
 ]
 # 必须被跟踪（按用户 #10 策略应入库）
 MUST_TRACK = [
-    "anysearch-skill/.env",
     "web-search/.env",
     "ref-material-writing/.env",
     "Skill-滴答清单智能任务解析创建器.md",
