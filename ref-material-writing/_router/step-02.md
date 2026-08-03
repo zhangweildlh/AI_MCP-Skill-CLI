@@ -26,7 +26,7 @@
 | docx / xlsx / pptx | 遵循 `references/05` 分段读取，利用 OFFICE（officecli）|
 | pdf | AI 原生文件读取能力直接读取（不由 officecli 分片）；若 PDF 过大导致单次读取截断，按页码范围分段读取并记录已读范围 |
 | Markdown / Text | AI 原生文件读取能力直接读取 |
-| URL | **双轨抓取（并行 AnySearch）**：① 调用 WEB_FETCH（Firecrawl 形态见映射表：直连 `firecrawl_scrape` / 中继 `mcp__Dynamic-mcp__call_dynamic_tool(name="firecrawl_scrape")`）获取网页文本；② 同时调用 AnySearch `extract <url>` 补充抓取全文（命令：`uv run --project D:/Tools/Assembly/python/myenv python D:/Documents/AI_MCP-Skill-CLI/anysearch-skill/scripts/anysearch_cli.py extract "<url>"`）。两路结果合并入同一分析卡片，互不替代。 |
+| URL | **双轨抓取（并行 AnySearch）**：① 调用 WEB_FETCH（Firecrawl 形态见映射表：直连 `firecrawl_scrape` / 中继 `mcp__Dynamic-mcp__call_dynamic_tool(name="firecrawl_scrape")`）获取网页文本；② 同时调用 AnySearch `extract <url>` 补充抓取全文（命令：`uv run --project D:/Tools/Assembly/python/myenv python [Skill技能根目录]/scripts/anysearch_cli.py extract "<url>"`）。两路结果合并入同一分析卡片，互不替代。 |
 - 通用原则：不得修改原始文件；加密 / 损坏 / 不支持格式转入异常处理。
 
 ### 2.3 单份资料结构化分析（生成分析卡片）

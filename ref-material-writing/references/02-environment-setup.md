@@ -33,10 +33,10 @@
     - **[当前时间戳]**：格式："yyyy-MM-dd-HH-mm-ss"，取系统当前日期，**通过 PowerShell 命令 `Get-Date -Format 'yyyy-MM-dd-HH-mm-ss'` 获取**。
 13. **输出格式默认值**：如果用户在调用本 Skill 时明确指定了**最终文稿**的文件格式（如 `.md`），则使用用户指定的格式输出**最终文稿**。否则默认采用 `.docx` 文件格式输出**最终文稿**。
 14. **降级规则**：如果因技术原因导致无法生成 `.docx` 文件或者写入失败（含「步骤9：结构化输出」降级规则触发），则自动改用 Markdown 格式（`.md`）重新输出、保存，并以自然语言告知用户已降级。
-15. **AnySearch 固定外部命令（双引擎搜索专用）**：步骤5 / 步骤2 调用 AnySearch 时，**必须**使用以下硬编码命令，且**严禁省略** `uv run --project D:/Tools/Assembly/python/myenv` 前缀而直接使用 `python`：
-    `uv run --project D:/Tools/Assembly/python/myenv python D:/Documents/AI_MCP-Skill-CLI/anysearch-skill/scripts/anysearch_cli.py <子命令> [选项]`
-    - 该路径为固定存放目录（`D:/Documents/AI_MCP-Skill-CLI/anysearch-skill`），API key 由同目录 `.env` 自动加载，命令中无需传 key。
-    - 与 ref-material-writing 自身资产不同，AnySearch 命令路径**允许并应当硬编码**（用户明确指定），但 ref-material-writing 内部资产路径仍须使用 `[Skill技能根目录]/[name]` 等占位符，**禁止硬编码 ref-material-writing 的绝对目录**。
+15. **AnySearch 内嵌命令（双引擎搜索专用，自包含）**：步骤5 / 步骤2 调用 AnySearch 时，**必须**使用以下固定命令，且**严禁省略** `uv run --project D:/Tools/Assembly/python/myenv` 前缀而直接使用 `python`：
+    `uv run --project D:/Tools/Assembly/python/myenv python [Skill技能根目录]/scripts/anysearch_cli.py <子命令> [选项]`
+    - 该命令指向本技能**内嵌自包含**的 AnySearch CLI 副本（`scripts/anysearch_cli.py`），API key 由技能根 `.env`（`ANYSEARCH_API_KEY`）自动加载，命令中无需传 key；本技能不依赖任何外部 Skill。
+    - 内嵌副本路径统一用 `[Skill技能根目录]/scripts/anysearch_cli.py` 占位符（解析为技能实际目录），**禁止硬编码 ref-material-writing 的绝对目录**；`uv run --project D:/Tools/Assembly/python/myenv` 为本地 UV 环境前缀，须保留。
     - **⚠️ 路径分隔符（U1 修复，强制）**：本命令及本 Skill 所有命令中的路径**统一用正斜杠 `/`**（如 `D:/Tools/...`、`D:/Documents/...`）。若 `shell_exec` 宿主为 Bash（Git Bash 等 POSIX shell），反斜杠 `\` 会被 Bash 当作转义字符导致路径被吃字符、命令失败；正斜杠在 Bash 与 PowerShell 宿主下均可用，故统一正斜杠（PowerShell 宿主下反斜杠虽可用，但为跨宿主一致，不用反斜杠）。
 
 ---
