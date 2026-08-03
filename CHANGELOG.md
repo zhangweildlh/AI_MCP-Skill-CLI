@@ -23,7 +23,7 @@
 - **Memory-Data/GitHub_Deepseek++.md**：内容扩充。
 - **ref-material-writing**：自包含改造收口——将内部所有 AnySearch CLI 调用/引用/加载由 `[Skill技能根目录]/scripts/anysearch_cli.py` 占位符统一改为基于技能目录的相对路径 `scripts/anysearch_cli.py`（与脚本自生成 `doc` 输出一致；运行时按技能目录拼接绝对路径、不依赖 CWD）；同步修正自包含后已不准确的"固定外部命令/硬编码路径"措辞，并更新 `references/02`、`references/13`、`_router/*`、`compatibility.md`、`SKILL.md`、`assets/_流水线状态.md` 等镜像与路径解析说明；`README.md` 消除"内部引用路径待对齐"标注。Tier0+Tier1 门禁通过（ref-material-writing 结构合法、0 断链 WARN）。
 
-- **web-search**：解耦重构为「父 Skill 双轨架构」——父 `web-search/SKILL.md` + `web-search/README.md` 持有全部本地化/私有化约束与五级裁决逻辑（双轨并行 → 多来源印证 → 双工具补台 → 原生 `web_search`/`web_fetch` 兜底 → 父复审裁决）；AnySearch 轨道改为克隆上游 `anysearch-ai/anysearch-skill` 纯净版（`web-search/anysearch-skill/`，`git pull` 即升级）；Firecrawl 轨道由「MCP/Dynamic-mcp」改为全局官方 CLI（`firecrawl` v1.19.27，npm 全局落 `D:\Tools\Assembly\nodejs\node_global`），新增 `web-search/firecrawl/SKILL.md` 适配层封装，经 `gh api` 追踪 `firecrawl/firecrawl` 的 `openapi.json` 跟进上游 API 演进；删除冗余 `web-search/references/`（anysearch.md/firecrawl.md/orchestration.md，知识已并入父 SKILL.md 与子 Skill）；AnySearch 调用严格走 `uv run --project D:/Tools/Assembly/python/myenv python`。
+- **web-search**：解耦重构为「父 Skill 双轨架构」——父 `web-search/SKILL.md` + `web-search/README.md` 持有全部本地化/私有化约束与五级裁决逻辑（双轨并行 → 多来源印证 → 双工具补台 → 原生 `web_search`/`web_fetch` 兜底 → 父复审裁决）；AnySearch 轨道改为并入上游 `anysearch-ai/anysearch-skill`（`web-search/anysearch-skill/`；**实际为扁平并入、无嵌套 `.git`，不能 `git pull` 升级**——本条原表述"克隆纯净版、`git pull` 即升级"有误，已于同日审计修复中更正）；Firecrawl 轨道由「MCP/Dynamic-mcp」改为全局官方 CLI（`firecrawl` v1.19.27，npm 全局落 `D:\Tools\Assembly\nodejs\node_global`），新增 `web-search/firecrawl/SKILL.md` 适配层封装，经 `gh api` 追踪 `firecrawl/firecrawl` 的 `openapi.json` 跟进上游 API 演进；删除冗余 `web-search/references/`（anysearch.md/firecrawl.md/orchestration.md，知识已并入父 SKILL.md 与子 Skill）；AnySearch 调用严格走 `uv run --project D:/Tools/Assembly/python/myenv python`。
 
 ### Moved
 - **workbuddy-workspace-migration/** → `Workbuddy专属/workbuddy-workspace-migration/`（整体迁移至专属子目录）。
@@ -32,6 +32,14 @@
 
 ### Removed
 - **Skill-代码审查.md**（根级单文件技能）：能力已并入 `code-review-combo`，不再独立维护。
+
+### Fixed
+- **web-search 解耦回归修复（code-review-combo 多轮交叉审计）**：
+  - **密钥加载回归（F2，high）**：`anysearch-skill/scripts/anysearch_cli.py` 的 `_load_env` 在脚本移入子目录后探测不到父级 `web-search/.env`，补第三级探测（脚本同目录 → `anysearch-skill/` → `web-search/`），修复轨道1 无密钥直接失效。
+  - **密钥落盘风险（C8，high）**：`firecrawl/SKILL.md` 原「方式A `firecrawl env` 写入本地 .env」会把 `FIRECRAWL_API_KEY` 明文写进已入库的 `web-search/.env`，已删除该路径并加硬约束（仅进程内注入、禁落盘、禁回显）。
+  - **调用契约与文档一致性（F3/F4/F5/F7/F9/F10/F11/B10/B11/C3/C13）**：统一为 `uv run --with requests python {SKILL_ROOT}/anysearch-skill/scripts/anysearch_cli.py`；清除 `D:\Tools\Assembly` 本机硬编码；`interact` 的 `--task` 更正为 `--prompt`；`extract` 标注为仅 REST `/v2/extract`（CLI 无该子命令）；父/子 SKILL.md、`web-search/README.md` 与仓库根 `README.md` 对「扁平并入非 clone」「密钥位于父级 `.env`」的描述全部对齐。
+  - **回归测试与门禁（F8/B12/B13/B14/C6/C7/C9/C10/C11/C12/C14）**：新增 `web-search/tests/test_fixes.py`（6 用例，含真实执行 `firecrawl interact --help` 的 CLI 契约校验）；接入冒烟门禁 Tier 3；`scripts/smoke/tier3_runtime.py` 的 `uv run --project`（`web-search` 无 `pyproject.toml`，自检空转）改为 `uv run --with requests`。
+  - **说明**：`web-search/.env` 明文持有 `ANYSEARCH_API_KEY` 并入库，为用户显式授权的既定豁免（F1），本轮不作变更；豁免仅覆盖该单一密钥。
 
 ### Docs
 - **README.md**：技能总览由"12 个"重写为"14 个活跃技能"，移除已退役的 `github-repo-sync` 与已删除的 `anysearch-skill`，新增 `code-review-combo` / `mimo-code-collab` / `playwright-360chrome`（新增）及移入 `Workbuddy专属/` 的 `workbuddy-workspace-migration`；同步更新各技能详细说明、外部依赖归类与辅助体系章节。

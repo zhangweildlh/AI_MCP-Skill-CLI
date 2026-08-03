@@ -7,7 +7,7 @@
 
 ## 创建与打开（resident 模型）
 
-本技能采用**自包含批次**模式（见 `references/06` 禁止项第 37 条：create 后不显式 open）：每个写入批次在同一 `shell_exec` 中以 `;` 连接完成 `create --force ; add... ; close`。
+本技能采用**自包含批次**模式（见 `references/06-knowledge-base.md` 禁止项第 37 条：create 后不显式 open）：每个写入批次在同一 `shell_exec` 中以 `;` 连接完成 `create --force ; add... ; close`。
 
 ```bash
 # 创建空白文件（若文件已存在需覆盖：先 `officecli help docx create` 确认 --force 是否支持；
@@ -42,6 +42,8 @@ officecli add "$FILE" /body --type paragraph --prop text="（一）小节标题"
 
 # 三级标题（outlineLvl=2 → 大纲级别3）
 officecli add "$FILE" /body --type paragraph --prop text="1. 小标题" --prop font='仿宋' --prop size=15pt --prop bold=true --prop outlineLvl=2
+
+> **字体名提示（Help-First）**：上述 `方正小标宋` / `黑体` / `楷体_GB2312` / `仿宋` 等为示例字体名，实际可用性取决于本机已装字体与 `officecli` 版本；若 `officecli` 报字体缺失，以 `officecli --help`（或 `officecli help docx <element>`）为准并改用环境可用字体。
 
 # 四级标题（正文级，不设置 outlineLvl；用普通段落 + 直接格式化）
 officecli add "$FILE" /body --type paragraph --prop text="（1）小小标题" --prop font='仿宋' --prop size=15pt --prop bold=false
@@ -91,13 +93,10 @@ officecli add "$FILE" / --type footer --prop type=default --prop align=center --
 目录（3+ 标题时添加；`title` 为官方推荐字段）：
 
 ```bash
-officecli add "$FILE" /body --type paragraph --prop text="目 录" --prop font='方正小标宋' --prop size=16pt --prop bold=false --prop align=center --prop firstLineIndent=0 --index 0
-officecli add "$FILE" /body --type toc --prop levels="1-3" --prop title="目录" --prop hyperlinks=true --index 1
+# 方案甲（默认采用）：单 TOC 字段带 title，不手动加「目 录」段，避免双标题陷阱
+officecli add "$FILE" /body --type toc --prop levels="1-3" --prop title="目录" --prop hyperlinks=true
 
-> ⚠️ **双「目录」标签规避（重要）**：上面先手动 `add` 了一个「目 录」标题段（`--index 0` 那行），而 TOC 字段又带 `title="目录"`。`refresh` 后正文会出现**两个「目录」**——一个手动段、一个 TOC 字段渲染出的标题。**二选一，不要都留**：
-> - 方案甲（推荐）：**删掉**上面那行手动「目 录」段（`--index 0` 那行），让 TOC 字段的 `title="目录"` 自动生成目录标题；
-> - 方案乙：保留手动「目 录」段，但把 TOC 字段的 `title` 去掉或置空（如 `--prop title=""`），避免 TOC 再渲染一个标题。
-> 若内容自带「目录」章节（如用户提纲里就有「目录」一节），同样适用——手动段与 `title` 只留其一，否则重复。
+> ⚠️ **目录标题单标题铁律（治 M10 双标题反模式）**：仅用 TOC 字段的 `title="目录"` 自动生成目录标题，**禁止**额外手动 `add` 一个「目 录」段落（否则 `refresh` 后正文出现两个「目录」）。若用户提纲自带「目录」章节，同理只保留其一。
 ```
 
 > ⚠️ **目录刷新（强制）**：插入 `--type toc` 后必须 `officecli refresh "$FILE"` 计算目录条目与页码（**需本机装有 Word**）。
@@ -113,7 +112,7 @@ officecli create "$FILE" --force ; officecli add "$FILE" /body --type paragraph 
 
 ---
 
-## QA 校验命令（参照 references/04、05 与步骤10 Delivery Gate）
+## QA 校验命令（参照 references/04-officecli-guide.md、references/05-long-file-handling.md 与步骤10 Delivery Gate）
 
 ```bash
 officecli view "$FILE" outline ; officecli view "$FILE" text --max-lines 200 ; officecli validate "$FILE"

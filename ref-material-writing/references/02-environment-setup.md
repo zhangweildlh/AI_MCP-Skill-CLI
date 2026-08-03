@@ -12,7 +12,7 @@
 3. **[输出目录]**：所有输出文件和最终交付成果的根目录；默认路径为： `D:\Documents\Downloads` 。
    - 如果用户明确指定了绝对路径的 "输出目录"，则**直接使用**该路径；如果用户明确指定了相对路径的 "输出目录" ，则将其解析为：[输出目录]/[相对路径]；否则使用**默认路径**。
 4. **[Skill技能根目录]**： Skill 相关资产存放的根目录（SKILL.md 定义文件、子 Skill 定义文件、脚本、资源、模板等）；默认路径为： `D:\Documents\AI_MCP-Skill-CLI` 。
-   - 如果用户明确指定了绝对路径的 "Skill技能目录" ，则**直接使用**该路径；如果用户明确指定了相对路径的 "Skill技能目录" ，则将其解析为：[Skill技能根目录]/[相对路径]；否则按下面第 5 条执行。
+   - 如果用户明确指定了绝对路径的 "[Skill技能根目录]" ，则**直接使用**该路径；如果用户明确指定了相对路径的 "[Skill技能根目录]" ，则将其解析为：[Skill技能根目录]/[相对路径]；否则按下面第 5 条执行。
 5. **[name]目录**：本 Skill 所有资产存放目录，即 YAML frontmatter 中的 `name` 。该目录位于[Skill技能根目录]中：[Skill技能根目录]/[name]。
    - 本 Skill 定义文件存放于此目录中。
    - 本 Skill 使用**相对路径**（如 `./references/01-writing-standards.md` 或 `references/01-writing-standards.md`）加载、调用子 Skill或加载、阅读资源文件或者使用模板文件时，**必须**以此目录作为相对路径的解析根目录（如 `D:\Documents\AI_MCP-Skill-CLI\ref-material-writing\references\01-writing-standards.md` ），而不依赖于当前工作目录（CWD）。
@@ -38,6 +38,7 @@
     - 该命令指向本技能**内嵌自包含**的 AnySearch CLI 副本（`scripts/anysearch_cli.py`），API key 由技能根 `.env`（`ANYSEARCH_API_KEY`）自动加载，命令中无需传 key；本技能不依赖任何外部 Skill。
     - 内嵌副本路径统一用基于技能目录的相对路径 `scripts/anysearch_cli.py`（运行时按技能目录 `[Skill技能根目录]/[name]` 拼接为绝对路径，不依赖 CWD），**禁止硬编码 ref-material-writing 的绝对目录**；`uv run --project D:/Tools/Assembly/python/myenv` 为本地 UV 环境前缀，须保留。
     - **⚠️ 路径分隔符（U1 修复，强制）**：本命令及本 Skill 所有命令中的路径**统一用正斜杠 `/`**（如 `D:/Tools/...`、`D:/Documents/...`）。若 `shell_exec` 宿主为 Bash（Git Bash 等 POSIX shell），反斜杠 `\` 会被 Bash 当作转义字符导致路径被吃字符、命令失败；正斜杠在 Bash 与 PowerShell 宿主下均可用，故统一正斜杠（PowerShell 宿主下反斜杠虽可用，但为跨宿主一致，不用反斜杠）。
+   - **⚠️ 前置预检（与 §"使用外部命令前置工作流程"一致）**：AnySearch CLI 依赖 `uv run --project D:/Tools/Assembly/python/myenv` 与技能根 `.env` 的 `ANYSEARCH_API_KEY`，首次使用前须确认 `uv` 可用且技能根 `.env` 已就位（key 缺失则自动匿名降级，见 `references/13-anysearch-integration.md` §4，不阻断流程）。
 
 ---
 
