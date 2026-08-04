@@ -1,14 +1,56 @@
 #!/usr/bin/env bash
-# 中文名: 清理工作树 + 分支（多工作树并行合并·阶段七）
-# 功能: 在主线(main)把已 --no-ff 合并的功能分支的 worktree 与分支回收。
-#   校验已合并(merge-base --is-ancestor <Tip> HEAD=0)；自动判定活跃(git worktree remove)/游离(rm -rf);
-#   删本地分支(小写 -d 仅删已合并);删远端分支(公开动作,需 --confirm 授权)。
-# 适用场景: 工作流七阶段七。与主仓库的 add/merge 脚本同属一个工作流。
-# 注意事项: 默认 dry-run（列出将删工作树 + 本地/远端分支、判定活跃/游离、合并校验结论）；加 --confirm 才真正清理。
-#   删远端分支属公开动作，脚本内醒目提示「⚠️ 公开动作」；合并校验失败则硬停止，绝不清理未合并工作以防丢提交。
-#   工作树含未提交改动时默认拒绝移除（--force 会丢弃未提交内容）；须显式加 --discard-uncommitted 才授权丢弃。
-#   删除分支前请先在 GitHub 核对 open PR（本脚本不自动查询）；open PR 仍开放的分支被清理会使对应 PR 被自动关闭。
-# 用法: bash sop_worktree_cleanup.sh [主仓库路径] --branch <feat/x> [--worktree-path <dir>] [--confirm]
+#<!--HELP-START-->
+# 脚本名: sop_worktree_cleanup.sh
+# 中文名: 回收工作树与已合并分支（多工作树并行·阶段七）
+#
+# 【功能】
+#   站在主线(main) 视角，把已经完成普通合并的功能分支及其工作树整体回收，按四步执行：
+#     1. 合并校验：确认功能分支尖端已是当前主线提交的祖先；未合并则硬停止，绝不清理，防止丢提交；
+#     2. 工作树回收：自动判定该工作树是「活跃登记」还是「游离残留」，分别用登记接口移除或直接删目录；
+#     3. 本地分支回收：使用「仅删已合并分支」的安全删除方式，未合并会被 git 自身拒绝；
+#     4. 远端分支回收：属公开动作，脚本会醒目提示，必须显式授权后才执行。
+#
+# 【用途 / 使用场景】
+#   1. 工作流七「多工作树并行开发」阶段七：功能分支合入主线后，回收占位的工作树与冗余分支。
+#   2. 定期清理仓库：批量收敛长期堆积的已合并特性分支，保持分支列表整洁。
+#   3. 清理前的风险评估：不加 --confirm 时可单独用作「将删什么、是否已合并」的预演清单。
+#
+# 【详细用法】
+#   基本用法:
+#     bash sop_worktree_cleanup.sh --branch feat/login                       # 预览模式(dry-run)
+#     bash sop_worktree_cleanup.sh --branch feat/login --confirm             # 真正执行回收
+#     bash sop_worktree_cleanup.sh /path/to/repo --branch feat/login --worktree-path D:/wt/login --confirm
+#     bash sop_worktree_cleanup.sh --branch feat/x --discard-uncommitted --confirm  # 授权丢弃未提交内容
+#     bash sop_worktree_cleanup.sh -h                                        # 查看本帮助
+#
+#   参数说明:
+#     [主仓库路径]            可选。主仓库「根目录」（须含 .git）；缺省取当前工作目录。传子目录会被拒绝。
+#     --branch <feat/x>       必填。待回收的功能分支名。
+#     --worktree-path <dir>   可选。工作树目录；缺省由分支名与默认工作树根推断。
+#     --discard-uncommitted   可选。授权丢弃工作树内的未提交改动；不加则遇未提交改动直接拒绝移除。
+#     --confirm               真正执行回收。不加则只预览，不删除任何东西。
+#     --dry-run               显式声明预览模式（默认行为）。
+#     -h|--help               打印本帮助并退出。
+#
+#   环境变量 / 配置项（取自 config/github-sop.config.sh）:
+#     GIT_BIN         git 可执行文件路径
+#     MAIN_BRANCH     主分支名，作为合并校验的基准
+#     ORIGIN_REMOTE   你的远端仓库名（通常为 origin）
+#
+#   退出码:
+#     0  正常完成（打印预览 / 成功回收）
+#     1  守卫未通过（当前分支非 main / 主仓库工作区脏 / 未合并 / 工作树含未提交改动且未授权丢弃）
+#     2  参数错误（未指定 --branch，或传入未知选项）
+#
+# 【注意事项】
+#   - 清理必须在主仓库的主线上执行，绝不在工作树目录内执行。
+#   - 默认走预览模式(dry-run)，必须显式加 --confirm 才会真正删除。
+#   - 合并校验不通过一律硬停止，避免误删尚未合入主线的开发成果。
+#   - 工作树内若有未提交改动，默认拒绝移除；只有显式加 --discard-uncommitted 才视为授权丢弃。
+#   - 回收远端分支前，请先在 GitHub 上核对是否仍有处于开放状态的合并请求(PR)（本脚本不自动查询）；
+#     开放中的 PR 对应的分支被清理后，该 PR 会被自动关闭。
+#   - 本脚本只回收功能分支，不会触碰主线分支本身。
+#<!--HELP-END-->
 set -uo pipefail
 SOP_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -24,7 +66,7 @@ NEED_BRANCH=0
 NEED_WTPATH=0
 for a in "$@"; do
   case "$a" in
-    -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; echo "用法: bash sop_worktree_cleanup.sh [主仓库路径] --branch <feat/x> [--worktree-path <dir>] [--confirm] [--discard-uncommitted]"; exit 0 ;;
+    -h|--help) _sop_print_help "${BASH_SOURCE[0]}"; exit 0 ;;
     --confirm) CONFIRM=1 ;;
     --dry-run) CONFIRM=0 ;;
     --discard-uncommitted) DISCARD=1 ;;
