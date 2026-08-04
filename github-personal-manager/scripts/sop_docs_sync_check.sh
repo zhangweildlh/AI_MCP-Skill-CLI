@@ -1,15 +1,50 @@
 #!/usr/bin/env bash
 #<!--HELP-START-->
+# 脚本名: sop_docs_sync_check.sh
 # 中文名: 提交前文档同步检查（分层检查清单·检测）
-# 功能: 在标准代码修改提交流程中，基于本次仓库代码与文件的"真实变化"（git status/diff 实际改动），
-#       依据 references/docs-sync-checklist.md 的「分层检查清单」（改动类型 × Tier 1/2/3），
-#       先查仓库是否存在清单文件 → 分析是否需改 → 输出同步状态。
-#       只读、dry-run，不修改任何文件；由智能体依据输出"实际修改"文档内容。
-# 适用场景: 工作流二「提交(commit)动作之前」的硬门禁检测（见 SKILL.md / 永久记忆·第四模块）。
-# 语义: Tier 1 未同步 → 阻断（exit 2）；Tier 2 未同步 → 强建议（默认 exit 0，--strict 时 exit 2）；Tier 3 → 仅提示。
-# 选项: [仓库路径] [--strict] 让 Tier 2 未同步同样阻断。
-# 退出码: 0=已同步/无真实变化；2=未同步（Tier 1，或 --strict 下的 Tier 2）。
-# 用法: bash sop_docs_sync_check.sh [仓库路径] [--strict]
+#
+# 【功能】
+#   在标准代码修改的提交流程中，基于本次仓库代码与文件的「真实变化」（工作区状态与差异的实际改动），
+#   依据 references/docs-sync-checklist.md 定义的「分层检查清单」（改动类型 × Tier 1/2/3），
+#   按三步给出结论：
+#     1. 检查仓库中是否存在清单要求的文档文件；
+#     2. 结合本次实际改动，分析哪些文档需要同步修改；
+#     3. 输出每一项的同步状态与分层结论。
+#   本脚本为只读预演，不修改任何文件；文档的实际修改由智能体依据输出结果完成。
+#
+# 【用途 / 使用场景】
+#   1. 工作流二「提交动作之前」的硬门禁检测（见 SKILL.md 与永久记忆·第四模块）。
+#   2. 合并主线后补齐变更记录前的自查：确认哪些文档尚未跟上代码改动。
+#   3. 代码评审前的自检：避免出现「改了接口却没改文档」这类低级遗漏。
+#
+# 【详细用法】
+#   基本用法:
+#     bash sop_docs_sync_check.sh                      # 检查当前目录仓库
+#     bash sop_docs_sync_check.sh /path/to/repo        # 指定仓库根目录
+#     bash sop_docs_sync_check.sh /path/to/repo --strict  # 让 Tier 2 未同步同样阻断
+#     bash sop_docs_sync_check.sh -h                   # 查看本帮助
+#
+#   参数说明:
+#     [仓库路径]   可选。仓库「根目录」（须含 .git）；缺省取当前工作目录。传入子目录会被拒绝。
+#     --strict     严格模式：把 Tier 2 未同步的强建议升级为阻断。
+#     -h|--help    打印本帮助并退出。
+#
+#   分层语义:
+#     Tier 1 未同步 → 阻断（退出码 2），必须补齐后才允许提交；
+#     Tier 2 未同步 → 强烈建议补齐（默认退出码 0；加 --strict 时退出码 2）；
+#     Tier 3 未同步 → 仅作提示，不影响退出码。
+#
+#   环境变量 / 配置项（取自 config/github-sop.config.sh）:
+#     GIT_BIN   git 可执行文件路径
+#
+#   退出码:
+#     0  已同步，或本次没有需要触发文档同步的真实变化
+#     2  未同步（Tier 1，或严格模式下的 Tier 2），或传入了未知选项
+#
+# 【注意事项】
+#   - 本脚本为只读检测，不会改动仓库内任何文件，也不产生远端副作用。
+#   - 判定依据是「真实变化」，纯格式调整或空改动不会误报。
+#   - 清单文件缺失时会明确提示，请先补齐 references/docs-sync-checklist.md 再复检。
 #<!--HELP-END-->
 set -uo pipefail
 SOP_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,11 +56,7 @@ REPO=""
 STRICT=0
 for a in "$@"; do
   case "$a" in
-    -h|--help)
-      sed -n '/<!--HELP-START-->/,/<!--HELP-END-->/p' "${BASH_SOURCE[0]}" \
-        | grep -v -e '<!--HELP-START-->' -e '<!--HELP-END-->' \
-        | sed 's/^# \{0,1\}//'
-      exit 0 ;;
+    -h|--help) _sop_print_help "${BASH_SOURCE[0]}"; exit 0 ;;
     --strict) STRICT=1 ;;
     -*) echo "未知选项: $a" >&2; exit 2 ;;
     *) REPO="$a" ;;

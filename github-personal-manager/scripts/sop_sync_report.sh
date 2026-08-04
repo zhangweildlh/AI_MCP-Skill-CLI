@@ -1,12 +1,51 @@
 #!/usr/bin/env bash
-# 中文名: 上游更新结构化报告
-# 功能: 以"合并前本地 tip"（可选第二参数）为基准，生成上游相对上次同步的新增提交结构化报告。
-#       报告含：新增功能 / 改进与优化 / Bug 修复 / 破坏性变更 / 其他 + 详细提交记录表。
-#       未提供 tip 时，取 upstream/main 最近 20 条作为参考（与"报告基准点规则"一致）。
-# 适用场景: 日常同步巡检（工作流一）第四步；用户想一眼看清上游这次改了啥。
-# 注意: 分类为基于提交信息的启发式（conventional commits 关键词匹配），仅供参考；
-#       冲突/分叉由 sop_sync_upstream.sh 处理，本脚本只做只读报告，无需 --confirm。
-# 记忆映射: 日常同步巡检·第四步（吸收 github-repo-sync 步骤6 的"报告基准点规则"）
+#<!--HELP-START-->
+# 脚本名: sop_sync_report.sh
+# 中文名: 上游更新结构化报告（只读）
+#
+# 【功能】
+#   以「合并前本地 tip」（可选第二参数）为基准，统计上游仓库(upstream)相对上次同步的新增提交，
+#   并输出结构化 Markdown 报告，含五类启发式归类与详细提交记录表：
+#     - 新增功能 / 改进与优化 / Bug 修复 / 破坏性变更 / 其他
+#     - 详细提交记录表（提交哈希 | 作者 | 提交信息）
+#   未提供 tip 时，退化为取 upstream/main 最近 20 条提交作为参考基准
+#   （与「报告基准点规则」保持一致）。
+#
+# 【用途 / 使用场景】
+#   1. 日常同步巡检（工作流一）第四步：合并上游后，一眼看清上游这次改了什么。
+#   2. 合并前预研：先跑本脚本看清上游改动范围，再决定是否合并、是否需要评估影响面。
+#   3. 汇报材料取数：报告为 Markdown 表格格式，可直接粘贴进同步巡检结论。
+#
+# 【详细用法】
+#   基本用法:
+#     bash sop_sync_report.sh                         # 对当前目录仓库生成报告（最近 20 条）
+#     bash sop_sync_report.sh /path/to/repo           # 指定仓库根目录
+#     bash sop_sync_report.sh /path/to/repo abc1234   # 以合并前本地 tip 为精确基准
+#     bash sop_sync_report.sh -h                      # 查看本帮助
+#
+#   参数说明:
+#     [仓库路径]   可选。仓库「根目录」（须含 .git）；缺省取当前工作目录。传入子目录会被拒绝。
+#     [合并前tip]  可选。任意可被 git rev-parse 解析的引用（提交哈希/分支名/标签）。
+#                  提供后对比范围为 <tip>..upstream/main，统计结果最精确。
+#     -h|--help    打印本帮助并退出。
+#
+#   环境变量 / 配置项（取自 config/github-sop.config.sh）:
+#     GIT_BIN           git 可执行文件路径
+#     MAIN_BRANCH       主分支名（通常为 main）
+#     UPSTREAM_REMOTE   上游远端名（通常为 upstream）
+#
+#   退出码:
+#     0  正常输出报告，或上游无新增提交
+#     1  守卫未通过（当前分支非 main / 未配置 upstream 远端 / 仓库路径非法）
+#     2  传入了未知选项
+#
+# 【注意事项】
+#   - 本脚本为「只读」操作：仅执行 git fetch 与 git log，不改动工作区，无需 --confirm。
+#   - 分类为基于提交信息首词的启发式匹配（conventional commits 关键词），仅供参考，
+#     精确分类请查阅上游 Release 说明或 CHANGELOG.md。
+#   - 冲突 / 双向分叉的处理不属于本脚本职责，请交由 sop_sync_upstream.sh。
+#   - 记忆映射: 日常同步巡检·第四步（吸收 github-repo-sync 步骤 6 的「报告基准点规则」）。
+#<!--HELP-END-->
 set -uo pipefail
 SOP_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -17,7 +56,7 @@ REPO=""
 BASE=""
 for a in "$@"; do
   case "$a" in
-    -h|--help) sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; echo "用法: bash sop_sync_report.sh [仓库路径] [合并前tip]"; exit 0 ;;
+    -h|--help) _sop_print_help "${BASH_SOURCE[0]}"; exit 0 ;;
     -*) echo "未知选项: $a" >&2; exit 2 ;;
     *) if [ -z "$REPO" ]; then REPO="$a"; else BASE="$a"; fi ;;
   esac
