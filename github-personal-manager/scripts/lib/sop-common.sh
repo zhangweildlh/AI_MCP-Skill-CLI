@@ -1,7 +1,60 @@
 #!/usr/bin/env bash
-# github-personal-manager 公共函数库（被 scripts/sop_*.sh source）
-# 提供：配置加载、工具探测、仓库守卫、状态探测。
-# 注意：_sop_load_config 末尾会探测 git/gh，缺失则直接 exit 1（脚本层防护）。
+# ============================================================================
+# 文件: scripts/lib/sop-common.sh
+# 中文名: github-personal-manager 公共函数库
+#
+# 【功能】
+#   为 scripts/ 下全部 sop_*.sh 业务脚本提供统一的底层能力，共五类：
+#     1) 配置加载  _sop_load_config     读取 config/github-sop.config.sh 并补全默认值
+#     2) 工具探测  _sop_probe_tools     探测本机 git/gh，缺失则中止（脚本层防护）
+#     3) 帮助打印  _sop_print_help      从调用者头部标记块提取帮助文本
+#     4) 仓库守卫  _sop_require_repo    进入目标仓库并校验其为 git 仓库根
+#     5) 状态探测  _sop_is_clean / _sop_current_branch / _sop_detect_local_origin /
+#                  _sop_detect_origin_upstream / _sop_parse_owner_repo / _sop_resolve_remotes
+#
+# 【用途 / 使用场景】
+#   本文件不可独立执行，只能被业务脚本以 source 方式载入，是整套技能的地基。
+#   任何新增 sop_*.sh 都应复用此处函数，禁止各自重复实现配置加载与仓库校验逻辑。
+#
+# 【详细用法】
+#   在业务脚本中固定按以下三步载入（顺序不可颠倒）：
+#     1. 计算脚本自身目录并赋给 SOP_SELF_DIR（_sop_load_config 依赖它定位仓库根）
+#     2. source 本文件
+#     3. 调用 _sop_load_config 完成配置加载与工具探测
+#
+#   载入后可直接调用的函数与其契约：
+#     _sop_print_help <文件路径>        打印该文件头部标记块内的帮助文本（去掉行首井号）
+#     _sop_require_repo [目录]          目录非空则进入并校验为 git 仓库根；成功 0 / 失败 1
+#     _sop_is_clean                     工作区干净返回 0，有未提交改动返回 1
+#     _sop_current_branch               输出当前分支名（分离 HEAD 时输出 HEAD）
+#     _sop_detect_local_origin          输出 "落后数 领先数"（本地 main 相对 origin/main）
+#     _sop_detect_origin_upstream       输出 "M K"（M=fork 领先数, K=upstream 领先数）
+#     _sop_parse_owner_repo <远端URL>   输出 owner/repo；支持 https 与 ssh，URL 可从标准输入传入
+#     _sop_resolve_remotes              解析远端三元组并设置 SOP_ORIGIN_OWNER /
+#                                       SOP_ORIGIN_REPO / SOP_UPSTREAM_OWNER_REPO
+#
+# 【前置条件】
+#   调用 _sop_load_config 前必须已设置 SOP_SELF_DIR，否则脚本以「未设置」错误中止。
+#   调用仓库类函数前必须已完成 _sop_load_config（依赖其导出的 GIT_BIN 等变量）。
+#
+# 【注意事项】
+#   - _sop_load_config 末尾会探测 git/gh，任一缺失则直接以状态码 1 中止（脚本层防护）。
+#   - 工具路径一律不写死：优先 config 显式指定，其次 where.exe 解析，最后回退 PATH 命令名。
+#   - _sop_require_repo 拒绝仓库子目录（只接受仓库根），以防误解析父仓库（BUG-GPM-1/2/4 回归）。
+# ============================================================================
+
+# 从指定脚本文件的头部标记块中提取帮助文本并打印。
+# 入参 $1：目标脚本路径，通常由调用方传入自身路径。
+# 提取规则：截取 HELP-START 与 HELP-END 两个标记行之间的内容，剔除两行标记本身，
+#           再去掉每行行首的井号与紧随的一个空格，得到纯净帮助文本。
+# 设计原因：早期各脚本用固定行号（如第 2 至 9 行）截取帮助，一旦头部注释增删即整体错位，
+#           输出会截断或混入代码行（P-GPM-1）。改用标记块后与行号彻底解耦，增删注释均安全。
+_sop_print_help() {
+  local src="${1:-${BASH_SOURCE[1]}}"
+  sed -n '/<!--HELP-START-->/,/<!--HELP-END-->/p' "$src" \
+    | grep -v -e '<!--HELP-START-->' -e '<!--HELP-END-->' \
+    | sed 's/^# \{0,1\}//'
+}
 
 # 加载配置：优先用仓库内 config/github-sop.config.sh，缺失则回退 PATH 上的 git/gh。
 # 调用前须由脚本设置 SOP_SELF_DIR（脚本自身目录）。

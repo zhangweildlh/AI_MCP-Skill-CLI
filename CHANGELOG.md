@@ -9,6 +9,16 @@
 
 ---
 
+## [2026-08-04]
+
+### Fixed
+- **github-personal-manager**：修复 5 个脚本 `--help` 输出仅显示 7 行且泄漏 `HELP-START` 标记的问题；`-h` 分支统一改为 `_sop_print_help` 标记块提取（新增 `scripts/lib/sop-common.sh` 公共函数）。
+
+### Docs
+- **github-personal-manager**：为全量 25 个脚本/配置/冒烟文件补充头部注释（功能 / 用途·使用场景 / 详细用法 / 注意事项），统一 `HELP-START` / `HELP-END` 标记块约定。
+
+---
+
 ## [2026-08-03]
 
 ### Added

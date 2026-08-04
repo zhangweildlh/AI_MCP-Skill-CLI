@@ -1,10 +1,55 @@
 #!/usr/bin/env bash
-# 中文名: 开独立工作树（多任务并行）
-# 功能: 在主仓库基于 main 开出独立工作树(worktree) + 功能分支(-b <branch> <MAIN_BRANCH>)，实现多任务物理隔离并行开发。
-# 适用场景: 工作流七「多工作树并行合并」阶段一。
-# 注意事项: 默认 dry-run（预览将创建的 worktree 路径与分支）；加 --confirm 才真正创建。
-#   守卫：主仓库须处于 main 且工作区干净；分支名不得与现有冲突；工作树路径不得已存在；一分支一工作树（不同工作树须 checkout 不同分支）。
-# 用法: bash sop_worktree_add.sh [主仓库路径] --topic <topic> --branch <feat/x> [--worktree-root <dir>] [--confirm]
+#<!--HELP-START-->
+# 脚本名: sop_worktree_add.sh
+# 中文名: 开独立工作树(worktree)，支持多任务并行
+#
+# 【功能】
+#   在主仓库中，基于 main 一次性开出「独立工作树 + 新功能分支」，实现多任务的物理隔离并行开发。
+#   工作树是同一个仓库在磁盘上的第二份工作目录，各自 checkout 不同分支，互不干扰。
+#   执行 --confirm 时还会做两件配套动作：
+#     1. 先拉取你的远端仓库(origin) 最新引用，保证新分支基于最新 main；
+#     2. 若工作树根目录位于仓库内部，把它写入本地忽略清单，
+#        避免主仓库把工作树目录当成未跟踪文件、导致后续「工作区须干净」守卫误触发。
+#
+# 【用途 / 使用场景】
+#   1. 工作流七「多工作树并行开发 + 普通合并 + 清理」阶段一：为每个任务开一棵独立工作树。
+#   2. 同时推进多个特性 / 修复，且各自依赖不同（每棵工作树需独立安装依赖），避免频繁切分支。
+#   3. 需要在不打断当前开发的前提下，另起一份干净环境做验证或对照实验。
+#
+# 【详细用法】
+#   基本用法:
+#     bash sop_worktree_add.sh --branch feat/login                          # 预览模式(dry-run)
+#     bash sop_worktree_add.sh --branch feat/login --confirm                # 真正创建工作树与分支
+#     bash sop_worktree_add.sh /path/to/repo --topic login --branch feat/login --confirm
+#     bash sop_worktree_add.sh --branch feat/x --worktree-root D:/wt --confirm
+#     bash sop_worktree_add.sh -h                                           # 查看本帮助
+#
+#   参数说明:
+#     [主仓库路径]           可选。主仓库「根目录」（须含 .git）；缺省取当前工作目录。传子目录会被拒绝。
+#     --branch <feat/x>      必填。要创建的新功能分支名；已存在（本地或远端）时会被拒绝。
+#     --topic <topic>        可选。工作树子目录名；缺省取分支名的最后一段。
+#     --worktree-root <dir>  可选。工作树根目录；缺省为主仓库下的 .worktrees。
+#     --confirm              真正创建工作树。不加则只预览，不改动磁盘。
+#     --dry-run              显式声明预览模式（默认行为）。
+#     -h|--help              打印本帮助并退出。
+#
+#   环境变量 / 配置项（取自 config/github-sop.config.sh）:
+#     GIT_BIN         git 可执行文件路径
+#     MAIN_BRANCH     主分支名，新分支以它为基点
+#     ORIGIN_REMOTE   你的远端仓库名（通常为 origin）
+#
+#   退出码:
+#     0  正常完成（打印预览 / 成功创建工作树）
+#     1  守卫未通过（当前分支非 main / 工作区脏 / 分支已存在 / 工作树路径已占用 / 创建失败）
+#     2  参数错误（未指定 --branch，或传入未知选项）
+#
+# 【注意事项】
+#   - 默认走预览模式(dry-run)，必须显式加 --confirm 才会真正创建。
+#   - 四道守卫：主仓库须处于 main 且工作区干净；分支名不得与现有冲突；工作树路径不得已存在；
+#     遵循「一分支一工作树」，不同工作树必须检出不同分支。
+#   - 每棵工作树是独立的工作目录，依赖需各自安装（例如 node_modules 不共享）。
+#   - 合并回主线请回到主仓库执行 sop_worktree_merge.sh，绝不在工作树目录内做合并。
+#<!--HELP-END-->
 set -uo pipefail
 SOP_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -21,7 +66,7 @@ NEED_BRANCH=0
 NEED_WTROOT=0
 for a in "$@"; do
   case "$a" in
-    -h|--help) sed -n '2,6p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; echo "用法: bash sop_worktree_add.sh [主仓库路径] --topic <topic> --branch <feat/x> [--worktree-root <dir>] [--confirm]"; exit 0 ;;
+    -h|--help) _sop_print_help "${BASH_SOURCE[0]}"; exit 0 ;;
     --confirm) CONFIRM=1 ;;
     --dry-run) CONFIRM=0 ;;
     --topic) NEED_TOPIC=1 ;;
