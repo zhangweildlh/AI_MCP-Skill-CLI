@@ -1,12 +1,56 @@
 #!/usr/bin/env bash
-# 中文名: 合并上游并推 fork（origin↔upstream 同步）
-# 功能: 对齐「永久记忆·日常同步巡检·第二步」origin(fork)↔upstream 决策树：
-#   - M=0,K=0 → 已同步；
-#   - M=0,K>0 → 自动 merge upstream/main + push origin main；
-#   - M>0 → 用 --author 口径查 PR：有 open PR 报「PR 待审」继续；无 PR 报「向 upstream 开 PR」并暂停；
-#   - M>0,K>0 → merge-tree 干净则自动合并+推送，冲突则暂停列 A–D。
-# 适用场景: fork 仓库跟随上游更新；日常巡检第二步。
-# 注意事项: 涉及 merge+push 的公开动作，默认 dry-run；加 --confirm 才执行。冲突一律暂停，绝不自动选。
+#<!--HELP-START-->
+# 脚本名: sop_sync_upstream.sh
+# 中文名: 合并上游并推你的远端仓库（你的远端仓库(origin) ↔ 上游仓库(upstream) 同步）
+#
+# 【功能】
+#   对齐「永久记忆·日常同步巡检·第二步」的 origin(fork) ↔ upstream 决策树。
+#   先统计两个差值：M = 你的 fork 领先上游的提交数，K = 上游领先你的 fork 的提交数，
+#   再按四种组合分别处置：
+#     - M=0, K=0  → 已同步，无需操作；
+#     - M=0, K>0  → 合并 upstream/main 后推送 origin main（需 --confirm）；
+#     - M>0       → 以 --author 口径核查 PR：存在 open PR 则报「PR 待审」并继续；
+#                   无 open PR 则报「应向上游开 PR」并暂停，不自动开 PR；
+#     - M>0, K>0  → 先用 merge-tree 试算：干净则合并并推送，冲突则暂停并列 A–D 选项。
+#
+# 【用途 / 使用场景】
+#   1. 日常同步巡检（工作流一）第二步：让你的 fork 跟随上游仓库的最新更新。
+#   2. 提 PR 前的基线对齐：确认 fork 与上游的领先/落后关系，避免 PR 带上陈旧提交。
+#   3. 判断是否需要 rebase 特性分支：当 M>0 且 K>0 时脚本会给出明确提示。
+#
+# 【详细用法】
+#   基本用法:
+#     bash sop_sync_upstream.sh                          # 预览模式(dry-run)，只打印将执行的动作
+#     bash sop_sync_upstream.sh /path/to/repo            # 指定仓库根目录，仍为预览模式
+#     bash sop_sync_upstream.sh /path/to/repo --confirm  # 真正执行合并与推送
+#     bash sop_sync_upstream.sh -h                       # 查看本帮助
+#
+#   参数说明:
+#     [仓库路径]   可选。仓库「根目录」（须含 .git）；缺省取当前工作目录。传入子目录会被拒绝。
+#     --confirm    真正执行合并上游与推送 origin 的动作。不加则只预览，不产生远端副作用。
+#     --dry-run    显式声明预览模式（默认行为）。
+#     -h|--help    打印本帮助并退出。
+#
+#   环境变量 / 配置项（取自 config/github-sop.config.sh，运行时会自动补全）:
+#     GIT_BIN           git 可执行文件路径
+#     GH_BIN            gh 可执行文件路径（用于 PR 核查）
+#     MAIN_BRANCH       主分支名（通常为 main）
+#     ORIGIN_REMOTE     你的远端仓库名（通常为 origin）
+#     UPSTREAM_REMOTE   上游远端名（通常为 upstream）
+#     GH_USER           你的 GitHub 用户名；运行时由远端地址自动解析
+#     UPSTREAM_REPO     上游仓库 owner/repo；运行时由远端地址自动解析，无需手填
+#
+#   退出码:
+#     0  正常完成（已同步 / 打印预览 / 执行成功 / 已暂停并列出选项）
+#     1  守卫未通过（工作区脏 / 当前分支非 main / 未配置 upstream 远端 / 仓库路径非法）
+#     2  传入了未知选项
+#
+# 【注意事项】
+#   - 涉及合并与推送的公开动作，默认走预览模式(dry-run)，必须显式加 --confirm 才会执行。
+#   - 只推送到你的远端仓库(origin)，绝不推送上游仓库(upstream)。
+#   - 冲突一律暂停并列出 A–D 选项，由你决策，脚本自身不会自动选择任何一项。
+#   - 运行时通过 _sop_resolve_remotes 解析远端三元组，PR 核查不再依赖配置文件是否手填上游仓库。
+#<!--HELP-END-->
 set -uo pipefail
 SOP_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -17,7 +61,7 @@ CONFIRM=0
 REPO=""
 for a in "$@"; do
   case "$a" in
-    -h|--help) sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; echo "用法: bash sop_sync_upstream.sh [仓库路径] [--confirm]"; exit 0 ;;
+    -h|--help) _sop_print_help "${BASH_SOURCE[0]}"; exit 0 ;;
     --confirm) CONFIRM=1 ;;
     --dry-run) CONFIRM=0 ;;
     -*) echo "未知选项: $a" >&2; exit 2 ;;

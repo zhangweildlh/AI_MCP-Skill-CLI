@@ -1,9 +1,58 @@
 #!/usr/bin/env bash
-# 中文名: --no-ff 普通合并（多工作树并行合并·阶段三）
-# 功能: 在主仓库把功能分支 --no-ff 合并入 main，生成双父合并碑；含预检（干净/merge-tree 零冲突预测/分支保护核验）+ 合并碑结构验证。
-# 适用场景: 工作流七阶段三。合并必须在主仓库目录执行，绝不在 worktree 内。
-# 注意事项: 默认 dry-run（打印预测与将执行命令）；加 --confirm 才真正合并。冲突预测有冲突则列文件并暂停，绝不自动解。
-# 用法: bash sop_worktree_merge.sh [主仓库路径] --branch <feat/x> [--verify-rollback] [--confirm]
+#<!--HELP-START-->
+# 脚本名: sop_worktree_merge.sh
+# 中文名: 普通合并(--no-ff) 功能分支入主线（多工作树并行·阶段三）
+#
+# 【功能】
+#   在主仓库把功能分支以「普通合并(--no-ff)」方式合入 main，生成双父合并碑(merge commit)，
+#   完整保留中间提交谱系、不改写历史，从而支持整段回滚。全流程分四步：
+#     1. 预检：当前须在 main、工作区须干净、功能分支须可解析（优先取远端引用）；
+#     2. 冲突预测：用 merge-tree 试算，命中冲突则列出文件并暂停，绝不自动解冲突；
+#     3. 分支保护核验：主线若已开启分支保护，则提示改走 PR 流程并暂停，不在本地直推；
+#     4. 合并碑验证：校验父提交数为 2、功能分支尖端是合并碑的祖先，二者皆通过才算成功。
+#   合并信息会自动写入三段：合并说明、来源分支与尖端哈希、整段回滚提示。
+#
+# 【用途 / 使用场景】
+#   1. 工作流七「多工作树并行开发」阶段三：把并行开发完成的功能分支逐条合入主线。
+#   2. 需要保留完整开发谱系、且要求「一条合并碑即可整段回滚」的场景。
+#   3. 合并前的安全评估：不加 --confirm 时可单独用作冲突与分支保护的预演工具。
+#
+# 【详细用法】
+#   基本用法:
+#     bash sop_worktree_merge.sh --branch feat/login                        # 预览模式(dry-run)
+#     bash sop_worktree_merge.sh --branch feat/login --confirm              # 真正执行合并
+#     bash sop_worktree_merge.sh /path/to/repo --branch feat/login --confirm
+#     bash sop_worktree_merge.sh --branch feat/x --verify-rollback --confirm # 合并后附加回滚验证
+#     bash sop_worktree_merge.sh -h                                         # 查看本帮助
+#
+#   参数说明:
+#     [主仓库路径]        可选。主仓库「根目录」（须含 .git）；缺省取当前工作目录。传子目录会被拒绝。
+#     --branch <feat/x>   必填。待合并的功能分支名；优先使用远端引用，找不到时回退本地分支。
+#     --verify-rollback   可选。合并成功后做一次非破坏性回滚演练，随即撤销，用于确认可整段回滚。
+#     --confirm           真正执行合并。不加则只预览，不改动仓库。
+#     --dry-run           显式声明预览模式（默认行为）。
+#     -h|--help           打印本帮助并退出。
+#
+#   环境变量 / 配置项（取自 config/github-sop.config.sh，运行时会自动补全）:
+#     GIT_BIN         git 可执行文件路径
+#     GH_BIN          gh 可执行文件路径（用于分支保护核验）
+#     MAIN_BRANCH     主分支名
+#     ORIGIN_REMOTE   你的远端仓库名（通常为 origin）
+#     UPSTREAM_REPO   上游仓库 owner/repo；存在时优先用它核验分支保护
+#
+#   退出码:
+#     0  正常完成（打印预览 / 合并成功 / 因冲突或分支保护而主动暂停）
+#     1  守卫未通过（当前分支非 main / 工作区脏 / 分支不存在 / 合并失败 / 合并碑验证不通过）
+#     2  参数错误（未指定 --branch，或传入未知选项）
+#
+# 【注意事项】
+#   - 合并必须在主仓库目录执行，绝不在工作树目录内执行。
+#   - 默认走预览模式(dry-run)，必须显式加 --confirm 才会真正合并。
+#   - 冲突一律交由人工用编辑器逐处解决，禁止用整份取我方/取对方的方式全量覆盖；
+#     解决后正常暂存并提交，或暂停告知用户。
+#   - 合并后仍需按 Tier 1 文档门禁补齐变更记录(CHANGELOG 等)，再推送主线。
+#   - 若合并碑验证提示父提交数不为 2，通常意味着误用了快进合并或压缩合并，须排查后重做。
+#<!--HELP-END-->
 set -uo pipefail
 SOP_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -17,7 +66,7 @@ VERIFY_ROLLBACK=0
 NEED_BRANCH=0
 for a in "$@"; do
   case "$a" in
-    -h|--help) sed -n '2,5p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; echo "用法: bash sop_worktree_merge.sh [主仓库路径] --branch <feat/x> [--verify-rollback] [--confirm]"; exit 0 ;;
+    -h|--help) _sop_print_help "${BASH_SOURCE[0]}"; exit 0 ;;
     --confirm) CONFIRM=1 ;;
     --dry-run) CONFIRM=0 ;;
     --verify-rollback) VERIFY_ROLLBACK=1 ;;
