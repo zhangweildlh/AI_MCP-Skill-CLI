@@ -48,6 +48,7 @@ def _load_env():
                     value = value.strip().strip("\"'").strip()
                     if key and value:
                         os.environ[key] = value
+            break  # 就近优先：命中第一个存在的 .env 即停止，避免父级静默覆盖子目录 key
 
 
 _load_env()
