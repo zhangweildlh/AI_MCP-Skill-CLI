@@ -77,5 +77,6 @@ uv run --with requests python -m unittest discover -s web-search/tests -v
 | `test_c8_no_firecrawl_key_persisted_to_dotenv` | 适配层不给出把 `FIRECRAWL_API_KEY` 落盘写 `.env` 的指引 |
 | `test_c10_skill_and_readme_contract_consistent` | SKILL.md 与 README.md 的脚本路径/密钥位置/升级方式描述一致 |
 | `test_f7_cli_contract` | 真实执行 `firecrawl interact --help` 校验上游 CLI 契约（CLI 缺失则 skip） |
+| `test_d8_env_lookup_stops_at_nearest` | `_load_env` 命中第一个 .env 后 break（就近优先），父级 .env 不得静默覆盖 |
 
 该套件已接入仓库冒烟门禁 Tier 3（`scripts/smoke/tier3_runtime.py`），CI 会自动执行。
