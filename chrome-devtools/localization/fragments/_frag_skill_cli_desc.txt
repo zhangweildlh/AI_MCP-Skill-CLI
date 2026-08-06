@@ -1,0 +1,1 @@
+description: "通过 chrome-devtools-mcp 命令行（CLI）在终端中编写脚本或执行命令，以本地浏览器（Chrome / 360Chromex 等）实现浏览器自动化与 Chrome DevTools 调试的中文本地化技能。激活关键词：chrome-devtools 命令、CLI 自动化、终端浏览器控制、脚本化页面操作、网页快照、元素交互。适用场景：在 Shell 脚本中批量驱动浏览器、自动化导航/点击/填写、抓快照或截图、无需 MCP 客户端的快速浏览器任务。不适用场景：需要 MCP 协议对接 AI 客户端的场景（请用 chrome-devtools 技能）、纯后端任务、本机无可用浏览器的情况。"

@@ -20,7 +20,7 @@
 
 ---
 
-## Shell 约束、UV 命令约束和 Python 环境
+## Shell 约束、Node/npm/npx 与 UV 命令约束和 Python 环境
 
 1. **所有 `shell_exec` 执行命令的 `cwd` 始终为 `[当前工作目录]`。但若命令中使用了相对路径，则一律先拼接为绝对路径后传入命令，不依赖 `cd` 操作。**
    - 若相对路径指向 Skill 内部资产（如 `references/`、`assets/` 等），则拼接根为 [Skill技能目录]/[name]。
@@ -56,7 +56,31 @@
 12. **安装任何工具（`tool`）、依赖包、Python 程序（如 `*.py`）前，必须调用 `shell_exec` 工具执行以下“2 项检查”。仅在全部检查结果中均未找到目标项时，才允许使用 `uv add` 类命令执行安装操作。**否则禁止安装，并以自然语言告知用户“[工具名称/程序名称] 已存在”。
    1. **检查全局工具**：执行 `uv tool list` 和 `uv pip list` 命令，确认目标名不在输出中。
    2. **检查项目虚拟环境**：执行 `uv tree --project D:/Tools/Assembly/python/myenv`（查看依赖树）和 `uv pip list --python D:/Tools/Assembly/python/myenv/.venv/Scripts/python.exe`（列出全部包），确认目标名不在输出中。
-   3. **匹配规则**：**对包名进行规范化匹配**，忽略版本号、额外描述和大小写差异，仅比较核心名称。例如 `uv pip list` 输出中包含 `pandas 2.0.0`，则目标名 `pandas` 视为已存在；若目标名为 `Pandas` 视为已存在；若目标名为 `panda` 则视为未找到（因为完整的字符串匹配）。
+    3. **匹配规则**：**对包名进行规范化匹配**，忽略版本号、额外描述和大小写差异，仅比较核心名称。例如 `uv pip list` 输出中包含 `pandas 2.0.0`，则目标名 `pandas` 视为已存在；若目标名为 `Pandas` 视为已存在；若目标名为 `panda` 则视为未找到（因为完整的字符串匹配）。
+
+13. **Node.js / npm / npx 依赖包与全局程序一律全局安装到 `D:/Tools/Assembly/nodejs/node_global/node_modules`（即 npm 全局 prefix `D:/Tools/Assembly/nodejs/node_global`），严禁安装到项目本地 `node_modules`（如 `D:/Tools/360Chrome/node_modules`）。** 调用已装全局包时，一律使用 `node "$(npm root -g)/<包名>/cli.js"` 全局绝对路径（或全局 bin `D:/Tools/Assembly/nodejs/node_global/node_modules/.bin`），**严禁使用 `npx -y <包名>`**（会重新联网下载到 npx 缓存，脱离全局铁律）。
+14. **`$(npm root -g)` 运行时解析全局目录，不写死字面量。** 脚本中需用全局包（如 `require('playwright')`）时，统一通过封装从 `npm root -g` 解析，无需设置 `NODE_PATH`；`npx <包名>` 也会解析已装全局包、不触发重新下载（允许），唯独 `npx -y` 强制联网下载（禁用）。
+15. **安装 Playwright 等需要浏览器内核的全局包时，必须跳过自带浏览器下载**（本机使用 360Chromex，不下载 Chromium）：安装前设置 `$env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`，**严禁**执行 `playwright install` / `npx playwright install` 等会下载浏览器的命令。
+16. **安装任何 Node.js 全局包（`npm install -g`）前，必须执行以下“2 项检查”。仅在全部检查结果中均未找到目标包时，才允许执行安装；否则禁止安装，并以自然语言告知用户“[包名] 已存在”。**
+    1. **已装检测（作用域=全局）**：执行 `npm ls -g [包名]`，确认退出码非 0（未安装）或输出中不含目标包。
+    2. **安装目标核验（prefix 一致性）**：执行 `npm root -g`，确认其返回值为 `D:/Tools/Assembly/nodejs/node_global/node_modules`；若不符，先修正 npm 全局 prefix 再安装。
+17. **匹配规则**：**对包名进行规范化匹配**，忽略版本号、额外描述和大小写差异，仅比较核心名称。例如 `npm ls -g` 输出含 `playwright 1.62.1`，则目标名 `playwright` / `Playwright` 视为已存在；若目标名为 `playwright-core` 则视为未找到（完整字符串匹配）。
+18. **Playwright 的 MCP 封装（`@playwright/mcp`）同样全局安装、同样跳过下载**，调用一律用全局绝对路径：`node "$(npm root -g)/@playwright/mcp/cli.js" --executable-path D:/Tools/360Chrome/360chromex.exe --user-data-dir D:/Tools/360Chrome/MCPProfile`，**严禁 `npx -y @playwright/mcp`** 重新下载、严禁 `--headless` 调自带 Chromium。
+
+**PowerShell 命令示例（Node 全局安装与调用）：**
+
+```powershell
+# 1) 安装前 2 项检查（命中已装则禁止重复安装）
+npm ls -g [包名]          # 作用域=全局；退出码 0 且列出目标包 => 已存在
+npm root -g               # 应返回 D:/Tools/Assembly/nodejs/node_global/node_modules
+
+# 2) 全局安装（跳过浏览器下载，仅 Playwright 类需要）
+$env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+npm install -g [包名]
+
+# 3) 全局绝对路径调用（禁用 npx -y）
+node "$(npm root -g)/[包名]/cli.js" [参数...]
+```
 
 ---
 
