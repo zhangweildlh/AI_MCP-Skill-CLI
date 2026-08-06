@@ -1,0 +1,5 @@
+{
+  "browserPath": "替换为你的浏览器可执行文件路径，例如 C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe（Windows）或 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome（macOS）",
+  "browserUserDataDir": "可选；不填则由脚本按 browserPath 同级 User Data 目录推导",
+  "debugPort": 9222
+}
