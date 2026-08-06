@@ -9,6 +9,31 @@
 
 ---
 
+## [2026-08-06]
+
+### Added
+- **chrome-devtools/**：新增目录型技能（Chrome DevTools MCP 驱动本地浏览器调试/自动化/性能/Lighthouse/网络检查，全局安装 `chrome-devtools-mcp`，禁用 `npx -y`）。
+- **skill-forge**（合并）：原根级单文件 `Skill-元技能，Skill创建助手.md`（skill-creator）与 `Skill-元技能，Skill校验器.md`（skill-checker）合并为 `Skill-元技能，Skill创建校验器.md`（v3.0.0，创建+校验双模）。
+- **file-structure-organizer**：新增 `Skill-文件内容整理重组.md`（依据「文件结构化组织规范 12 条强制要求」整理重组 Markdown）。
+- **code-audit-consolidation**：新增 `Skill-多代码审计报告归一收敛.md`（多源审计报告去重归因、交叉分析、根因分析，产出唯一根治报告）。
+- **Memory-Data/**：新增 `协作方式约定_四象限_定制版.md`、`协作方式约定_四象限_通用版.md`；`用户画像分析报告_土木工程主业版.md` 重命名为 `用户画像分析报告.md`。
+
+### Changed
+- **web-search/SKILL.md**：新增「中文政策/国标检索特别规则」（HJ/GB/国发令等走通用 `search` 而非垂直域）；`web-search/firecrawl/SKILL.md`：新增「访问形态（Dynamic-mcp 中继 / 直连）」探测选用说明。
+- **Workbuddy专属/Skill-memory-consolidate.md**：整合条款升级为「文件结构化组织规范」十二项强制要求。
+- **Workbuddy专属/Skill-workflow-distill.md**：升 v1.1.0，新增「相异任务数优先」「跨轮次台账」「门禁达标≠应创建」等规则。
+- **Memory-Data/长期记忆_Deepseek++.md**：补充 Node/npm/npx 全局安装铁律等第 13–18 条。
+
+### Removed
+- **Skill-元技能，Skill创建助手.md**、**Skill-元技能，Skill校验器.md**：并入 skill-forge。
+- **multi-worktree-parallel-merge-sop.md**：顶层方案文档移除，能力内聚至 `github-personal-manager` 的 `sop_worktree_*.sh` 三件套。
+- **Memory-Data/用户画像分析报告_土木工程主业版.md**：重命名为 `用户画像分析报告.md`。
+
+### Docs
+- **README.md**：同步更新技能总览（14 → 16 个：9 目录型 + 7 根级单文件），合并 skill-creator/skill-checker 为 skill-forge，新增 chrome-devtools/file-structure-organizer/code-audit-consolidation，更新外部依赖归类表与辅助体系说明。
+
+---
+
 ## [2026-08-04]
 
 ### Fixed

@@ -1,7 +1,7 @@
 # AI_MCP-Skill-CLI 仓库说明（README）
 
 > 本仓库是 `zhangweildlh` 的个人 **私有** 技能(Skill)集合，存放所有 AI 技能的 Definition 文件与配套脚本。
-> 本文件逐一对仓库内 **14 个活跃技能**（8 个目录型 + 6 个根级单文件型）进行说明：用途、外部依赖/外部工具/外部需求。
+> 本文件逐一对仓库内 **16 个活跃技能**（9 个目录型 + 7 个根级单文件型）进行说明：用途、外部依赖/外部工具/外部需求。
 > 仓库首个发布版本标记为 **`v1.0.0`**（git 标签，作用于整个仓库快照；各技能自身的内部版本见各自 frontmatter 的 `version` 字段）。
 
 ---
@@ -18,12 +18,14 @@
 | 6 | `mimo-code-collab` | 6 | 目录型 | 仓库根 | 与小米 MiMo 代码智能体(mimo.code)协同开展工程任务 |
 | 7 | `playwright-360chrome` | 2.0.0 | 目录型 | 仓库根 | Playwright + 360Chromex 内核的浏览器自动化（导航/截图/抓取） |
 | 8 | `workbuddy-workspace-migration` | — | 目录型 | `Workbuddy专属/` | 工作区迁移/恢复丢失的 WorkBuddy 会话 |
-| 9 | `skill-creator` | — | 单文件 | 仓库根 `Skill-元技能，Skill创建助手.md` | 通过访谈流程创建/编写合规的 AI Skill 定义文件 |
-| 10 | `skill-checker` | — | 单文件 | 仓库根 `Skill-元技能，Skill校验器.md` | 对 Skill 定义做 11 维度全量合规校验并给出修正版 |
+| 9 | `chrome-devtools` | — | 目录型 | 仓库根 | 通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome / 360Chromex）调试、自动化、性能分析与网络检查（全局安装 `chrome-devtools-mcp`） |
+| 10 | `skill-forge` | 3.0.0 | 单文件 | 仓库根 `Skill-元技能，Skill创建校验器.md` | 元技能双模：创建新 Skill + 校验既有 Skill 定义（合并原 skill-creator 与 skill-checker） |
 | 11 | `multi-file-analysis` | — | 单文件 | 仓库根 `Skill-多文件分析+知识图谱构建.md` | 多文件解析、实体关系抽取、冲突/缺失识别，构建知识图谱 JSON |
 | 12 | `find-skill-to-xml` | 1.1.0 | 单文件 | 仓库根 `Skill-扫描Skill技能生成xml技能标签.md` | 扫描目录发现 Skill 文件，生成标准 XML 技能标签清单 |
 | 13 | `promotion-writer` | — | 单文件 | 仓库根 `Skill-推广文章撰写.md` | 面向微信公众号/小红书的中文推广文案撰写 |
 | 14 | `ticktick` | — | 单文件 | 仓库根 `Skill-滴答清单智能任务解析创建器.md` | 解析自然语言指令，批量创建/管理滴答清单(TickTick)任务 |
+| 15 | `file-structure-organizer` | 1.0.0 | 单文件 | 仓库根 `Skill-文件内容整理重组.md` | 依据「文件结构化组织规范（12 条强制要求）」对 Markdown 文件读取、整理与重组 |
+| 16 | `code-audit-consolidation` | 1.0.0 | 单文件 | 仓库根 `Skill-多代码审计报告归一收敛.md` | 整合多视角审计报告，去重归因、交叉分析、根因分析，产出唯一根治报告 |
 
 > 注：
 > - 已退役/移除，不再纳入说明：`anysearch-skill`（2026-07-23 清理其独立目录，CLI 现位于 `web-search/scripts/anysearch_cli.py`）、`github-repo-sync`（2026-07-24 退役，能力并入 `github-personal-manager`）。
@@ -43,7 +45,7 @@
   - **GitHub 账号 + 网络**：用于远端读取/搜索/PR/CI/Release。
   - **本地仓库根目录**：默认 `D:\Documents\AI_Work_Temp`（一级子目录即各仓库）。
   - **参考文件**：`references/gh-capability.md`、`references/fork-ci-pitfalls.md`、`references/docs-sync-checklist.md`。
-  - **多工作树并行开发 SOP（2026-08-03 新增）**：`scripts/sop_worktree_add.sh` / `sop_worktree_cleanup.sh` / `sop_worktree_merge.sh` 三件套，配合顶层方案文档 `multi-worktree-parallel-merge-sop.md`。
+  - **多工作树并行开发 SOP（2026-08-03 新增）**：`scripts/sop_worktree_add.sh` / `sop_worktree_cleanup.sh` / `sop_worktree_merge.sh` 三件套（顶层方案文档 `multi-worktree-parallel-merge-sop.md` 已于 2026-08-06 移除，能力内聚于三件套脚本本身）。
   - **不依赖任何 MCP**；本机无 Docker、禁止本地编译（构建产物走远程 CI）。
 - **备注**：含硬约束——禁止强推/删 main、标签重推用"删远端标签+重推"、本地 main 跟踪 origin/main。
 
@@ -125,21 +127,22 @@
   - **`_user_meta.json`**：用户/工作区元数据。
 - **备注**：本技能原位于仓库根 `workbuddy-workspace-migration/`，2026-08-03 整体迁入 `Workbuddy专属/` 子目录（与 `Skill-memory-consolidate.md`、`Skill-workflow-distill.md` 一并归置）。
 
-### 9. skill-creator（Skill 创建助手 · 元技能）
+### 9. chrome-devtools（Chrome DevTools 浏览器调试 · 目录型）
 
-- **用途**：基于用户需求，通过"需求访谈 → 需求解析 → Skill 编写 → 自动校验"四阶段，将模糊业务需求转化为合规、结构化、可被网页 AI 解析执行的 Skill 定义文件（Markdown）。
+- **用途**：通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome / 360Chromex 等）进行网页调试、浏览器自动化、性能分析（Lighthouse / Performance Insight）与网络检查的中文本地化技能；可任选 MCP 服务模式或 CLI 模式使用。
 - **外部依赖 / 外部工具 / 外部需求**：
-  - **无外部工具 / 无外部依赖**：纯提示词(Prompt)流程技能，依赖对话窗口传入需求，不调用 shell/MCP/API。
+  - **Chrome DevTools MCP 服务器**：以**全局方式**安装（`npm install -g`，位于 `$(npm root -g)/chrome-devtools-mcp`），**禁用 `npx -y`**；首次工具调用时基于持久化 Chrome 配置自动启动浏览器。
+  - **本地浏览器**：本机 Chrome / 360Chromex 内核；可复用已登录浏览器会话（连接已登录浏览器复用登录态）。
+  - **无 Python / 无额外 shell 依赖**；CLI 模式与 MCP 服务模式功能等价。
+- **备注**：承接浏览器调试/自动化场景，与 `playwright-360chrome`（Playwright 路线）互为补充；激活关键词含 Chrome DevTools、页面快照、元素交互、LCP/内存/可访问性分析、网络请求检查、控制台日志、网页截图。
+
+### 10. skill-forge（Skill 创建校验器 · 元技能双模）
+
+- **用途**：单文件元技能，兼具「创建新 Skill」与「校验既有 Skill 定义」双模能力——将模糊业务需求经"需求访谈 → 需求解析 → Skill 编写 → 自动校验"转化为合规 Skill 定义（Markdown），或对既有 Skill 做 11 维度全量合规校验并输出修正版。由原 `skill-creator` 与 `skill-checker` 合并而来（v3.0.0）。
+- **外部依赖 / 外部工具 / 外部需求**：
+  - **无外部工具 / 无外部依赖**：纯提示词流程技能，不调用 shell/MCP/API。
   - 内置完整《Skill 定义标准规范》（frontmatter、11 维度校验、Markdown 语法强制规范、触发词五要素等）。
-- **备注**：交付物为符合标准的完整 Skill 定义；版本管理规则内置于技能。
-
-### 10. skill-checker（Skill 校验器 · 元技能）
-
-- **用途**：对 Skill 定义内容做全量合规校验（11 维度：frontmatter 结构、name↔目录、渐进式加载、结构、自洽、参数、可执行性、无硬编码、示例、触发匹配、模块组织），输出结构化校验报告 + 修正后的完整 Skill 定义。
-- **外部依赖 / 外部工具 / 外部需求**：
-  - **无外部工具 / 无外部依赖**：纯提示词技能，用户将待校验 Skill 全文粘贴入对话即可。
-  - 兼容网页版 AI Agent（如 DeepSeek 网页版）及所有支持 Agent Skills 标准的客户端。
-- **备注**：`max_content_length` 默认 15000 字符（可配 1000–50000）；`strict_mode` 可选。
+- **备注**：交付物为符合标准的完整 Skill 定义；`max_content_length` 默认 15000 字符（可配 1000–50000），`strict_mode` 可选。
 
 ### 11. multi-file-analysis（多文件分析 + 知识图谱构建）
 
@@ -176,6 +179,20 @@
   - **无 shell 依赖**。
 - **备注（隐私）**：该技能含硬编码家庭成员真实姓名与项目名（何晓勤/唐淼/小芝麻/张梵净、成都北站总包项目、中铁九天总包项目等），属用户明示保留的隐私内容；如对外分享仓库需注意。
 
+### 15. file-structure-organizer（文件内容整理重组）
+
+- **用途**：依据「文件结构化组织规范（12 条强制要求）」对用户指定的 Markdown 文件进行读取、整理与重组，输出完全合规的结构化文档（单一事实源、引用纪律、强制结构等）。
+- **外部依赖 / 外部工具 / 外部需求**：
+  - **无外部工具 / 无外部依赖**：纯提示词技能。
+- **备注**：与 `code-audit-consolidation` 同属"文档质量收敛"类元技能。
+
+### 16. code-audit-consolidation（多代码审计报告归一收敛）
+
+- **用途**：整合多视角、多切片的审计报告/代码分析报告/BUG 分析报告，通过提取、归一、去重、交叉分析、关联分析、冲突核查裁决（基于实际代码复查）、根因分析，产出唯一事源、直指底层根因、可落地执行的根治报告。
+- **外部依赖 / 外部工具 / 外部需求**：
+  - **无外部工具 / 无外部依赖**：纯提示词技能。
+- **备注**：关键词：多源审查整合、缺陷去重归因、代码审计收敛、根因分析、BUG 根治。
+
 ---
 
 ## 三、外部依赖归类速查
@@ -190,9 +207,10 @@
 | **滴答清单(TickTick) MCP** | ticktick |
 | **git + gh CLI** | github-personal-manager、（tender-review-kit 可选用于贡献） |
 | **Playwright + 360Chromex** | playwright-360chrome |
+| **Chrome DevTools MCP（全局）** | chrome-devtools |
 | **Python + pip 包（python-docx/pypdf/openpyxl/requests）** | tender-review-kit、web-search、ref-material-writing（经 uv 环境） |
 | **系统命令（pdftotext / PowerShell / bash / node）** | tender-review-kit、find-skill-to-xml、playwright-360chrome |
-| **无任何外部依赖（纯提示词）** | skill-creator、skill-checker、multi-file-analysis、promotion-writer、code-review-combo（子技能） |
+| **无任何外部依赖（纯提示词）** | skill-forge、multi-file-analysis、promotion-writer、file-structure-organizer、code-audit-consolidation、code-review-combo（子技能） |
 
 ---
 
@@ -210,6 +228,6 @@
 - `scripts/smoke/`：五层冒烟测试框架（Tier0 密钥扫描 / Tier1 结构 / Tier2 合规 / Tier3 运行时 / Tier4 触发）+ `run_all.py` 编排器，用于对技能 Definition 做质量门禁；2026-08-03 新增 `test_worktree.sh`（多工作树并行开发 SOP 契约测试）。
 - `.githooks/pre-commit`：提交时自动跑 Tier0+1。
 - `.github/workflows/smoke.yml`：云端 CI（Tier5），push 到 main 与开 PR 时触发；2026-08-03 升级 actions 至 v7（消除 Node.js 20 弃用警告）。
-- `multi-worktree-parallel-merge-sop.md`：2026-08-03 新增，多工作树并行开发 + `--no-ff` 普通合并 + 工作树/分支清理的总体方案文档。
-- `Memory-Data/`：用户记忆/知识库（仅 `.md` 入库；非 `.md` 文件经 `.gitignore` 排除，本地保留）。
+- `multi-worktree-parallel-merge-sop.md`：原 2026-08-03 新增的总体方案文档已于 2026-08-06 移除，能力内聚至 `github-personal-manager` 的 `sop_worktree_add.sh` / `sop_worktree_cleanup.sh` / `sop_worktree_merge.sh` 三件套。
+- `Memory-Data/`：用户记忆/知识库（仅 `.md` 入库；非 `.md` 文件经 `.gitignore` 排除，本地保留）。本批新增 `协作方式约定_四象限_定制版.md` / `协作方式约定_四象限_通用版.md`，并将 `用户画像分析报告_土木工程主业版.md` 重命名为 `用户画像分析报告.md`。
 - `Workbuddy专属/`：归置与 WorkBuddy 紧密耦合的专属技能/文件（`workbuddy-workspace-migration`、`Skill-memory-consolidate.md`、`Skill-workflow-distill.md`）。
