@@ -22,6 +22,7 @@ version: 1.0.0
   `uv run --with requests python {SKILL_ROOT}/anysearch-skill/scripts/anysearch_cli.py search "查询" --max_results 5`
   - 密钥 `ANYSEARCH_API_KEY` 由 `anysearch_cli.py` 自动从 `{SKILL_ROOT}/.env` 加载（脚本已向上探测父技能 .env）；亦可 `--api_key` 或环境变量覆盖。
   - vertical 域（finance/academic/travel/legal 等）查询：**必须先** `get_sub_domains` 发现 `sub_domain`，再 `search --domain --sub_domain --sdp`，否则可能漏检；通用查询可直接 `search`。
+  - **中文政策/国标检索特别规则（须固化）**：AnySearch 垂直域多为美国/国际向（如 `legal`=US Congress、`environment`=aqi），无中国国策/标准类垂直域。中文政策文件（HJ/GB 编号、国发令、环发令、生态环境部令）、中国国家标准/行业标准的检索，**不走垂直域**，直接 `search "关键词" --max_results 10`（omit `--domain`）；仅主题确属国际向（跨国企业财报、美股代码、国际学术文献）时才走 `get_sub_domains` → 垂直搜索。
 - 轨道2 Firecrawl：见 `{SKILL_ROOT}/firecrawl/SKILL.md`。调用官方 CLI（全局 `firecrawl` 命令，PATH 已注册）：
   `firecrawl search "查询"`
   - 密钥 `FIRECRAWL_API_KEY` 由 `firecrawl login`（全局凭据）提供，**不**放入 `{SKILL_ROOT}/.env`；缺失时本轨道按阶段C/D 降级。
