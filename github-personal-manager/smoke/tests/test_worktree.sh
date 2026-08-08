@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
 # 文件名: smoke/tests/test_worktree.sh
-# 中文名: 工作流七专属测试（多工作树并行·开树/合并/回收）
+# 中文名: 工作流五专属测试（多工作树并行·开树/合并/回收）
 #
 # 【功能】
-#   工作流七「多工作树并行开发 + 普通合并 + 清理」的专属用例集，覆盖三个脚本共 15 条用例：
+#   工作流五「多工作树并行开发 + 普通合并 + 清理」的专属用例集，覆盖三个脚本共 15 条用例：
 #     sop_worktree_add（开工作树，6 条）:
 #       预览模式不创建、确认后成功创建工作树与分支、非主线守卫拒绝、
 #       主仓库脏工作区硬停、分支已存在守卫、工作树根位于仓库内时写入本地忽略清单。
@@ -21,7 +21,7 @@
 #
 # 【详细用法】
 #   本文件不单独执行，由 smoke/run-smoke.sh 自动 source 并注册用例。
-#   运行冒烟测试后，查看输出中前缀为「W7-」的记录即可。
+#   运行冒烟测试后，查看输出中前缀为「W5-」的记录即可。
 #
 #   本文件自带夹具函数:
 #     wt_make_repo   创建稳健的测试仓库（裸远端先接收初始提交再克隆）
@@ -37,7 +37,7 @@
 # - 自带稳健夹具 wt_make_repo（裸 origin 先接收 seed 初始提交再克隆，避免 Windows 下 clone 空仓库
 #   报 "failed to iterate over objects" 的已知坑），不依赖 test_fixtures.sh 的 setup_origin_and_local。
 # - 所有写操作脚本默认 dry-run（预览不落地），加 --confirm 才真正执行 → 测试分别断言两种模式。
-# - 合并/清理均在主仓库目录执行（绝不在 worktree 内），符合 SKILL.md 阶段三/七硬约束。
+# - 合并/清理均在主仓库目录执行（绝不在 worktree 内），符合 SKILL.md 阶段三/五/六硬约束。
 # - 本地夹具的 origin 是本地路径（非 github.com），merge 脚本据此跳过分支保护核验、走直推路径，
 #   正好覆盖「无保护直推」契约，无需真实 GitHub 鉴权与网络。
 # - 工作树根一律放在主仓库之外的兄弟临时目录（wt_root），确保主仓库 git status 保持干净，
@@ -218,7 +218,7 @@ test_wt_merge_no_protection_direct() {
   fail "无保护夹具不应提示走 PR: $out"; return 1
 }
 
-# ---------- 阶段七：sop_worktree_cleanup 契约 ----------
+# ---------- 阶段五/六：sop_worktree_cleanup 契约 ----------
 
 # 10) 已合并清理：--confirm 移除工作树 + 删本地/远端分支，提交不丢
 test_wt_cleanup_merged() {
@@ -338,18 +338,18 @@ test_wt_cleanup_dirty_reject() {
 }
 
 # ---------- 注册 ----------
-register_test "W7-add: 仓库内 worktree 根写 exclude(L2核心修复)" test_wt_add_inner_exclude
-register_test "W7-cleanup: 远端 --confirm 真删" test_wt_cleanup_remote_confirm_delete
-register_test "W7-cleanup: 脏工作树默认拒绝(N1)" test_wt_cleanup_dirty_reject
-register_test "W7-add: dry-run 不创建工作树"   test_wt_add_dryrun_noop
-register_test "W7-add: --confirm 创建工作树+分支" test_wt_add_success
-register_test "W7-add: 非 main 守卫拒绝"       test_wt_add_non_main_guard
-register_test "W7-add: 脏工作区硬停止"         test_wt_add_dirty_stop
-register_test "W7-add: 分支已存在守卫"         test_wt_add_branch_exists
-register_test "W7-merge: dry-run 不改主线"     test_wt_merge_dryrun_noop
-register_test "W7-merge: --no-ff 双父合并碑"   test_wt_merge_no_ff_double_parent
-register_test "W7-merge: 冲突预测暂停"         test_wt_merge_conflict_pause
-register_test "W7-merge: 无保护直推路径"       test_wt_merge_no_protection_direct
-register_test "W7-cleanup: 已合并清理+提交保留" test_wt_cleanup_merged
-register_test "W7-cleanup: 未合并拒绝"         test_wt_cleanup_unmerged_reject
-register_test "W7-cleanup: 远端 dry-run 不真删" test_wt_cleanup_remote_dryrun_noop
+register_test "W5-add: 仓库内 worktree 根写 exclude(L2核心修复)" test_wt_add_inner_exclude
+register_test "W5-cleanup: 远端 --confirm 真删" test_wt_cleanup_remote_confirm_delete
+register_test "W5-cleanup: 脏工作树默认拒绝(N1)" test_wt_cleanup_dirty_reject
+register_test "W5-add: dry-run 不创建工作树"   test_wt_add_dryrun_noop
+register_test "W5-add: --confirm 创建工作树+分支" test_wt_add_success
+register_test "W5-add: 非 main 守卫拒绝"       test_wt_add_non_main_guard
+register_test "W5-add: 脏工作区硬停止"         test_wt_add_dirty_stop
+register_test "W5-add: 分支已存在守卫"         test_wt_add_branch_exists
+register_test "W5-merge: dry-run 不改主线"     test_wt_merge_dryrun_noop
+register_test "W5-merge: --no-ff 双父合并碑"   test_wt_merge_no_ff_double_parent
+register_test "W5-merge: 冲突预测暂停"         test_wt_merge_conflict_pause
+register_test "W5-merge: 无保护直推路径"       test_wt_merge_no_protection_direct
+register_test "W5-cleanup: 已合并清理+提交保留" test_wt_cleanup_merged
+register_test "W5-cleanup: 未合并拒绝"         test_wt_cleanup_unmerged_reject
+register_test "W5-cleanup: 远端 dry-run 不真删" test_wt_cleanup_remote_dryrun_noop

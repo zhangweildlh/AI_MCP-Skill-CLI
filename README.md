@@ -106,7 +106,7 @@
   - **Dynamic-mcp MCP / mcp-bridge**：提供 `mimo.chat` / `mimo.code` / `mimo.health` / `mimo.metrics` 工具门面。
   - **强制连接韧性约束（★ 最高优先级）**：连接超时/失联须原样重试 2 次；连续 3 次失败才允许主 Agent 单独工作（降级而非甩锅）。
   - **无 shell 依赖**；能力边界明确"mimo 可在 `working_dir` 内生成/修改文件"。
-- **备注**：配套 `mimo_mcp.py` 提供双形态（dmcp.exe 中继 / 宿主直连）实现、`mimo.metrics` 可观测性、默认超时 900s。
+- **备注**：配套 `mimo_mcp.py` 提供双形态（dmcp.exe 中继 / 宿主直连）实现、`mimo.metrics` 可观测性、默认超时 900s；新增多 Key 轮询与鉴权/限流/超时错误分类，强化连接韧性。
 
 ### 7. playwright-360chrome（浏览器自动化 · 本地自建）
 
