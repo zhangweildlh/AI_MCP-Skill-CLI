@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #<!--HELP-START-->
 # 脚本名: sop_worktree_cleanup.sh
-# 中文名: 回收工作树与已合并分支（多工作树并行·阶段七）
+# 中文名: 回收工作树与已合并分支（多工作树并行·阶段五/六）
 #
 # 【功能】
 #   站在主线(main) 视角，把已经完成普通合并的功能分支及其工作树整体回收，按四步执行：
@@ -11,7 +11,7 @@
 #     4. 远端分支回收：属公开动作，脚本会醒目提示，必须显式授权后才执行。
 #
 # 【用途 / 使用场景】
-#   1. 工作流七「多工作树并行开发」阶段七：功能分支合入主线后，回收占位的工作树与冗余分支。
+#   1. 工作流五「多工作树并行开发」阶段五/六：功能分支合入主线后，回收占位的工作树与冗余分支。
 #   2. 定期清理仓库：批量收敛长期堆积的已合并特性分支，保持分支列表整洁。
 #   3. 清理前的风险评估：不加 --confirm 时可单独用作「将删什么、是否已合并」的预演清单。
 #
@@ -47,6 +47,10 @@
 #   - 默认走预览模式(dry-run)，必须显式加 --confirm 才会真正删除。
 #   - 合并校验不通过一律硬停止，避免误删尚未合入主线的开发成果。
 #   - 工作树内若有未提交改动，默认拒绝移除；只有显式加 --discard-uncommitted 才视为授权丢弃。
+#     ⚠️ 唯一例外：工作树若已「游离」（gitdir 丢失），git 无法再探测其未提交改动，
+#        回收只能走 rm -rf，将无条件删除目录全部内容且不可恢复；
+#        --discard-uncommitted 在该路径不提供任何保护。dry-run 会对此情形给出高危提示，
+#        请先手工备份该目录，再加 --confirm。
 #   - 回收远端分支前，请先在 GitHub 上核对是否仍有处于开放状态的合并请求(PR)（本脚本不自动查询）；
 #     开放中的 PR 对应的分支被清理后，该 PR 会被自动关闭。
 #   - 本脚本只回收功能分支，不会触碰主线分支本身。
@@ -93,6 +97,12 @@ if ! _sop_is_clean; then
 fi
 # 参数校验
 if [ -z "$BRANCH" ]; then echo "⛔ 必须指定 --branch <feat/x>。"; exit 2; fi
+
+# 先同步远端再做合并校验（关键安全前提）：
+#   若 Tip 取自陈旧的远端跟踪引用，合并校验会基于旧 Tip「假通过」，随后 push --delete
+#   会无条件删除远端分支（该操作不像 push 有 non-fast-forward 保护），
+#   导致远端上尚未合并的新提交丢失。--prune 同时清理远端已消失的跟踪引用。
+"$GIT_BIN" fetch "$ORIGIN_REMOTE" --prune >/dev/null 2>&1
 
 # 解析 TIP（功能分支尖端）：优先本地分支，其次远端跟踪分支，再次 worktree 当前 HEAD
 TIP=""
@@ -144,7 +154,7 @@ if "$GIT_BIN" show-ref --verify --quiet "refs/heads/$BRANCH" 2>/dev/null; then L
 REMOTE_BRANCH_EXISTS=0
 if "$GIT_BIN" show-ref --verify --quiet "refs/remotes/$ORIGIN_REMOTE/$BRANCH" 2>/dev/null; then REMOTE_BRANCH_EXISTS=1; fi
 
-echo "===== 清理工作树 + 分支（多工作树并行合并·阶段七）====="
+echo "===== 清理工作树 + 分支（多工作树并行合并·阶段五/六）====="
 echo "主仓库: $(pwd)  主线: $MAIN_BRANCH  功能分支: $BRANCH"
 echo "合并校验: Tip=$TIP 已并入主线"
 echo "工作树: ${WTPATH:-（无，可能已手动移除）}  存在=$WT_EXISTS  状态=$([ "$WT_DIRTY" = "1" ] && echo 脏 || echo 干净)  判定=$([ "$WT_ORPHAN" = "1" ] && echo 游离 || echo 活跃)"
@@ -156,6 +166,9 @@ if [ "$CONFIRM" -ne 1 ]; then
   if [ "$WT_EXISTS" = "1" ]; then
     if [ "$WT_ORPHAN" = "1" ]; then
       echo "   - rm -rf $WTPATH + git worktree prune （游离 worktree，gitdir 丢失）"
+      echo "     ⚠️ 高危：游离状态下 gitdir 已丢失，无法探测该目录内是否存在未提交改动，"
+      echo "        rm -rf 将无条件删除目录全部内容且不可恢复（--discard-uncommitted 在此路径不提供保护）。"
+      echo "        若该目录可能存有未提交工作，请先手工备份，再加 --confirm。"
     elif [ "$WT_DIRTY" = "1" ] && [ "$DISCARD" -ne 1 ]; then
       echo "   - git worktree remove $WTPATH （⚠️ 含未提交改动，需加 --discard-uncommitted 才移除，否则拒绝以防丢失）"
     else
@@ -168,6 +181,7 @@ if [ "$CONFIRM" -ne 1 ]; then
   [ "$LOCAL_BRANCH_EXISTS" = "1" ] && echo "   - git branch -d $BRANCH （小写 -d 仅删已合并）"
   if [ "$REMOTE_BRANCH_EXISTS" = "1" ]; then
     echo "   - git push --delete $ORIGIN_REMOTE $BRANCH （⚠️ 公开动作：删除远端分支，须 --confirm 授权）"
+    echo "   - git branch -d -r $ORIGIN_REMOTE/$BRANCH （远端删除成功后，兜底清理本地远程跟踪引用）"
   fi
   echo "   （加 --confirm 真正清理）"
   exit 0
@@ -178,7 +192,8 @@ echo "➡️ 执行清理（已获 --confirm 授权）："
 # 1. 工作树
 if [ "$WT_EXISTS" = "1" ]; then
   if [ "$WT_ORPHAN" = "1" ]; then
-    echo "   rm -rf $WTPATH （游离 worktree，gitdir 丢失）"
+    echo "   ⚠️ rm -rf $WTPATH （游离 worktree，gitdir 丢失）"
+    echo "      无法探测该目录内的未提交改动，其全部内容将被不可恢复地删除。"
     rm -rf "$WTPATH"
     "$GIT_BIN" worktree prune >/dev/null 2>&1
   else
@@ -214,6 +229,11 @@ if [ "$REMOTE_BRANCH_EXISTS" = "1" ]; then
   echo "   ⚠️ 公开动作：git push --delete $ORIGIN_REMOTE $BRANCH"
   if "$GIT_BIN" push --delete "$ORIGIN_REMOTE" "$BRANCH" >/dev/null 2>&1; then
     echo "✅ 远端分支已删"
+    # 兜底清理本地远程跟踪引用（与 MEMORY 第17章 17.14 口径一致；失败忽略）。
+    # 置于此处而非本地分支块内：跟踪引用只应在远端分支「确实删除成功」后才回收；
+    # 若远端删除失败（无权限等），远端分支仍在，跟踪引用必须保留，否则本地状态失真。
+    # 多数 git 版本 push --delete 会自动清理该引用，此处仅作残留兜底。
+    "$GIT_BIN" branch -d -r "$ORIGIN_REMOTE/$BRANCH" 2>/dev/null || true
   else
     echo "⚠️ 远端分支删除失败（可能无权限或已删除），请手动核查。"
   fi

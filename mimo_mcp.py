@@ -11,7 +11,8 @@
   - mimo.health  健康检查（CLI 状态、API 连通性、openai 包状态、配置展示）
 
  环境变量（全部可选）：
-  MIMO_API_KEY           MiMo API 密钥（优先读取，其次自动读 auth.json）
+  MIMO_API_KEY           MiMo API 密钥（优先读取，其次自动读 auth.json；可填多个，逗号/分号/空白分隔，与 MIMO_API_KEYS 一并纳入轮询池）
+  MIMO_API_KEYS          多 Key 轮询池（逗号/分号/空白分隔）；与 MIMO_API_KEY 并存时共同构成候选，优先于内置 BUILTIN_API_KEYS
   MIMO_BASE_URL          API 基础地址，默认 https://api.xiaomimimo.com/v1
   MIMO_DEFAULT_MODEL     默认模型，默认 mimo-v2.5-pro
   MIMOCODE_BIN_PATH      mimo.exe 绝对路径，自动搜索失败时手动指定
@@ -60,6 +61,7 @@
 import sys
 import json
 import os
+import re
 import time
 import subprocess
 import threading
@@ -198,6 +200,104 @@ def get_api_key() -> Tuple[str, str]:
             continue
 
     return "", "none"
+
+
+# ===========================================================================
+# 多 Key 轮询池（内置 Key + 环境变量覆盖，自动切换失效 Key）
+# ===========================================================================
+
+# 内置 API Key 池（多 Key 自动轮询）。
+# 顺序即优先级：靠前优先；当某 Key 鉴权失败（过期/无效/无权限/限流）时，
+# 自动切下一个，直到命中可用 Key，或全部耗尽（均失效/无用）。
+# 仍可用环境变量 MIMO_API_KEY / MIMO_API_KEYS 覆盖或扩展（见 get_api_key_pool）。
+# 安全提示：内置明文 Key 仅作"开箱即用"兜底；生产环境建议改用环境变量注入，避免密钥落地文件。
+BUILTIN_API_KEYS = [
+    "sk-sztt1j7hbjgi5vtgnov3c45pt10s004wyh595m7bpdzd4ah1",
+    "sk-sgbc2vz7wy5ce6wj681egimvnm0ca2njphsc2hbztloard5i",
+    "sk-s53skynm2bittxlu9mueoim0ds03as051joo7bdxkx8gqrz4",
+    "sk-stnpb3ryb6duemsz11unr94frrvamhjgqn19x97gug84usza",
+    "sk-cjwxkuw850hl83oftxmx6s0lxah0yc1t5vofo5trtu4flxfa",
+]
+
+
+def get_api_key_pool() -> List[Tuple[str, str]]:
+    """
+    返回有序的 (key, source) 列表，作为多 Key 轮询池。优先级：
+      1. MIMO_API_KEYS（显式多 Key，逗号/分号/空白分隔）
+      2. MIMO_API_KEY  （单 Key，或同样分隔的多 Key）
+      3. 内置 BUILTIN_API_KEYS
+      4. 兜底：本地 auth.json 中的 key
+    已去重；环境变量中的 Key 排在内置之前（沿用既有"环境变量优先"约定）。
+    """
+    pool: List[Tuple[str, str]] = []
+    seen = set()
+
+    def _add(key: str, source: str) -> None:
+        k = (key or "").strip()
+        if k and k not in seen:
+            seen.add(k)
+            pool.append((k, source))
+
+    env_keys = os.environ.get("MIMO_API_KEYS", "").strip()
+    if env_keys:
+        for part in re.split(r"[,\s;]+", env_keys):
+            _add(part, "env:MIMO_API_KEYS")
+
+    env_key = os.environ.get("MIMO_API_KEY", "").strip()
+    if env_key:
+        for part in re.split(r"[,\s;]+", env_key):
+            _add(part, "env:MIMO_API_KEY")
+
+    for k in BUILTIN_API_KEYS:
+        _add(k, "builtin")
+
+    if not pool:
+        for auth_path in _get_mimo_auth_paths():
+            try:
+                with open(auth_path, encoding="utf-8") as f:
+                    data = json.load(f)
+                    k = data.get("apiKey", "").strip()
+                    if k:
+                        _add(k, "file:%s" % auth_path)
+                        break
+            except Exception:
+                continue
+
+    return pool
+
+
+class MimoApiKeyPool:
+    """多 Key 轮询管理器。
+
+    失效判定（触发切下一个 Key）：
+      - AuthenticationError / PermissionDeniedError → Key 过期/无效/无权限（与网络无关）。
+      - RateLimitError / APITimeoutError           → Key 临时不可用（限流/超时），尝试下一个。
+    非 Key 问题（不轮询，直接上报）：
+      - APIConnectionError                         → 网络层故障，所有 Key 均无法验证，停止轮询并报"联不通"。
+    命中可用 Key 后将其置为当前 Key，后续调用复用，直至该 Key 也失效再切下一个。
+    """
+
+    def __init__(self, pool: List[Tuple[str, str]]):
+        self.pool = list(pool)
+        self.index = 0
+        self.bad = set()  # 失效（鉴权/限流/超时）的索引
+
+    def current(self) -> Optional[Tuple[str, str]]:
+        if 0 <= self.index < len(self.pool):
+            return self.pool[self.index]
+        return None
+
+    def mark_current_bad(self) -> None:
+        if 0 <= self.index < len(self.pool):
+            self.bad.add(self.index)
+        self._advance()
+
+    def _advance(self) -> None:
+        while self.index < len(self.pool) and self.index in self.bad:
+            self.index += 1
+
+    def exhausted(self) -> bool:
+        return self.index >= len(self.pool)
 
 
 def _get_mimo_auth_paths() -> List[str]:
@@ -437,6 +537,24 @@ def _sanitize(text: str) -> str:
     return text.encode("utf-8", errors="surrogateescape").decode("utf-8", errors="surrogateescape")
 
 
+def _classify_mimo_err(err_text: str) -> str:
+    """对 mimo.exe 的 stderr/退出信息做关键词分类，辅助判断是网络故障还是登录态失效。
+    返回空串表示无法判断；否则返回中文提示（不含换行开头）。
+    """
+    t = (err_text or "").lower()
+    if any(k in t for k in (
+        "econnrefused", "econnreset", "enotfound", "etimedout",
+        "network", "socket", "getaddrinfo", "connection", "timed out", "timeout",
+    )):
+        return "疑似网络层故障：无法连接 MiMo 服务，请检查本机网络 / VPN·代理 / 防火墙"
+    if any(k in t for k in (
+        "unauthorized", "401", "403", "forbidden", "auth", "login", "token",
+        "session", "expired", "过期", "鉴权", "登录", "未登录", "sign in",
+    )):
+        return "疑似登录态/鉴权失效：mimo.exe 会话过期或未登录，请重新运行 `mimo login`"
+    return ""
+
+
 # ===========================================================================
 # 队列读取（哨兵值机制，精确判断流结束）
 # ===========================================================================
@@ -563,7 +681,11 @@ class MimoMCPServer:
     VERSION = "2.2.0"
 
     def __init__(self):
-        self.api_key, self.api_key_source = get_api_key()
+        # 多 Key 轮询池：内置 Key + 环境变量覆盖；单个 Key 时退化为单元素池。
+        self.key_pool = MimoApiKeyPool(get_api_key_pool())
+        _cur = self.key_pool.current()
+        self.api_key = _cur[0] if _cur else ""
+        self.api_key_source = _cur[1] if _cur else "none"
         self.base_url = get_base_url()
         self.default_model = get_default_model()
         self.mimo_exe = find_mimo_exe()
@@ -876,6 +998,9 @@ class MimoMCPServer:
                     logger.error("mimo.code 失败 | rc=%d | err=%s" % (proc.returncode, msg[:200]))
                     self._metrics["failed"] += 1
                     self._metrics["last_error"] = msg[:300]
+                    hint = _classify_mimo_err(msg)
+                    if hint:
+                        msg = "%s\n\n提示：%s" % (msg, hint)
                     return {"content": [{"type": "text", "text": "MiMo 执行失败: %s" % msg}], "isError": True}
 
                 # JSON 模式：直接返回原始事件流
@@ -950,8 +1075,12 @@ class MimoMCPServer:
 
     def _chat(self, args: Dict) -> Dict:
         """
-        通过 OpenAI SDK 调用 MiMo API 对话。
-        分层校验：openai 包 -> API Key -> 参数 -> 调用 -> 异常细分。
+        通过 OpenAI SDK 调用 MiMo API 对话，支持多 Key 自动轮询。
+        诊断分层：
+          - 联不通（网络层）：APIConnectionError → 直接上报，不轮询。
+          - 能联通但 Key 失效：AuthenticationError/PermissionDeniedError/RateLimitError
+            → 标记当前 Key 失效，切下一个，直至命中或耗尽。
+          - 全部 Key 失效：汇总每个 Key 失败原因，明确区分"网络"与"Key"两类根因。
         openai 采用懒加载，首次调用时才 import。
         """
         # 前置参数校验
@@ -959,7 +1088,6 @@ class MimoMCPServer:
         if err:
             return {"content": [{"type": "text", "text": err}], "isError": True}
 
-        # 分层检查：openai 包（懒加载） -> API Key
         oa = _ensure_openai()
         if oa is None:
             return {
@@ -975,25 +1103,11 @@ class MimoMCPServer:
                 "isError": True,
             }
 
-        # 延迟构造 OpenAI 客户端（仅首次调用且密钥已配置时）
-        if self.client is None and self.api_key:
-            try:
-                self.client = oa.OpenAI(api_key=self.api_key, base_url=self.base_url)
-            except Exception as e:
-                logger.warning("OpenAI 客户端初始化失败: %s" % e)
-                return {
-                    "content": [{
-                        "type": "text",
-                        "text": "OpenAI 客户端初始化失败: %s" % e,
-                    }],
-                    "isError": True,
-                }
-
-        if not self.client:
+        if not self.key_pool.pool:
             return {
                 "content": [{
                     "type": "text",
-                    "text": "API Key 未配置，请设置环境变量 MIMO_API_KEY，或先运行 mimo 登录账号",
+                    "text": "API Key 未配置，请设置环境变量 MIMO_API_KEY / MIMO_API_KEYS，或配置内置 Key 池",
                 }],
                 "isError": True,
             }
@@ -1002,47 +1116,155 @@ class MimoMCPServer:
         model = args.get("model", self.default_model)
         max_tok = args.get("max_tokens", self.chat_max_tokens)
 
-        logger.info("mimo.chat | model=%s | max_tokens=%d | messages=%d" % (model, max_tok, len(msgs)))
+        logger.info(
+            "mimo.chat 多 Key 轮询 | 候选 Key 数=%d | model=%s | max_tokens=%d"
+            % (len(self.key_pool.pool), model, max_tok)
+        )
 
-        try:
-            resp = self.client.chat.completions.create(
-                model=model,
-                messages=msgs,
-                max_tokens=max_tok,
+        server_reachable = False
+        network_down = False
+        key_failures: List[Tuple[str, str]] = []
+
+        while True:
+            cur = self.key_pool.current()
+            if cur is None:
+                break  # 所有 Key 已轮完
+            key, source = cur
+            client = oa.OpenAI(api_key=key, base_url=self.base_url)
+            try:
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=msgs,
+                    max_tokens=max_tok,
+                )
+                # 命中可用 Key：置为当前，后续复用
+                self.client = client
+                self.api_key = key
+                self.api_key_source = source
+                content = resp.choices[0].message.content or ""
+                logger.info("mimo.chat 成功 | 使用 Key %s…（来源 %s）" % (key[:8], source))
+                return {"content": [{"type": "text", "text": _sanitize(content)}]}
+
+            except oa.AuthenticationError as e:
+                server_reachable = True
+                key_failures.append((key[:8], "鉴权失败(401)：Key 过期或无效"))
+                logger.warning("mimo.chat Key %s 鉴权失败: %s" % (key[:8], e))
+                self.key_pool.mark_current_bad()
+                continue
+            except oa.PermissionDeniedError as e:
+                server_reachable = True
+                key_failures.append((key[:8], "无权限(403)"))
+                logger.warning("mimo.chat Key %s 无权限: %s" % (key[:8], e))
+                self.key_pool.mark_current_bad()
+                continue
+            except oa.RateLimitError as e:
+                server_reachable = True
+                key_failures.append((key[:8], "触发限流(429)：额度/频率受限"))
+                logger.warning("mimo.chat Key %s 限流: %s" % (key[:8], e))
+                self.key_pool.mark_current_bad()
+                continue
+            except oa.APIStatusError as e:
+                # 捕获 AuthenticationError/PermissionDeniedError/RateLimitError 之外的
+                # 其他 HTTP 状态错误（如 402 余额不足、400/404/500 等）。
+                code = getattr(e, "status_code", None)
+                if code == 402:
+                    server_reachable = True
+                    key_failures.append((key[:8], "账户余额不足(402)：需充值"))
+                    logger.warning("mimo.chat Key %s 余额不足: %s" % (key[:8], e))
+                else:
+                    server_reachable = True
+                    key_failures.append((key[:8], "HTTP %s 状态错误: %s" % (code, str(e)[:60])))
+                    logger.warning("mimo.chat Key %s 状态错误: %s" % (key[:8], e))
+                self.key_pool.mark_current_bad()
+                continue
+            except oa.APIConnectionError as e:
+                network_down = True
+                logger.error("mimo.chat 网络联不通: %s" % e)
+                break  # 网络故障与 Key 无关，停止轮询
+            except oa.APITimeoutError as e:
+                server_reachable = True
+                key_failures.append((key[:8], "请求超时"))
+                logger.warning("mimo.chat Key %s 超时: %s" % (key[:8], e))
+                self.key_pool.mark_current_bad()
+                continue
+            except Exception as e:
+                logger.error("mimo.chat 异常: %s" % e, exc_info=True)
+                key_failures.append((key[:8], "未知错误: %s" % str(e)[:80]))
+                self.key_pool.mark_current_bad()
+                continue
+
+        # 循环结束：按根因分类上报
+        if network_down:
+            return {
+                "content": [{
+                    "type": "text",
+                    "text": (
+                        "❌ 联不通（网络层故障）：无法连接 MiMo API 服务（%s）。\n"
+                        "常见原因：本机网络不通、VPN/代理异常、或 MIMO_BASE_URL 配置错误。\n"
+                        "由于是网络问题（与 Key 无关），已停止 Key 轮询。请先恢复网络连通性后重试。"
+                        % self.base_url
+                    ),
+                }],
+                "isError": True,
+            }
+
+        # 全部 Key 失效
+        lines = ["❌ 全部 API Key 均失效（共 %d 个）：" % len(self.key_pool.pool)]
+        for prefix, reason in key_failures:
+            lines.append("  · %s… ：%s" % (prefix, reason))
+        balance_only = bool(key_failures) and all("余额不足" in r for _, r in key_failures)
+        if balance_only:
+            lines.append(
+                "诊断：服务可达，但全部 Key 均返回 402 账户余额不足。"
+                "这是账户充值问题，与 Key 是否过期/失效无关——轮询其他 Key 无法解决，"
+                "需为对应账户充值后重试。"
             )
-            content = resp.choices[0].message.content or ""
-            return {"content": [{"type": "text", "text": _sanitize(content)}]}
-
-        except oa.AuthenticationError:
-            return {
-                "content": [{"type": "text", "text": "API Key 无效，请核对密钥配置"}],
-                "isError": True,
-            }
-        except oa.RateLimitError:
-            return {
-                "content": [{"type": "text", "text": "请求频率超限，请稍后重试（免费额度可能有速率限制）"}],
-                "isError": True,
-            }
-        except oa.APIConnectionError:
-            return {
-                "content": [{"type": "text", "text": "网络连接失败，请检查网络是否通畅，或 API 地址是否正确"}],
-                "isError": True,
-            }
-        except oa.APITimeoutError:
-            return {
-                "content": [{"type": "text", "text": "API 请求超时，请稍后重试"}],
-                "isError": True,
-            }
-        except Exception as e:
-            logger.error("mimo.chat 异常: %s" % e, exc_info=True)
-            return {
-                "content": [{"type": "text", "text": "API 调用失败: %s" % str(e)}],
-                "isError": True,
-            }
+        elif server_reachable:
+            lines.append(
+                "诊断：已成功连接 MiMo API 服务，但所有 Key 鉴权均被拒绝"
+                "（过期/无效/无权限/限流），属 Key 问题而非网络问题。"
+            )
+        else:
+            lines.append(
+                "诊断：未能确认服务可达性（可能在连接前即报错，或网络与 Key 同时异常），"
+                "建议先排查网络，再核对 Key。"
+            )
+        lines.append("建议：更换为有效 Key（环境变量 MIMO_API_KEYS 或更新内置 BUILTIN_API_KEYS）。")
+        return {"content": [{"type": "text", "text": "\n".join(lines)}], "isError": True}
 
     # -----------------------------------------------------------------------
     # 工具实现：mimo.health
     # -----------------------------------------------------------------------
+
+    def _diagnose_key(self, oa, key: str) -> Tuple[str, str]:
+        """对单个 Key 做一次最小探测，返回 (状态, 详情)。状态枚举：
+        OK / AUTH_FAILED / PERMISSION_DENIED / RATE_LIMITED / CONNECTION_FAILED / TIMEOUT / ERROR。
+        """
+        client = oa.OpenAI(api_key=key, base_url=self.base_url)
+        try:
+            resp = client.chat.completions.create(
+                model=self.default_model,
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=1,
+            )
+            return "OK", (_sanitize(resp.choices[0].message.content or "")[:50])
+        except oa.AuthenticationError:
+            return "AUTH_FAILED", "Key 鉴权失败(401)：过期/无效"
+        except oa.PermissionDeniedError:
+            return "PERMISSION_DENIED", "Key 无权限(403)"
+        except oa.RateLimitError:
+            return "RATE_LIMITED", "触发限流(429)"
+        except oa.APIConnectionError as e:
+            return "CONNECTION_FAILED", "网络联不通：%s" % str(e)[:120]
+        except oa.APITimeoutError:
+            return "TIMEOUT", "API 请求超时"
+        except oa.APIStatusError as e:
+            code = getattr(e, "status_code", None)
+            if code == 402:
+                return "BALANCE_INSUFFICIENT", "账户余额不足(402)：需充值"
+            return "HTTP_%s" % code, "HTTP %s 状态错误：%s" % (code, str(e)[:120])
+        except Exception as e:
+            return "ERROR", str(e)[:120]
 
     def _health(self, _args: Dict = None) -> Dict:
         """健康检查：CLI / openai / API Key / 网络 / 全量配置"""
@@ -1074,38 +1296,44 @@ class MimoMCPServer:
         else:
             results["cli_status"] = "NOT INSTALLED - run: npm install -g @mimo-ai/cli"
 
-        # 延迟构造 OpenAI 客户端（仅首次调用且密钥已配置时）
-        if self.client is None and self.api_key and oa is not None:
-            try:
-                self.client = oa.OpenAI(api_key=self.api_key, base_url=self.base_url)
-            except Exception as e:
-                logger.warning("OpenAI 客户端初始化失败: %s" % e)
+        # 多 Key 诊断：逐个 Key 探测连通性与鉴权状态，明确区分"联不通"与"Key 过期"。
+        results["api_key_pool_size"] = len(self.key_pool.pool)
+        results["api_key_current_index"] = self.key_pool.index
 
-        # 检查 API 连通性（细分 5 类错误）
-        if self.client:
-            try:
-                resp = self.client.chat.completions.create(
-                    model=self.default_model,
-                    messages=[{"role": "user", "content": "hi"}],
-                    max_tokens=5,
-                )
-                results["api_status"] = "OK"
-                raw = resp.choices[0].message.content or ""
-                results["api_test_response"] = _sanitize(raw[:50])
-            except oa.AuthenticationError:
-                results["api_status"] = "AUTH FAILED - API Key 无效"
-            except oa.RateLimitError:
-                results["api_status"] = "RATE LIMITED - 请求频率超限"
-            except oa.APIConnectionError:
-                results["api_status"] = "CONNECTION FAILED - 网络不通或 API 地址错误"
-            except oa.APITimeoutError:
-                results["api_status"] = "TIMEOUT - API 请求超时"
-            except Exception as e:
-                results["api_status"] = "ERROR: %s" % e
-        elif not _OPENAI_AVAILABLE:
+        if oa is None:
             results["api_status"] = "BLOCKED - openai 包未安装"
+        elif not self.key_pool.pool:
+            results["api_status"] = "BLOCKED - 未配置任何 API Key"
         else:
-            results["api_status"] = "BLOCKED - API Key 未配置"
+            per_key = []
+            any_ok = False
+            all_conn_fail = True
+            for idx, (k, src) in enumerate(self.key_pool.pool):
+                status, detail = self._diagnose_key(oa, k)
+                if status == "OK":
+                    any_ok = True
+                    all_conn_fail = False
+                elif status != "CONNECTION_FAILED":
+                    all_conn_fail = False
+                per_key.append({
+                    "index": idx,
+                    "key_prefix": k[:8] + "...",
+                    "source": src,
+                    "status": status,
+                    "detail": detail,
+                })
+            results["api_keys"] = per_key
+
+            if any_ok:
+                results["api_status"] = "OK - 存在可用 Key"
+            elif all_conn_fail:
+                results["api_status"] = "CONNECTION FAILED - 网络联不通（所有 Key 均因网络原因无法验证）"
+            else:
+                statuses = [k["status"] for k in per_key]
+                if all(s == "BALANCE_INSUFFICIENT" for s in statuses):
+                    results["api_status"] = "ALL KEYS INSUFFICIENT BALANCE - 服务可达，全部 Key 账户余额不足(402)，需充值"
+                else:
+                    results["api_status"] = "ALL KEYS INVALID - 服务可达，但全部 Key 鉴权失败（过期/无效/无权限/限流/HTTP错误）"
 
         return {"content": [{"type": "text", "text": json.dumps(results, ensure_ascii=False, indent=2)}]}
 

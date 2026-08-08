@@ -13,7 +13,7 @@
 #   合并信息会自动写入三段：合并说明、来源分支与尖端哈希、整段回滚提示。
 #
 # 【用途 / 使用场景】
-#   1. 工作流七「多工作树并行开发」阶段三：把并行开发完成的功能分支逐条合入主线。
+#   1. 工作流五「多工作树并行开发」阶段三：把并行开发完成的功能分支逐条合入主线。
 #   2. 需要保留完整开发谱系、且要求「一条合并碑即可整段回滚」的场景。
 #   3. 合并前的安全评估：不加 --confirm 时可单独用作冲突与分支保护的预演工具。
 #
@@ -42,7 +42,8 @@
 #
 #   退出码:
 #     0  正常完成（打印预览 / 合并成功 / 因冲突或分支保护而主动暂停）
-#     1  守卫未通过（当前分支非 main / 工作区脏 / 分支不存在 / 合并失败 / 合并碑验证不通过）
+#     1  守卫未通过（当前分支非 main / 工作区脏 / 分支不存在 / 合并失败 / 合并碑验证不通过 /
+#        分支保护核验失败且非 404，无法确认保护状态时按 fail-safe 暂停）
 #     2  参数错误（未指定 --branch，或传入未知选项）
 #
 # 【注意事项】
@@ -90,6 +91,12 @@ if ! _sop_is_clean; then
 fi
 # 参数校验 + 合并源引用
 if [ -z "$BRANCH" ]; then echo "⛔ 必须指定 --branch <feat/x>。"; exit 2; fi
+# 先同步远端，再解析引用与取 Tip。顺序不可颠倒：
+#   ① 若在解析前不 fetch，刚 push 到远端但本地未同步的分支会被误判为「不存在」而中止；
+#   ② 若在 fetch 前取 Tip，实际合并用的是 fetch 后的 SRC_REF，会导致合并碑提交信息里
+#      记录的尖端哈希与真实合并内容不符，且 merge-base --is-ancestor 校验捕获不到（旧 Tip 是新 Tip 的祖先），
+#      从而破坏「整段回滚」的溯源准确性。
+"$GIT_BIN" fetch "$ORIGIN_REMOTE" >/dev/null 2>&1
 SRC_REF="$ORIGIN_REMOTE/$BRANCH"
 if ! "$GIT_BIN" rev-parse --verify "$SRC_REF" >/dev/null 2>&1; then
   if "$GIT_BIN" rev-parse --verify "$BRANCH" >/dev/null 2>&1; then SRC_REF="$BRANCH"; else
@@ -97,8 +104,6 @@ if ! "$GIT_BIN" rev-parse --verify "$SRC_REF" >/dev/null 2>&1; then
   fi
 fi
 TIP="$("$GIT_BIN" rev-parse "$SRC_REF")"
-
-"$GIT_BIN" fetch "$ORIGIN_REMOTE" >/dev/null 2>&1
 
 echo "===== --no-ff 普通合并（多工作树并行合并·阶段三）====="
 echo "主仓库: $(pwd)  主线: $MAIN_BRANCH  功能分支: $BRANCH (源 $SRC_REF, 尖端 $TIP)"
@@ -117,11 +122,23 @@ echo "✅ merge-tree 零冲突预测（干净树）。"
 REPO_ID="$SOP_ORIGIN_OWNER/$SOP_ORIGIN_REPO"
 [ -n "$UPSTREAM_REPO" ] && REPO_ID="$UPSTREAM_REPO"
 if [ -n "$REPO_ID" ] && [ "$REPO_ID" != "/" ]; then
-  if "$GH_BIN" api "repos/$REPO_ID/branches/$MAIN_BRANCH/protection" >/dev/null 2>&1; then
+  # fail-safe 核验：必须区分「404 确认无保护」与「核验动作本身失败」。
+  # 旧实现把一切非 0 退出码都视为「无保护、可直推」（fail-open），但非 0 也可能源于
+  # 网络不通 / gh 未认证 / 非管理员读取保护配置被拒(403)——这些情况下主线可能确实受保护，
+  # 放行直推会违反「受保护主线须走 PR」的硬约束。故不确定时一律暂停。
+  PROT_OUT="$("$GH_BIN" api "repos/$REPO_ID/branches/$MAIN_BRANCH/protection" 2>&1)"
+  PROT_RC=$?
+  if [ "$PROT_RC" -eq 0 ]; then
     echo "⚠️ 主线 [$MAIN_BRANCH] 已开启分支保护，须走 PR 流程合并，不在此直推。暂停等指令。"
     exit 0
+  elif printf '%s' "$PROT_OUT" | grep -qiE 'HTTP 404|Not Found|Branch not protected'; then
+    echo "✅ 分支保护核验：主线未开启保护（HTTP 404 已确认），可直推。"
   else
-    echo "✅ 分支保护核验：主线无保护（404）或可直推（核验失败已降级，请确认）。"
+    echo "⛔ 分支保护核验失败（非 404），无法确认主线是否受保护，已按 fail-safe 暂停。"
+    echo "   可能原因：网络不通 / gh 未认证 / 无权限读取保护配置(403)。原始返回："
+    printf '%s\n' "$PROT_OUT" | head -5
+    echo "   请人工确认后改走 PR 流程，或排除故障后重试。"
+    exit 1
   fi
 else
   echo "（无法解析仓库标识，跳过分支保护核验；若 main 受保护请走 PR。）"

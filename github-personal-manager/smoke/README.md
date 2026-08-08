@@ -20,4 +20,4 @@
 - 夹具仓库生成于 `smoke/tmp/`（gitignore），运行后残留可手动清理。
 - 所有写操作类契约（分叉不自动改、脏区硬停、main 守卫、prune 不动远程）在脚本实现后由对应 L2 用例真实断言。
 
-详见 `../docs/sop-plan.md` 第 5 节。
+详见 `../SKILL.md` 中「工作流五」相关章节，以及 `../scripts/` 下的 sop_worktree_*.sh 脚本。

@@ -9,6 +9,18 @@
 
 ---
 
+## [2026-08-08]
+
+### Changed
+- **github-personal-manager/SKILL.md**：技能主文档重写，补充阶段 0 工具探测、脚本调用约定与结构化报告规范。
+- **github-personal-manager/scripts/sop_worktree_*.sh**：worktree 三件套（add/cleanup/merge）增强，扩充冲突与合并守卫逻辑。
+- **mimo_mcp.py**：工具逻辑更新（+392 行），完善双形态（dmcp.exe 中继 / 宿主直连）实现与可观测性。
+- **Memory-Data/GitHub_Deepseek++.md**、**Skill-文件内容整理重组.md**、**Workbuddy专属/Skill-memory-consolidate.md**：技能文档内容同步更新。
+- **.github/workflows/smoke.yml**：CI 配置微调。
+
+### Docs
+- **github-personal-manager/references/**：fork-ci-pitfalls.md、gh-capability.md 同步更新；smoke/README.md 与 smoke/tests/test_worktree.sh 对齐新脚本行为。
+
 ## [2026-08-06]
 
 ### Added
