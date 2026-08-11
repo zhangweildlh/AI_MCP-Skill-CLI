@@ -7,9 +7,11 @@
   2. .gitignore 策略校验：确保敏感目录被忽略、按策略应入库的文件未被忽略。
 
 关于 ANYSEARCH_API_KEY：
-  按用户明确决策（#10），web-search/.env 与 ref-material-writing/.env 中的真实
-  ANYSEARCH_API_KEY 已授权入库。因此该 Key 被列入允许清单，扫描命中不报致命。
-  若日后希望收紧，移除 ALLOW_PATTERNS 中对应条目即可。
+  ref-material-writing/.env 中的真实 ANYSEARCH_API_KEY 按用户明确决策（#10）已授权入库，
+  故列入 ALLOW_PATTERNS，扫描命中不报致命。
+  web-search/.env 中的同类真实密钥已于 2026-08-11 改判为「绝不入库」（密钥已落历史、
+  须轮换作废，见 .gitignore），故从 MUST_TRACK 移除并归入 MUST_IGNORE，与 .gitignore 一致。
+  若日后希望收紧 ref-material-writing，移除 ALLOW_PATTERNS 中对应条目即可。
 """
 from __future__ import annotations
 
@@ -51,10 +53,10 @@ MUST_IGNORE = [
     "__pycache__/x",
     "x.pyc",
     ".venv/x",
+    "web-search/.env",          # 2026-08-11 安全决议：真实密钥已落历史、须轮换作废，绝不入库（与 .gitignore 一致）
 ]
 # 必须被跟踪（按用户 #10 策略应入库）
 MUST_TRACK = [
-    "web-search/.env",
     "ref-material-writing/.env",
     "Skill-滴答清单智能任务解析创建器.md",
 ]
