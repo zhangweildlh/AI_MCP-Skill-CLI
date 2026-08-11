@@ -1,5 +1,6 @@
 {
   "endpoint": "https://api.anysearch.com/mcp",
+  "client_version": "5.0.0",
   "available_domains": [
     "general", "resource", "social_media", "finance", "academic",
     "legal", "health", "business", "security", "ip", "code",
