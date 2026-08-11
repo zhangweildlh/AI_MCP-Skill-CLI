@@ -14,7 +14,7 @@
 
 ### [加载]（仅本步必需）
 - 仅列出本步执行所需的 `references/`、`assets/` 文件。
-- 列出本步将调用的**逻辑原语**（READ_FILE / WRITE_FILE / FILE_STAT / WEB_SEARCH / WEB_FETCH / AGENT_SEARCH / EXTRACT / SHELL / OFFICE / ANYSEARCH / NATIVE_WEB），并注明其实际工具名来自状态文件「工具能力映射表」；ANYSEARCH 为固定外部命令（硬编码路径，非动态探测），**禁止硬编码平台特定工具名**（ANYSEARCH 的固定命令路径依用户指定硬编码，除外）。
+- 列出本步将调用的**逻辑原语**（READ_FILE / WRITE_FILE / FILE_STAT / WEB_SEARCH / WEB_FETCH / AGENT_SEARCH / EXTRACT / SHELL / OFFICE / ANYSEARCH / NATIVE_WEB），并注明其实际工具名来自状态文件「工具能力映射表」；ANYSEARCH 为固定外部命令（命令本体唯一定义于 `references/13-anysearch-integration.md` §1，非动态探测），**禁止硬编码平台特定工具名**（ANYSEARCH 的固定命令依 references/13 §1 引用，除外）。
 
 ### [执行]（分析动作）
 - 本步的核心分析 / 操作逻辑，逐条描述。
@@ -67,7 +67,7 @@
 | AGENT_SEARCH | 直连 `firecrawl_agent`（或 `mcp__firecrawl__firecrawl_agent`）+ `firecrawl_agent_status(id)`；中继 `mcp__Dynamic-mcp__call_dynamic_tool(group="firecrawl-mcp", name="firecrawl_agent", args={prompt})` + `firecrawl_agent_status(id)` | `firecrawl_search` + `firecrawl_scrape` |
 | SHELL | `shell_exec` | — |
 | OFFICE | `officecli` | — |
-| ANYSEARCH | 固定命令（内嵌自包含）：`uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py`（**基于技能目录的相对路径、非动态探测**；禁止省略 `uv run --project D:/Tools/Assembly/python/myenv` 直接使用 `python`） | — |
+| ANYSEARCH | 固定命令（内嵌自包含）：`<ANYSEARCH_CMD>`——**命令本体唯一定义于 `references/13-anysearch-integration.md` §1**，本表只引用不写死（**基于技能目录的相对路径、非动态探测**；UV 前缀不可省，约束见 references/13 §1） | — |
 | NATIVE_WEB | 原生 `web_search` + `web_fetch` | LLM 原生网页搜索/下载，作为双引擎任一不可用时的补偿通道，保双轨并行 |
 
 > 双轨优先级：**非搜索功能原生 > MCP**；**联网搜索采用 AnySearch + Firecrawl 双引擎平权并行（步骤5）**，LLM 原生 `web_search`/`web_fetch`（NATIVE_WEB）为补偿/降级通道。具体以 `_router/bootstrap.md` 生成的「工具能力映射表」为准。
