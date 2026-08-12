@@ -28,7 +28,7 @@
 | 16 | `code-audit-consolidation` | 1.0.0 | 单文件 | 仓库根 `Skill-多代码审计报告归一收敛.md` | 整合多视角审计报告，去重归因、交叉分析、根因分析，产出唯一根治报告 |
 
 > 注：
-> - 已退役/移除，不再纳入说明：`anysearch-skill`（2026-07-23 清理其独立目录，CLI 现位于 `web-search/scripts/anysearch_cli.py`）、`github-repo-sync`（2026-07-24 退役，能力并入 `github-personal-manager`）。
+> - 已退役/移除，不再纳入说明：`anysearch-skill`（2026-07-23 清理其独立目录，CLI 现位于 `web-search/anysearch-skill/scripts/anysearch_cli.py`）、`github-repo-sync`（2026-07-24 退役，能力并入 `github-personal-manager`）。
 > - 根目录原有 3 个单文件技能（`Skill-memory-consolidate.md`、`Skill-workflow-distill.md`、`Skill-代码审查.md`）：前二者已移入 `Workbuddy专属/` 子目录；`Skill-代码审查.md` 已删除，能力并入 `code-review-combo`。
 > - 根目录另有 `在Deepseek和WorkBuddy等AI中安装小米智能体-2026-07-07.7z` 压缩包（属历史存档，**不入库、不纳入活跃技能说明**）。
 
