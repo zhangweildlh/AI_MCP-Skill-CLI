@@ -1,7 +1,7 @@
 # AI_MCP-Skill-CLI 仓库说明（README）
 
 > 本仓库是 `zhangweildlh` 的个人 **私有** 技能(Skill)集合，存放所有 AI 技能的 Definition 文件与配套脚本。
-> 本文件逐一对仓库内 **16 个活跃技能**（9 个目录型 + 7 个根级单文件型）进行说明：用途、外部依赖/外部工具/外部需求。
+> 本文件逐一对仓库内 **18 个活跃技能**（9 个目录型 + 9 个根级单文件型）进行说明：用途、外部依赖/外部工具/外部需求。
 > 仓库首个发布版本标记为 **`v1.0.0`**（git 标签，作用于整个仓库快照；各技能自身的内部版本见各自 frontmatter 的 `version` 字段）。
 
 ---
@@ -24,8 +24,10 @@
 | 12 | `find-skill-to-xml` | 1.1.0 | 单文件 | 仓库根 `Skill-扫描Skill技能生成xml技能标签.md` | 扫描目录发现 Skill 文件，生成标准 XML 技能标签清单 |
 | 13 | `promotion-writer` | — | 单文件 | 仓库根 `Skill-推广文章撰写.md` | 面向微信公众号/小红书的中文推广文案撰写 |
 | 14 | `ticktick` | — | 单文件 | 仓库根 `Skill-滴答清单智能任务解析创建器.md` | 解析自然语言指令，批量创建/管理滴答清单(TickTick)任务 |
-| 15 | `file-structure-organizer` | 1.0.0 | 单文件 | 仓库根 `Skill-文件内容整理重组.md` | 依据「文件结构化组织规范（12 条强制要求）」对 Markdown 文件读取、整理与重组 |
-| 16 | `code-audit-consolidation` | 1.0.0 | 单文件 | 仓库根 `Skill-多代码审计报告归一收敛.md` | 整合多视角审计报告，去重归因、交叉分析、根因分析，产出唯一根治报告 |
+| 15 | `code-audit-consolidation` | 1.0.0 | 单文件 | 仓库根 `Skill-多源代码审查整合收敛.md` | 整合多视角审计报告，去重归因、交叉分析、根因分析，产出唯一根治报告（由 `Skill-多代码审计报告归一收敛.md` 重命名而来） |
+| 16 | `external-tool-onboarding` | — | 单文件 | 仓库根 `Skill-外部工具引入评估与落地.md` | 外部工具与外部资产的引入评估与接入落地通用工作流 |
+| 17 | `task-methodology-consolidation` | — | 单文件 | 仓库根 `Skill-对当前对话会话做经验沉淀和方法论固化.md` | 对当前对话会话做经验沉淀和方法论固化（踩坑/避坑/成败经验 → 开箱即用方法论） |
+| 18 | `md-crossref-audit` | — | 单文件 | 仓库根 `Skill-文档引用调用有效性检验.md` | Markdown 文档交叉引用合规核查与导航可达性保障 |
 
 > 注：
 > - 已退役/移除，不再纳入说明：`anysearch-skill`（2026-07-23 清理其独立目录，CLI 现位于 `web-search/anysearch-skill/scripts/anysearch_cli.py`）、`github-repo-sync`（2026-07-24 退役，能力并入 `github-personal-manager`）。
@@ -134,7 +136,7 @@
   - **Chrome DevTools MCP 服务器**：以**全局方式**安装（`npm install -g`，位于 `$(npm root -g)/chrome-devtools-mcp`），**禁用 `npx -y`**；首次工具调用时基于持久化 Chrome 配置自动启动浏览器。
   - **本地浏览器**：本机 Chrome / 360Chromex 内核；可复用已登录浏览器会话（连接已登录浏览器复用登录态）。
   - **无 Python / 无额外 shell 依赖**；CLI 模式与 MCP 服务模式功能等价。
-- **备注**：承接浏览器调试/自动化场景，与 `playwright-360chrome`（Playwright 路线）互为补充；激活关键词含 Chrome DevTools、页面快照、元素交互、LCP/内存/可访问性分析、网络请求检查、控制台日志、网页截图。
+- **备注**：承接浏览器调试/自动化场景，与 `playwright-360chrome`（Playwright 路线）互为补充；激活关键词含 Chrome DevTools、页面快照、元素交互、LCP/内存/可访问性分析、网络请求检查、控制台日志、网页截图；新增 master → WorkBuddy 安装副本双端部署脚本（`sync_and_deploy.cjs` / `mirror_to_target.cjs` / `localization/*.cjs`），经 `npm run` 同步本地化与部署。
 
 ### 10. skill-forge（Skill 创建校验器 · 元技能双模）
 
@@ -179,19 +181,33 @@
   - **无 shell 依赖**。
 - **备注（隐私）**：该技能含硬编码家庭成员真实姓名与项目名（何晓勤/唐淼/小芝麻/张梵净、成都北站总包项目、中铁九天总包项目等），属用户明示保留的隐私内容；如对外分享仓库需注意。
 
-### 15. file-structure-organizer（文件内容整理重组）
-
-- **用途**：依据「文件结构化组织规范（12 条强制要求）」对用户指定的 Markdown 文件进行读取、整理与重组，输出完全合规的结构化文档（单一事实源、引用纪律、强制结构等）。
-- **外部依赖 / 外部工具 / 外部需求**：
-  - **无外部工具 / 无外部依赖**：纯提示词技能。
-- **备注**：与 `code-audit-consolidation` 同属"文档质量收敛"类元技能。
-
-### 16. code-audit-consolidation（多代码审计报告归一收敛）
+### 15. code-audit-consolidation（多源代码审查整合收敛）
 
 - **用途**：整合多视角、多切片的审计报告/代码分析报告/BUG 分析报告，通过提取、归一、去重、交叉分析、关联分析、冲突核查裁决（基于实际代码复查）、根因分析，产出唯一事源、直指底层根因、可落地执行的根治报告。
 - **外部依赖 / 外部工具 / 外部需求**：
   - **无外部工具 / 无外部依赖**：纯提示词技能。
-- **备注**：关键词：多源审查整合、缺陷去重归因、代码审计收敛、根因分析、BUG 根治。
+- **备注**：由 `Skill-多代码审计报告归一收敛.md` 重命名为 `Skill-多源代码审查整合收敛.md`（能力不变）；关键词：多源审查整合、缺陷去重归因、代码审计收敛、根因分析、BUG 根治。
+
+### 16. external-tool-onboarding（外部工具引入评估与落地）
+
+- **用途**：外部工具与外部资产的引入评估与接入落地通用工作流——当需要把一个第三方开源项目、命令行工具(CLI)、模型上下文协议服务器(MCP)或外部资产接入工作流时使用，覆盖评估、落地、验证闭环。
+- **外部依赖 / 外部工具 / 外部需求**：
+  - **无外部工具 / 无外部依赖**：纯提示词技能（评估对象为外部工具，本身不调用 shell/MCP）。
+- **备注**：与 `github-personal-manager` 的「外部工具引入」环节衔接。
+
+### 17. task-methodology-consolidation（任务方法论沉淀）
+
+- **用途**：对当前对话会话做经验沉淀和方法论固化——将踩坑/避坑/失败/成功经验沉淀为开箱即用的结构化方法论文档，供后续任务复用。
+- **外部依赖 / 外部工具 / 外部需求**：
+  - **无外部工具 / 无外部依赖**：纯提示词技能。
+- **备注**：典型触发词"方法论沉淀""任务复盘""经验总结"。
+
+### 18. md-crossref-audit（文档引用调用有效性检验）
+
+- **用途**：大型 Markdown 文档交叉引用合规核查与导航可达性保障——核查引用准确性、锚点有效性、引用格式统一、索引表匹配。
+- **外部依赖 / 外部工具 / 外部需求**：
+  - **无外部工具 / 无外部依赖**：纯提示词技能。
+- **备注**：适用于长文档、单文件知识库、规范手稿的引用断链排查。
 
 ---
 
@@ -229,5 +245,5 @@
 - `.githooks/pre-commit`：提交时自动跑 Tier0+1。
 - `.github/workflows/smoke.yml`：云端 CI（Tier5），push 到 main 与开 PR 时触发；2026-08-03 升级 actions 至 v7（消除 Node.js 20 弃用警告）。
 - `multi-worktree-parallel-merge-sop.md`：原 2026-08-03 新增的总体方案文档已于 2026-08-06 移除，能力内聚至 `github-personal-manager` 的 `sop_worktree_add.sh` / `sop_worktree_cleanup.sh` / `sop_worktree_merge.sh` 三件套。
-- `Memory-Data/`：用户记忆/知识库（仅 `.md` 入库；非 `.md` 文件经 `.gitignore` 排除，本地保留）。本批新增 `协作方式约定_四象限_定制版.md` / `协作方式约定_四象限_通用版.md`，并将 `用户画像分析报告_土木工程主业版.md` 重命名为 `用户画像分析报告.md`。
+- `Memory-Data/`：用户记忆/知识库（仅 `.md` 入库；非 `.md` 文件经 `.gitignore` 排除，本地保留）。本批新增 `协作方式约定_四象限_定制版.md` / `协作方式约定_四象限_通用版.md`，并将 `用户画像分析报告_土木工程主业版.md` 重命名为 `用户画像分析报告.md`；新增 `MEMORY.md` 索引文件（逐日工作日志与跨会话记忆，仅 `.md` 入库）。
 - `Workbuddy专属/`：归置与 WorkBuddy 紧密耦合的专属技能/文件（`workbuddy-workspace-migration`、`Skill-memory-consolidate.md`、`Skill-workflow-distill.md`）。

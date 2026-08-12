@@ -9,6 +9,15 @@ const REPO = path.resolve(__dirname, '..');
 const FRAG = path.join(__dirname, 'fragments');
 const SENTINEL = '<!-- LOCALIZED:360Chromex -->';
 
+// 已知注入目标清单（写死，A2）：这些目标是本地化设计的合法注入点；若缺失，
+// 视为"主副本→部署副本失同步"（如主副本新增子技能后漏跑 mirror_to_target.cjs），
+// 必须明确告警（而非与普通缺失一样静默跳过）。如需新增注入目标，在此扩展。
+const KNOWN_TARGETS = new Set([
+  'skills/chrome-devtools/SKILL.md',
+  'skills/chrome-devtools-cli/SKILL.md',
+  'README.md',
+]);
+
 function readConfig() {
   const p = path.join(REPO, 'local-config.json');
   return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : {};
@@ -20,7 +29,11 @@ function writeConfig(cfg) {
 function inject(targetRel, fragFile) {
   const target = path.join(REPO, targetRel);
   const frag = path.join(FRAG, fragFile);
-  if (!fs.existsSync(target)) { console.log('[跳过] 目标不存在: ' + targetRel); return; }
+  if (!fs.existsSync(target)) {
+    if (KNOWN_TARGETS.has(targetRel)) console.warn('[警告] 已知注入目标缺失（可能主副本→部署副本失同步，请先运行 node mirror_to_target.cjs）: ' + targetRel);
+    else console.log('[跳过] 目标不存在: ' + targetRel);
+    return;
+  }
   if (!fs.existsSync(frag)) { console.log('[跳过] 片段不存在: ' + fragFile); return; }
   const content = fs.readFileSync(target, 'utf8');
   if (content.includes(SENTINEL)) { console.log('[已注入] 跳过: ' + targetRel); return; }
@@ -33,7 +46,11 @@ function inject(targetRel, fragFile) {
 // 剥离已注入的本地化段（哨兵行到文件末尾），用于上游更新后"刷新"重注入。
 function strip(targetRel) {
   const target = path.join(REPO, targetRel);
-  if (!fs.existsSync(target)) { console.log('[跳过] 目标不存在: ' + targetRel); return; }
+  if (!fs.existsSync(target)) {
+    if (KNOWN_TARGETS.has(targetRel)) console.warn('[警告] 已知注入目标缺失（可能主副本→部署副本失同步，请先运行 node mirror_to_target.cjs）: ' + targetRel);
+    else console.log('[跳过] 目标不存在: ' + targetRel);
+    return;
+  }
   const content = fs.readFileSync(target, 'utf8');
   if (!content.includes(SENTINEL)) { console.log('[无哨兵] 跳过: ' + targetRel); return; }
   const idx = content.indexOf(SENTINEL);
@@ -47,17 +64,21 @@ function strip(targetRel) {
 function localizeDescription(targetRel, descFile) {
   const target = path.join(REPO, targetRel);
   const frag = path.join(FRAG, descFile);
-  if (!fs.existsSync(target)) { console.log('[跳过] 目标不存在: ' + targetRel); return; }
+  if (!fs.existsSync(target)) {
+    if (KNOWN_TARGETS.has(targetRel)) console.warn('[警告] 已知注入目标缺失（可能主副本→部署副本失同步，请先运行 node mirror_to_target.cjs）: ' + targetRel);
+    else console.log('[跳过] 目标不存在: ' + targetRel);
+    return;
+  }
   if (!fs.existsSync(frag)) { console.log('[跳过] 描述片段不存在: ' + descFile); return; }
   const newLine = fs.readFileSync(frag, 'utf8').trimEnd();
   const content = fs.readFileSync(target, 'utf8');
 
   // 仅作用于 frontmatter（首个 --- ... --- 块），避免误伤正文。
-  const fm = content.match(/^---\n([\s\S]*?)\n---/);
+  const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);  // 兼容 CRLF：用 \r?\n 完整吃掉行尾（避免只吃 \r 残留尾随 \r 导致行末 $ 锚定失败）
   if (!fm) { console.log('[跳过] 无 frontmatter: ' + targetRel); return; }
   const fmStart = fm.index;
   const fmEnd = fmStart + fm[0].length;
-  const fmLines = fm[1].split('\n');
+  const fmLines = fm[1].split(/\r?\n/);  // 兼容 CRLF：子技能 SKILL.md 为 \r\n 行尾
 
   let replaced = false;
   const outLines = [];
