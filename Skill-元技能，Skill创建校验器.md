@@ -1,6 +1,6 @@
 ---
 name: skill-forge
-description: 单文件元技能，兼具「创建新 Skill」与「校验既有 Skill 定义」双模能力。关键词：Skill 创建、Skill 校验、Agent Skills 标准、定义文件合规。当用户要求「创建 / 生成 / 设计 / 编写 / 沉淀新 Skill」或要求「检查 / 审核 / 审查 / 校验已有 Skill 定义」时触发此技能；当用户说"帮我写一个 Skill"或"审查这份 SKILL 定义"时触发此技能。适用于 Skill 定义从需求到交付的全流程、以及提交前质量把关；不适用于纯概念解释（不实际创建 / 校验）、非 Skill 文本的通用文档审查、或代码审查场景。
+description: 元技能「创建新 Skill」与「校验既有 Skill 定义」双模能力。关键词：Skill 创建、Skill 校验、Agent Skills 标准、定义文件合规。当用户要求「创建 / 生成 / 设计 / 编写 / 沉淀新 Skill」或要求「检查 / 审核 / 审查 / 校验已有 Skill 定义」时触发此技能；当用户说"帮我写一个 Skill"或"审查这份 SKILL 定义"时触发此技能。适用于 Skill 定义从需求到交付的全流程、以及提交前质量把关；不适用于纯概念解释（不实际创建 / 校验）、非 Skill 文本的通用文档审查、或代码审查场景。
 license: Apache-2.0
 metadata:
   author: ai-skill-team
