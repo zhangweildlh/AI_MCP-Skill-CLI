@@ -97,6 +97,11 @@ def run(files=None, rep: Report = None) -> Report:
     rep = rep or Report("Tier0")
     targets = files if files is not None else tracked_files()
     for rel in targets:
+        # 第三方上游快照目录（chrome-devtools/upstream/）为纯外部代码，非本仓库自有。
+        # 按方案 A「不改上游源码」原则跳过密钥扫描，避免上游测试/示例中
+        # 口令类、令牌类等敏感字面值被误报（chrome-devtools 方案A落地 G6）。
+        if rel.startswith("chrome-devtools/upstream/"):
+            continue
         p = REPO_ROOT / rel
         if not p.is_file():
             continue

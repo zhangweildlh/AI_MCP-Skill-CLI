@@ -145,6 +145,21 @@ try {
     assert.ok(tpl.includes('CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS'));
   });
 
+  // --- T7: --check 自检模式（防 F-01/F-02 回归：守卫 + 注入目标存在性，无副作用）---
+  test('apply_localize.cjs --check 通过（守卫与注入目标就绪，本地化注入可落地）', () => {
+    const { execFileSync } = require('node:child_process');
+    const script = path.join(REPO, 'localization', 'apply_localize.cjs');
+    let stdout;
+    try {
+      stdout = execFileSync('node', [script, '--check'], { encoding: 'utf8' });
+    } catch (e) {
+      throw new Error('apply_localize.cjs --check 失败（退出码 ' + (e.status ?? '?') + '）：' + (e.stderr || e.stdout || e.message));
+    }
+    assert.ok(/\[CHECK\] 通过/.test(stdout), '--check 应输出通过标志；实际:\n' + stdout);
+    // 3 个注入目标（KNOWN_TARGETS）+ 1 个顶层 SKILL.md 同步源 = 至少 4 个 CHECK-OK
+    assert.ok((stdout.match(/\[CHECK-OK\]/g) || []).length >= 4, '--check 应校验至少 4 个目标；实际:\n' + stdout);
+  });
+
   cleanup();
   console.log('\n[通过] 本地化工具链单元测试：' + passed + ' 项全部通过');
   process.exit(0);
