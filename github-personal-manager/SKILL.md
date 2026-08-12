@@ -159,6 +159,9 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 
 ### 工作流三：日常同步巡检
 （前提：阶段 0 已确认 `git` 与 `gh` 可用，且已完成路径核验。先 `cd` 到技能根目录。）
+0. **第零步（批量总览，可选）**：想"一眼看全部 fork 状态"时，先运行
+   `bash scripts/sop_status_all.sh`
+   默认只扫描 `REPO_ROOT` 下所有 fork 并汇总每个仓库的落后/领先/未提交/未推送状态，**默认不 fetch（纯本地只读，不联网）**；`--fetch` 才真正联网拉取远端；`--confirm` 才在 fetch 后真正执行后续动作。该脚本同样遵循本技能 dry-run 优先、路径核验纪律——默认只打印将做什么，绝不直接改动任何仓库。看完总览再进入下列单仓四步做针对性同步。
 1. **第一步（只看清状态，绝不改动）**：运行
    `bash scripts/sop_sync_precheck.sh <仓库路径>`
    该脚本只读输出：remote 列表、main 的上游跟踪关系、工作区是否干净、本地 main ↔ origin/main 的落后/领先计数、origin/main ↔ upstream/main 的 fork领先/上游领先计数。
@@ -186,7 +189,8 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
    - **Tier 2（docs/、CONTRIBUTING、配置样例、接口契约、i18n、examples，强建议）未同步 → 提交(commit)前须处理或显式说明为何不改**：加 `--strict` 运行脚本可让 Tier 2 未同步同样阻断（`exit 2`）。
    - **Tier 3（测试、包清单、锁文件，提示）**：行为/依赖变动建议补测试或同步锁文件，仅提示不阻断。
    - 适用范围、"免触发"边界与完整分层定义见 `references/docs-sync-checklist.md`；本门禁不绕过任何顶级全局禁令/路径核验。
-4. 提交/推送/触发 CI（手动 `git`）：`git add [文件]` → `git commit -m "清晰描述，一 PR 一主题"` → **推送(push) 前先运行 `bash scripts/sop_privacy_gate.sh <仓库路径>`（见顶级全局禁令第 6 条），命中即暂停处理再 push** → `git push -u origin feat/[topic]`。
+4. 提交/推送/触发 CI（手动 `git`）：`git add [文件]` → `git commit -m "type: 简述"` → **推送(push) 前先运行 `bash scripts/sop_privacy_gate.sh <仓库路径>`（见顶级全局禁令第 6 条），命中即暂停处理再 push** → `git push -u origin feat/[topic]`。
+   - **提交信息建议采用 conventional commits 类型前缀（规范引导，非强制校验）**：`type` 取 `feat:`（新功能）/ `fix:`（修复）/ `chore:`（杂务）/ `docs:`（文档）/ `refactor:`（重构）/ `test:`（测试）/ `style:`（格式），格式为 `type: 简述`（如 `fix: 修正 CI 路径核验误报`）。此举仅为提交信息约定，便于审阅与生成 CHANGELOG，工具层不强制校验；仍须坚持"一 PR 一主题"。注意：这是提交信息约定，与合并纪律（顶级禁令第 8 条 `--no-ff`）无关，互不替代。
 5. **开 PR（必须走脚本，不手写 gh）**：运行
    `bash scripts/sop_pr_create.sh <仓库路径> --base <分支>` —— dry-run，打印将执行的 push + `gh pr create`；
    `bash scripts/sop_pr_create.sh <仓库路径> --base <分支> --confirm` —— 真正执行。
@@ -241,9 +245,10 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 ### 工作流七：Release 发版
 （本工作流无专门脚本，按以下手动流程（均为公开动作，需暂停确认）。前提：阶段 0 工具可用，完成路径核验。）
 1. 发版前检查：CHANGELOG 顶部有对应 `## [X.Y.Z] - [date]` 段；`release.yml` 发布类 job 已加 `if: github.repository == '<upstream>'` 守卫（⚠️ 禁止写纯常量 `if: false`，actionlint 会报 `constant expression` 致整条 CI 失败）；未勾 pinned SHA；fork Settings → Actions → Workflow permissions = Read and write。可用 `git diff <上一tag> <本次tag> --stat` 复核本次发版改动范围。
-2. 打标签(tag) 触发（公开动作，暂停等指令）：`git tag -a v[version] -m "release v[version]"` → `git push origin v[version]`。重触发用「删远端标签 + 重推」（`git push origin :refs/tags/v[version]` → `git push origin v[version]`），禁强推标签。推前大白话说明版本号、触发工作流、产物，暂停确认。⚠️ 标签 SHA 核对：`git ls-remote --tags` 返回的是注解标签对象 SHA，核对须先 `git rev-parse v[version]^{commit}` 解引用出提交 SHA 再比。
-3. 监控与取产物：`gh run watch` → `gh release view v[version]` → `gh release download v[version]`。无自动发布时 `gh release create v[version] --generate-notes` + `gh release upload v[version] [产物文件]`。
-4. 硬前提：fork 发版仅自取构建产物，绝不发布到 crates.io/PyPI。
+2. **Release PR 步骤（推荐，发版前先开）**：发版前先开一个「Release PR」——仅更新 CHANGELOG 草稿段 + 版本号（可用 `bash scripts/sop_pr_create.sh --base main` 或手写 `gh pr create`），合并（fork 内部 PR 用既有 `--squash` 门禁，主线合并遵循顶级禁令第 8 条 `--no-ff`）后才真正打 tag/发 Release；此举使发版可审查、可追溯。**明确禁止为生成线性历史而对 main 改用 squash-merge**（与顶级禁令第 8 条冲突，不可妥协）。
+3. 打标签(tag) 触发（公开动作，暂停等指令）：`git tag -a v[version] -m "release v[version]"` → `git push origin v[version]`。重触发用「删远端标签 + 重推」（`git push origin :refs/tags/v[version]` → `git push origin v[version]`），禁强推标签。推前大白话说明版本号、触发工作流、产物，暂停确认。⚠️ 标签 SHA 核对：`git ls-remote --tags` 返回的是注解标签对象 SHA，核对须先 `git rev-parse v[version]^{commit}` 解引用出提交 SHA 再比。
+4. 监控与取产物：`gh run watch` → `gh release view v[version]` → `gh release download v[version]`。无自动发布时 `gh release create v[version] --generate-notes` + `gh release upload v[version] [产物文件]`。
+5. 硬前提：fork 发版仅自取构建产物，绝不发布到 crates.io/PyPI。
 
 ### 工作流八：分支清理回收
 （前提：阶段 0 工具可用，完成路径核验。先 `cd` 到技能根目录。）
@@ -299,10 +304,12 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
    - **下一步建议**：用户接下来该做什么（如"解决冲突后告诉我继续""去上游看 PR 评审"）。
    工作流三额外输出"上游更新分析报告"；其余工作流直接套用本骨架补齐对应字段即可。报告既是交付物，也是审计痕迹，务必完整。
 
-## 技能自检（回归测试）
-本技能自带冒烟测试套件（`smoke/` 目录），覆盖全部 `sop_*.sh` 脚本的契约用例（含多工作树、同步、PR、CI、文档门禁、路径守卫、退出码等边界）。在修改本技能或怀疑行为异常时，于技能根目录运行：
+## 评估测试（Evaluation Tests）
+本技能自带 `smoke/` 冒烟测试套件，覆盖全部 `sop_*.sh` 契约用例（含多工作树、同步、PR、CI、文档门禁、路径守卫、退出码边界）。这是本技能的质量门禁：修改本技能（脚本/文档/配置）或怀疑行为异常时，于技能根目录运行：
 `bash smoke/run-smoke.sh`
-全部用例须通过（退出码 0）。该套件为本地只读/受控执行，不触碰任何远端仓库；用例清单与编写规范见 `smoke/README.md`。
+全部用例须通过（退出码 0）方可视为改动安全。该套件为本地只读/受控执行，不触碰任何远端仓库；用例清单与编写规范见 `smoke/README.md`。
+
+> 质量门禁纪律：本套件是本地验证的唯一权威入口，任何 `sop_*.sh` 契约变更、新增脚本、或 SKILL.md / references 规则改动后，都应先跑通 `bash smoke/run-smoke.sh` 再交付，确保全部契约用例通过（退出码 0）。
 
 ## 示例
 
@@ -361,3 +368,4 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 6. 异常兜底：校验发现无法自动修复的规范冲突时，清晰说明冲突点，由用户决策。
 7. 删除/强推门禁：凡删除分支、强推、动 main，一律先暂停确认，绝不自动执行（见顶级全局禁令第 2/5/9 条）。
 8. 工具缺失门禁：凡阶段 0 探测到 `git`/`gh` 缺失，一律先暂停确认，绝不自动执行后续步骤（见"阶段 0"）。
+9. 可扩展点（P3，当前非必需）：未来可扩展企业 OSS 治理视角（安全审查 / 许可证合规 / 受控更新节奏）作为可选扩展点；当前个人 fork 场景非必需，留作 P3。
