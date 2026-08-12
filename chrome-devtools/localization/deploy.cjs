@@ -89,7 +89,10 @@ function mergeIntoMcpJson(mcp) {
   let doc;
   try { doc = fs.existsSync(mcpJsonPath) ? JSON.parse(fs.readFileSync(mcpJsonPath, 'utf8')) : {}; } catch (e) { console.log('[mcp] 解析现有 mcp.json 失败，跳过自动合并: ' + e.message); return; }
   doc.mcpServers = doc.mcpServers || {};
-  doc.mcpServers['chrome-devtools'] = mcp.mcpServers['chrome-devtools'];
+  // 字段级合并：保留既有条目未被覆盖的字段（至少 disabled），仅叠加新 command/args/env；
+  // 避免整条目覆盖抹掉用户原有 disabled 等字段、造成启用状态静默反转（BUG-2 修复）。
+  const existingEntry = doc.mcpServers['chrome-devtools'] || {};
+  doc.mcpServers['chrome-devtools'] = Object.assign({}, existingEntry, mcp.mcpServers['chrome-devtools']);
   fs.writeFileSync(mcpJsonPath, JSON.stringify(doc, null, 2), 'utf8');
   console.log('[mcp] 已自动合并 chrome-devtools 到 ' + mcpJsonPath);
 }
@@ -99,6 +102,7 @@ sh('node "' + path.join(__dirname, 'verify_browser.cjs') + '"'); // F2: 经 sh()
 
 console.log('=== 2) 本地安装全部依赖（PUPPETEER_SKIP_DOWNLOAD=1） ===');
 console.log('[依赖] 安装依赖（装齐 devDependencies，含 puppeteer-core 等运行时）...');
+console.log('[依赖] 安装脚本批准由 .npmrc 的 allow-scripts[] 在安装时即生效（无需额外步骤）。');
 sh('npm install', REPO, globalEnv());
 
 console.log('=== 3) 构建（tsc -> build/，必须在全局符号链接之前，否则 bin 目标不存在导致 npm 跳过 bin 符号链接） ===');
