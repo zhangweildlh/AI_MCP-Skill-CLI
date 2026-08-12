@@ -58,3 +58,10 @@
 ## 用户 GitHub 账号与 Fork 仓库（运行环境提供，本技能不内置具体账号）
 - 本技能**不写死**任何 GitHub 账号、邮箱或 fork 仓库清单。这些运行环境信息由 `config/github-sop.config.sh` 的 `GH_USER`/`GH_EMAIL` 与 `UPSTREAM_REPO` 提供，或来自调用方的记忆/配置；具体 fork 清单（`<login>/<fork>` 与对应 `<upstream>`）由运行环境维护，不在技能正文硬编码。
 - 引用示例一律用占位符：`<login>`（GitHub 登录名）、`<upstream>`（上游 `owner/repo`）、`<fork>`（fork `owner/repo`）、`<feat>`、`<version>`，便于跨账号/跨机移植。
+
+## CI 侧加固可选（Shellcheck + Gitleaks）
+本技能已有本地 pre-commit 门禁（Tier0 密钥指纹扫描 + 结构冒烟，见顶级全局禁令第 6 条与 `sop_privacy_gate.sh`），已覆盖密钥扫描，属核心纪律。CI 侧可**可选**补 Shellcheck（Shell 静态检查）+ Gitleaks（密钥扫描）作为防御「绕过本地钩子直接 push」的加固层：
+- **Shellcheck**：对各 `sop_*.sh` 做 Shell 静态分析，提前发现语法/易错写法；作为各 fork 的 `.github/workflows/ci.yml` 可选 job 引入。
+- **Gitleaks**：在 CI 中对即将推送的内容再做一次密钥扫描，与本地 `sop_privacy_gate.sh` 形成双重保险。
+- **是否引入需权衡**：个人仓库 GitHub Actions 分钟数有限，Shellcheck/Gitleaks 会带来额外运行成本；是否引入应评估是否「过度加固」——若个人 fork 规模小、本地钩子已足够，可暂不引入。
+- **定位**：二者均为各 fork 的可选 CI 加固 job，**非本技能核心纪律**，不得因此改变任何顶级全局禁令（尤其禁令第 6 条密钥扫描、禁令第 8 条 `--no-ff` 合并纪律）。
