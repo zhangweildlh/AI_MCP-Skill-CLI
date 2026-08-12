@@ -245,7 +245,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 ### 工作流七：Release 发版
 （本工作流无专门脚本，按以下手动流程（均为公开动作，需暂停确认）。前提：阶段 0 工具可用，完成路径核验。）
 1. 发版前检查：CHANGELOG 顶部有对应 `## [X.Y.Z] - [date]` 段；`release.yml` 发布类 job 已加 `if: github.repository == '<upstream>'` 守卫（⚠️ 禁止写纯常量 `if: false`，actionlint 会报 `constant expression` 致整条 CI 失败）；未勾 pinned SHA；fork Settings → Actions → Workflow permissions = Read and write。可用 `git diff <上一tag> <本次tag> --stat` 复核本次发版改动范围。
-2. **Release PR 步骤（推荐，发版前先开）**：发版前先开一个「Release PR」——仅更新 CHANGELOG 草稿段 + 版本号（可用 `bash scripts/sop_pr_create.sh --base main` 或手写 `gh pr create`），合并（fork 内部 PR 用既有 `--squash` 门禁，主线合并遵循顶级禁令第 8 条 `--no-ff`）后才真正打 tag/发 Release；此举使发版可审查、可追溯。**明确禁止为生成线性历史而对 main 改用 squash-merge**（与顶级禁令第 8 条冲突，不可妥协）。
+2. **Release PR 步骤（推荐，发版前先开）**：发版前先开一个「Release PR」——须在「Release 专用分支」（如 `release/X.Y.Z`，**不可在 main 上执行**：`sop_pr_create.sh` 守卫会拦截处于 main 时的调用）上，仅更新 CHANGELOG 草稿段 + 版本号，再用 `bash scripts/sop_pr_create.sh --base main`（或手写 `gh pr create --base main`）发起；合并时 fork 内部 PR 采用 **squash 合并策略**（由 GitHub 分支保护 / 合并按钮设定，非脚本参数），主线合并遵循顶级禁令第 8 条 `--no-ff`，二者互不替代。PR 合并后才真正打 tag/发 Release；此举使发版可审查、可追溯。**明确禁止为生成线性历史而对 main 改用 squash-merge**（与顶级禁令第 8 条冲突，不可妥协）。
 3. 打标签(tag) 触发（公开动作，暂停等指令）：`git tag -a v[version] -m "release v[version]"` → `git push origin v[version]`。重触发用「删远端标签 + 重推」（`git push origin :refs/tags/v[version]` → `git push origin v[version]`），禁强推标签。推前大白话说明版本号、触发工作流、产物，暂停确认。⚠️ 标签 SHA 核对：`git ls-remote --tags` 返回的是注解标签对象 SHA，核对须先 `git rev-parse v[version]^{commit}` 解引用出提交 SHA 再比。
 4. 监控与取产物：`gh run watch` → `gh release view v[version]` → `gh release download v[version]`。无自动发布时 `gh release create v[version] --generate-notes` + `gh release upload v[version] [产物文件]`。
 5. 硬前提：fork 发版仅自取构建产物，绝不发布到 crates.io/PyPI。
