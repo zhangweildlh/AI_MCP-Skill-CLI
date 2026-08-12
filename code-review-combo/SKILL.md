@@ -1,7 +1,8 @@
 ---
 name: code-review-combo
-description: "功能：将两种互补的代码审查子技能（委托模式确定性审查 + 五焦点语义深度审查）交叉验证，产出唯一合并审计报告（人类可读文本 + 结构化 JSON）；为同一代码改动提供高置信度的单一审查结论。激活关键词：代码审查、代码审计、代码检查、协同审查、协同审计、BUG审查、BUG审计、查找BUG。适用场景：GitHub 仓库，代码修改，代码提交。不适用场景：纯非 GitHub 仓库/纯非 Git 文件夹的代码审查；非代码审查类任务（如文档润色、需求分析）。"
-version: 1.0.0
+description: "功能：将两种互补的代码审查子技能（open-code-review 委托模式确定性审查 + review-spd 五焦点语义深度审查）交叉验证，产出唯一合并审计报告（人类可读文本 + 结构化 JSON），为同一代码改动提供高置信度的单一审查结论。关键词：代码审查、代码审计、代码检查、协同审查、BUG审查、查找BUG、审查提交、审查分支、审查PR。当用户要求审查代码改动、提交、分支或工作区时触发；当用户提及上述关键词时触发。适用于任意 Git 仓库的代码改动审查（工作区未提交改动、单提交、分支对比、PR 式 diff）。不适用于非 Git 仓库/纯文件夹的代码审查；不适用于非代码审查类任务（如文档润色、需求分析）。"
+metadata:
+  version: "1.0.1"
 ---
 
 # 联合代码审查（code-review-combo）
@@ -83,7 +84,10 @@ version: 1.0.0
    - severity 冲突的（读取代码核实后取较高者或据实定级）；
    - 疑似误报（无代码证据支撑的，静默丢弃）。
 2. **真实验证**：对「仅一份报」或「疑似」项，必须打开实际代码核实，禁止直接采信子技能结论。
-3. **去重合并**：按 `path` + `start_line` + `category` 去重，合成一份 findings 列表，按 severity 排序（Critical / High / Medium / Low）。
+3. **去重合并与字段赋值**：按 `path` + `start_line` + `category` 去重，合成一份 findings 列表，按 severity 排序（Critical / High / Medium / Low）。若同一代码位置（`path` + `start_line` + `end_line`）被两源以不同 `category` 报告，视为同一缺陷合并，`category` 取更具体者（优先 bug / security / performance，其次 maintainability / test，再次 other / style / documentation），并据来源标记 `verified_by` 为 `both`。对每条去重后的 finding **显式赋值**：
+   - `verified_by`：两源均报 → `both`；仅 open-code-review-delegate → `ocr-only`；仅 review-spd → `review-spd-only`。
+   - `cross_check`：交叉比对确认 → `confirmed`；某源新发现且另一源未覆盖 → `new`；证据冲突或存疑 → `disputed`。
+   - 并据 `verified_by` 统计 `summary.ocr_only`（仅 ocr-only 的条数）、`summary.review_spd_only`（仅 review-spd-only 的条数）。
 4. **唯一审计报告**：同时给出
    - 人类可读文本（findings-first，按严重度分组，含 `Residual Risks` / `Testing Gaps` / `Verification`）；
    - 结构化 JSON（复用 open-code-review-delegate Schema，便于下游 / Agent 消费）。
@@ -127,6 +131,7 @@ version: 1.0.0
 ## 异常处理
 
 - **目标非 Git 仓库**（路径无 `.git` 或 git 不可用）：停止并输出「❌ 目标不是 Git 仓库，无法进行基于 diff 的审查；若为纯文件夹请先 `git init` 或手工提供 diff。」，不进入三阶段。
+  - 注：本条仅针对**被审查目标**。维护期「审计 combo 自身」（见 README）属于维护者主动选择的静态直读路径——此时不调用 `review-context.py`（其 `require_git_repo()` 会报错），改由宿主直读 `.md` 文件按五焦点审查，不走「目标非 Git 仓库」拒绝。
 - **目标为 Git 仓库的子目录且未指定 `path_filter`**：combo 无法自动识别子目录边界，审查范围将扩大到整个父仓库。应在输入参数补充 `path_filter`，并按「阶段一/阶段二范围收敛」说明用 `git diff HEAD -- <path_filter>` 收敛；否则继续执行（不阻断）并明确告知：「⚠️ 检测到 `<path>` 不是 Git 仓库根（其 git 根在 `<toplevel>`）；若仅审查该子目录请指定 `path_filter`，否则将审查整个仓库。」
 - **无可审查内容**（工作区干净且无分支 / 提交差异，或 preview 全 `excluded`）：输出「No findings（无可审查改动）」并附 `Residual Risks`。
 - **OCR CLI 安装 / 自检失败**（open-code-review-delegate 子技能前置异常）：停止并展示失败原因，提示检查 npm / 网络；不编造 LLM Key。

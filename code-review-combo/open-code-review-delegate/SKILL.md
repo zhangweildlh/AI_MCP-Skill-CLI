@@ -68,8 +68,9 @@ ocr llm test
 
 ### Step 1 — 预览：确定审查范围
 ```bash
-ocr delegate preview [--from <ref> --to <ref>] [--commit <hash>] [--exclude <patterns>] [--background "业务背景"]
+ocr delegate preview --format json [--from <ref> --to <ref>] [--commit <hash>] [--exclude <patterns>] [--background "业务背景"]
 ```
+- `--format json`：让 `ocr` 直接输出结构化 JSON（含 `reviewable_files` 列表与引用元数据），便于宿主 / 下游 Agent 解析并构建覆盖清单；省略则输出人类可读文本（combo 默认走文本，由宿主收敛为最终 JSON）。
 输出：mode（workspace / range / commit）、from/to/commit/merge_base 引用元数据、可审查文件清单（路径/状态/增删行数）、被排除文件及原因。
 
 | 场景 | 命令 |
@@ -80,8 +81,9 @@ ocr delegate preview [--from <ref> --to <ref>] [--commit <hash>] [--exclude <pat
 
 ### Step 2 — 获取文件对应规则
 ```bash
-ocr delegate rule <path1> <path2> ...
+ocr delegate rule --format json <path1> <path2> ...
 ```
+- `--format json`：与上同，结构化返回规则分组，便于宿主程序化消费。
 传入 Step 1 的可审查文件路径。输出按规则内容分组（相同规则的文件归在一组，避免重复）。
 
 ### Step 3 — 获取 diff（用 git，基于 Step 1 的 mode/ref）
@@ -90,13 +92,17 @@ ocr delegate rule <path1> <path2> ...
 - Workspace 模式（已跟踪）：`git diff HEAD -- <path>`
 - Workspace 模式（未跟踪新文件）：直接 `cat <path>`（整文件即新增代码）
 
-### Step 4 — 由宿主智能体审查每个文件
-对每个可审查文件：取 diff（Step 3）→ 查阅其规则组（Step 2）→ 用 WorkBuddy 自身能力与工具做深入审查。
+### Step 4 — 由宿主智能体审查每个文件（强制覆盖清单）
+1. 建立覆盖清单：包含 Step 1 的每一个 `reviewable_files` 条目。
+2. 以 `(path, status)` 作为清单条目的唯一标识——工作区模式下，若「暂存删除 + 未跟踪重建」发生在同一路径，preview 可能把同一路径报告两次，须按 `(path, status)` 去重。
+3. 对每个文件：① 取 diff（Step 3）→ ② 查阅其规则组（Step 2）→ ③ 用 WorkBuddy 自身能力与工具做深入审查 → ④ 标记为 `reviewed`，或带**明确理由**标记为 `skipped`。
+4. 大改动按「共享规则 + diff 规模」分批审查，避免一次过载；**不要在发现首个高严重度问题后就停止**，须覆盖清单全部条目。
 
 ### Step 5 — 格式化 JSON 输出（强制）
 将审查结果整理为下方「七、输出 JSON Schema」结构并返回给用户。委托模式下 `ocr` 不产出 JSON，故由本技能（宿主）负责将文本/判断收敛为 JSON。
 
 ### Step 6 — 分级与报告
+报告前先核对：覆盖清单中每个 preview 文件均已处理。summary 须包含 `total_files` / `reviewed_files` / `skipped_files` / `coverage_rate`；被 `skipped` 的文件必须附上理由。
 按 severity 分组：critical/high（bug、安全、数据丢失风险，必报）；medium（性能、错误处理、可维护性，附上下文）；low（风格、次要建议，仅当明确有价值时报告）；疑似误报静默丢弃。
 
 ### Step 7 — 修复（可选）
@@ -173,9 +179,10 @@ ocr delegate rule <path1> <path2> ...
       "suggestion": "修复建议（可选）"
     }
   ],
-  "summary": { "files_reviewed": 1, "critical": 0, "high": 0, "medium": 0, "low": 0 }
+  "summary": { "files_reviewed": 1, "critical": 0, "high": 0, "medium": 0, "low": 0, "total_files": 1, "reviewed_files": 1, "skipped_files": 0, "coverage_rate": "100%" }
 }
-```
+
+> **覆盖字段（上游 2026-08-07 新增）**：`total_files` / `reviewed_files` / `skipped_files` / `coverage_rate` 为委托模式新增强制审计字段，用于证明「每个 preview 文件均已 reviewed 或显式 skipped」；combo 阶段三合并时若报告 A 缺这些字段，以 `files_reviewed` 近似，不阻断。
 
 ## 八、注意事项（Gotchas）
 
@@ -186,3 +193,4 @@ ocr delegate rule <path1> <path2> ...
 - **review/scan 必须配 LLM**：未配置会直接失败；首次运行前先 `ocr llm test`。
 - **始终用 `--audience agent`**：抑制进度 UI，只输出最终摘要（review/scan 时）。
 - **评论语言**：OCR 默认中文评论（`ocr config` 可设 `language`）。
+- **覆盖率为强制项**：每个 `reviewable_files` 条目必须最终标记为 `reviewed` 或被**显式 skipped（附理由）**；不得静默遗漏文件（对应上游 2026-08-07 的 coverage 纪律）。
