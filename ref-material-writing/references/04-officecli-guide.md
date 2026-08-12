@@ -1,4 +1,4 @@
-﻿# OfficeCLI 工具指南
+# OfficeCLI 工具指南
 
 本地环境已安装 OfficeCLI 工具，用于创建、阅读、写入、编辑 Office 文件（*.docx、*.xlsx、*.pptx）。当需要读取、创建、写入、编辑 Office 文件时，**必须通过 `shell_exec` 调用 OfficeCLI 工具**。不得安装 Python 程序。
 
