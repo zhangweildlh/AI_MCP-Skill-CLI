@@ -4,7 +4,7 @@
 # 中文名: 创建合并请求(PR)
 #
 # 【功能】
-#   对齐「永久记忆·标准代码修改·开 PR」流程，按三步执行：
+#   对齐「工作流四·开 PR」流程，按三步执行：
 #     1. 守卫校验：当前必须处于非 main 的具名分支（禁止对 main 直接开 PR，禁止分离 HEAD）；
 #     2. 推送分支：把当前分支推送到你的远端仓库(origin) 并建立上游跟踪关系；
 #     3. 创建 PR：以 gh pr create --fill 自动填充标题与正文，默认目标分支(base) 为 main。
@@ -70,6 +70,8 @@ for a in "$@"; do
   esac
 done
 _sop_require_repo "${REPO:-}" || exit 1
+# 解析远端三元组，取得 fork 的 owner/repo 与登录名，供显式 --repo/--head 使用（对齐 SKILL 工作流九强约定）
+_sop_resolve_remotes
 
 cur="$(_sop_current_branch)"
 # 守卫: 顶级禁令 — 不对 main 直接开 PR
@@ -89,13 +91,19 @@ fi
 
 if [ "$CONFIRM" -eq 1 ]; then
   echo "➡️ 执行: git push -u $ORIGIN_REMOTE $cur"
-  "$GIT_BIN" push -u "$ORIGIN_REMOTE" "$cur"
-  echo "➡️ 执行: gh pr create --fill --base $BASE"
-  "$GH_BIN" pr create --fill --base "$BASE"
-  echo "✅ 已创建 PR（head=$cur base=$BASE）。"
+  if ! "$GIT_BIN" push -u "$ORIGIN_REMOTE" "$cur"; then
+    echo "⛔ 推送分支到 origin 失败（网络/权限/分支保护）。PR 未创建，请核查后重试。" >&2
+    exit 1
+  fi
+  echo "➡️ 执行: gh pr create --repo "${UPSTREAM_REPO:-${SOP_ORIGIN_OWNER:-$GH_USER}/$SOP_ORIGIN_REPO}" --head $GH_USER:$cur --base $BASE --fill"
+  if ! "$GH_BIN" pr create --repo "${UPSTREAM_REPO:-${SOP_ORIGIN_OWNER:-$GH_USER}/$SOP_ORIGIN_REPO}" --head "$GH_USER:$cur" --base "$BASE" --fill; then
+    echo "⛔ 创建 PR 失败（gh 未登录/网络/仓库无写权限/PR 已存在）。分支已推送但 PR 未建，请核查。" >&2
+    exit 1
+  fi
+  echo "✅ 已创建 PR（head=$GH_USER:$cur base=$BASE）。"
 else
   echo "[dry-run] 将执行:"
   echo "  git push -u $ORIGIN_REMOTE $cur"
-  echo "  gh pr create --fill --base $BASE"
+  echo "  gh pr create --repo "${UPSTREAM_REPO:-${SOP_ORIGIN_OWNER:-$GH_USER}/$SOP_ORIGIN_REPO}" --head $GH_USER:$cur --base $BASE --fill"
   echo "（加 --confirm 真正执行）"
 fi
