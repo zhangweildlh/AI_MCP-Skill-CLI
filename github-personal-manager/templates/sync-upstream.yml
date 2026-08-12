@@ -1,0 +1,89 @@
+# =============================================================================
+# Upstream Sync (Optional) —— 可选：定期同步上游仓库(upstream) 工作流模板
+# -----------------------------------------------------------------------------
+# 中文红线声明 / RED-LINE NOTICE (CHINESE + ENGLISH):
+#   1. 本工作流【只推送 origin（你的远端仓库 fork）】，【绝不推送 upstream（上游仓库）】。
+#      This workflow ONLY pushes to `origin` (your fork). It NEVER pushes to `upstream`.
+#   2. 向 上游仓库(upstream) 贡献必须走 PR（`gh pr create`），绝不可 `git push upstream`。
+#      Contributions to upstream MUST go through a PR. Never `git push upstream`.
+#   3. 本文件【默认不启用】：它只是一个模板。只有在你手动把它复制到 fork 仓库的
+#      `.github/workflows/` 目录后，GitHub Actions 才会按 schedule 运行。
+#      DISABLED BY DEFAULT: this is a template only. It runs only after you manually
+#      place it into your fork's `.github/workflows/` directory.
+#   4. 远端名约定需与本技能一致：你的远端仓库 = `origin`，上游仓库 = `upstream`。
+#      若你 fork 的 remote 名称不同，启用前请先 `git remote -v` 核对并修改下方 remote 名。
+#      Remote naming must match this skill's convention: fork = `origin`, upstream = `upstream`.
+#      If your fork uses different remote names, verify with `git remote -v` and fix them before enabling.
+#
+# 安全兜底 / SAFETY FALLBACK:
+#   本工作流即便被误改，也【不包含任何 `git push upstream` 步骤】。若你自行添加反向推送，
+#   将直接违反本技能「顶级全局禁令第 4 条：只推 origin，绝不推 upstream」。启用前请务必核对
+#   remote 名称，确保唯一写远端动作只有 `git push origin main`。
+#   This workflow contains NO `git push upstream` step. Adding one would violate this skill's
+#   hard rule #4 (push origin only, never upstream). Verify remote names before enabling.
+#
+# 令牌说明 / TOKEN:
+#   本工作流使用 GitHub 自动提供的 `GITHUB_TOKEN`（无需你额外配置任何 secrets）即可推 origin。
+#   若 fork 的 Actions 权限为只读，请在 fork Settings → Actions → Workflow permissions
+#   设为 "Read and write"（推 origin/main 需要 `contents: write`）。
+#   Uses the auto-provided `GITHUB_TOKEN` (no extra secrets needed). Set Workflow permissions
+#   to "Read and write" if your fork defaults to read-only.
+# =============================================================================
+
+name: Upstream Sync (Optional)
+
+on:
+  # 每天 UTC 06:00 定时触发（可按需调整 cron 表达式）
+  # Scheduled daily at 06:00 UTC (adjust the cron expression as needed)
+  schedule:
+    - cron: '0 6 * * *'
+  # 允许在 Actions 页面手动触发，便于即时同步
+  # Allow manual trigger from the Actions tab for on-demand sync
+  workflow_dispatch:
+
+# 最小权限原则：仅授予推 origin/main 所需的 contents 写权限
+# Least-privilege: only the write scope needed to push origin/main
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    # 文件误放到上游仓库时直接跳过，避免在 wrong repo 上运行
+    # Skip entirely if this file is ever placed in the upstream repo by mistake
+    if: github.repository != '<upstream>'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码 / Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0   # 全量获取历史，便于快进合并 / full history for fast-forward merge
+
+      - name: 配置上游远端 / Configure upstream remote
+        # 将 <upstream> 替换为真实上游仓库的 owner/repo 或完整 URL。
+        # Replace <upstream> with the real upstream `owner/repo` or full git URL.
+        # 推荐用仓库变量（Settings → Secrets and variables → Actions → Variables）填 UPSTREAM_REPO，
+        # 例如 https://github.com/<owner>/<repo>.git
+        run: |
+          git remote add upstream "https://github.com/<upstream>.git" || git remote set-url upstream "https://github.com/<upstream>.git"
+          git remote -v
+
+      - name: 拉取上游 / Fetch upstream
+        run: git fetch upstream main
+
+      - name: 仅快进合并上游 / Fast-forward merge upstream only
+        # 仅快进（--ff-only）：保护你在 fork main 上的本地自定义提交；
+        # 若存在分叉（非快进），跳过并告警，绝不强行覆盖本地提交。
+        # Fast-forward only: preserves your fork's local commits; if a divergence is
+        # detected (non-fast-forward), skip with a warning and NEVER force-overwrite.
+        run: |
+          if git merge --ff-only upstream/main; then
+            echo "已快进合并 upstream/main / Fast-forward merged upstream/main"
+          else
+            echo "::warning::非快进（存在分叉），跳过同步以免覆盖本地提交 / Non-fast-forward divergence; skipping to avoid overwriting local commits"
+          fi
+
+      - name: 只推送 origin / Push to origin ONLY
+        # 红线：唯一写远端动作，仅推 origin（绝不推 upstream）。
+        # RED LINE: the only write-remote action — push to origin ONLY (never upstream).
+        run: git push origin main
