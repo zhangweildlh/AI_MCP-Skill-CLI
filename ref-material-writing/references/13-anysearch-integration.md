@@ -14,11 +14,11 @@
 ```
 uv run --project <UV_PROJECT> python scripts/anysearch_cli.py <子命令> [选项]
 ```
-（`UV_PROJECT>` = 本机 uv 工程路径；默认 `D:/Tools/Assembly/python/myenv`，可由环境变量 `REF_MATERIAL_UV_PROJECT` 覆盖——脚本启动时读取，未设置则回退默认。）
+（`UV_PROJECT>` = 本机 uv 工程路径；默认值为运行环境专属的 UV 工程目录，可由环境变量 `REF_MATERIAL_UV_PROJECT` 覆盖——脚本启动时读取，未设置则回退默认。）
 
-- **占位符约定（`<ANYSEARCH_CMD>`）**：本文件及技能内其他文件中出现的 `<ANYSEARCH_CMD>`，一律代表上述命令前缀 `uv run --project <UV_PROJECT> python scripts/anysearch_cli.py`（`<UV_PROJECT>` 按本机环境展开；默认 `D:/Tools/Assembly/python/myenv`，可由 `REF_MATERIAL_UV_PROJECT` 覆盖）。书写 `<ANYSEARCH_CMD> search "关键词"` 即等价于展开后的完整命令。
+- **占位符约定（`<ANYSEARCH_CMD>`）**：本文件及技能内其他文件中出现的 `<ANYSEARCH_CMD>`，一律代表上述命令前缀 `uv run --project <UV_PROJECT> python scripts/anysearch_cli.py`（`<UV_PROJECT>` 按本机环境展开；默认值为运行环境专属的 UV 工程目录，可由 `REF_MATERIAL_UV_PROJECT` 覆盖）。书写 `<ANYSEARCH_CMD> search "关键词"` 即等价于展开后的完整命令。
 - **UV 前缀不可省（强制）**：严禁省略 `uv run --project <UV_PROJECT>` 前缀而直接使用 `python scripts/anysearch_cli.py`。
-- 路径解析：脚本路径 `scripts/anysearch_cli.py` 基于技能目录的相对路径（以本技能根目录 `ref-material-writing/` 为解析基准，运行时拼接为绝对路径）；**uv 工程前缀 `<UV_PROJECT>` 为运行环境专属绑定**（默认 `D:/Tools/Assembly/python/myenv`，用户本机工具链目录），并非技能相对路径——跨机 / 跨用户须改为各自 uv 工程或设置 `REF_MATERIAL_UV_PROJECT`。与 Firecrawl 平权双引擎。
+- 路径解析：脚本路径 `scripts/anysearch_cli.py` 基于技能目录的相对路径（以本技能根目录 `ref-material-writing/` 为解析基准，运行时拼接为绝对路径）；**uv 工程前缀 `<UV_PROJECT>` 为运行环境专属绑定**（默认值为运行环境专属的 UV 工程目录，即用户本机工具链目录），并非技能相对路径——跨机 / 跨用户须改为各自 uv 工程或设置 `REF_MATERIAL_UV_PROJECT`。与 Firecrawl 平权双引擎。
 - API key 由技能根 `.env`（`ANYSEARCH_API_KEY`）自动加载（脚本启动时按 `scripts/.env` → 技能根 `.env` 顺序探测），**命令中无需传 key**。
 - 路径分隔符**统一正斜杠 `/`**（Bash / PowerShell 双宿主一致；Bash 下反斜杠 `\` 会被转义导致路径失败）。
 - **维护约定（单点维护）**：若 CLI 接口或调用前缀变更，改 `scripts/anysearch_cli.py` 并重跑 `doc` 复核，命令文本**只需改本节这一处**——其余文件均为 `<ANYSEARCH_CMD>` 引用，无需逐处 rewrite。禁止在其他文件重新写死该命令；亦禁止只改本节不改脚本（反之亦然）。
@@ -85,4 +85,4 @@ uv run --project <UV_PROJECT> python scripts/anysearch_cli.py <子命令> [选�
 | `assets/_流水线状态.md` §13 | 运行期工具能力映射表 ANYSEARCH 行，命令取自本文件 §1 |
 
 > 上述文件**只引用不定义**：命令文本的唯一权威是本文件 §1，任何变更只改 §1 一处。
-> 本技能现已内嵌 AnySearch CLI 副本，所有接口疑问以本技能 `<ANYSEARCH_CMD> doc` 输出为权威；必要时重跑 `doc` 子命令获取最新接口说明。
+> 本技能现已内嵌 AnySearch CLI 副本，所有接口疑问以本技能 `<ANYSEARCH_CMD> doc` 输出为权威；当命令变更或 `doc` 输出与脚本不一致时重跑 `doc` 子命令获取最新接口说明。

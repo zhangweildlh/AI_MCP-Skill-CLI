@@ -1,0 +1,10 @@
+# ref-material-writing 文本文件强制 LF 行尾
+# 覆盖仓库 core.autocrlf=true 在 checkout 时转 CRLF 的默认行为，
+# 确保本技能自包含且行尾统一（仅作用于 ref-material-writing 目录，不影响仓库其他部分）
+*.md text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf

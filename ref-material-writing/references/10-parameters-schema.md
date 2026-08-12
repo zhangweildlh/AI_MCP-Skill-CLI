@@ -1,4 +1,4 @@
-﻿# 参数 Schema 与约束定义
+# 参数 Schema 与约束定义
 
 ## 参数定义（JSON Schema）
 
@@ -73,6 +73,8 @@
 }
 ```
 
+> **占位符 `[name]` 解析注记**：`[name]` 取自本 Skill 的 YAML frontmatter `name` 字段（即 `ref-material-writing`），运行时由 `[Skill技能根目录]/[name]` 拼接为绝对路径；`[name]` 为运行环境解析所得，**非用户输入参数**，用户无需也不应提供（详见 `references/02-environment-setup.md` 约束 4–5）。
+
 ## 约束定义（constraints）
 
 ```json
@@ -120,10 +122,10 @@
 |------|---------|--------|
 | 写作需求 | 非空字符串 | 无 |
 | 参考资料 | 数组长度 ≥ 1 | 无 |
-| 输出目录 | 有效路径字符串 | `D:\Documents\Downloads` |
+| 输出目录 | 有效路径字符串 | `[默认下载目录]` |
 | 输出文件格式 | 枚举值之一 | `docx` |
 | 本次撰写的主题 | 中文字符，不含标点 | 由AI自动生成 |
 | 当前时间戳 | 格式 yyyy-MM-dd-HH-mm-ss | 由AI自动获取 |
-| 默认当前工作目录 | 有效路径字符串 | `D:\Documents\Downloads` |
-| 默认Skill技能根目录 | 有效路径字符串 | `D:\Documents\AI_MCP-Skill-CLI` |
+| 默认当前工作目录 | 有效路径字符串 | `[默认下载目录]` |
+| 默认Skill技能根目录 | 有效路径字符串 | `[Skill技能根目录]` |
 | 流水线状态文件路径 | 有效路径字符串 | `[输出目录]/_流水线状态.md` |

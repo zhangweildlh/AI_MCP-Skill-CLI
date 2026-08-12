@@ -1,4 +1,4 @@
-﻿# 兼容性声明
+# 兼容性声明
 
 **ref-material-writing Skill v5.0.0**
 
@@ -30,7 +30,7 @@
 | AGENT_SEARCH | 直连 `firecrawl_agent`+`firecrawl_agent_status`（或 `mcp__firecrawl__firecrawl_agent`）；中继 `mcp__Dynamic-mcp__call_dynamic_tool(group="firecrawl-mcp", name="firecrawl_agent")`+`firecrawl_agent_status` | Firecrawl（直连或中继，形态由 Gate-0 探测，见映射表；Firecrawl 轨道首选）| 步骤5 Firecrawl 轨道自主多站研究（异步轮询）|
 | EXTRACT | 直连 `firecrawl_extract`（或 `mcp__firecrawl__firecrawl_extract`）；中继 `mcp__Dynamic-mcp__call_dynamic_tool(group="firecrawl-mcp", name="firecrawl_extract")` | Firecrawl（直连或中继，形态由 Gate-0 探测，见映射表）| 结构化提取 |
 | OFFICE | `officecli` | shell_exec 调用 | Office 文件读写 |
-| ANYSEARCH | 固定命令（内嵌自包含）：`uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py` | 基于技能目录的相对路径、非动态探测 | 步骤5 / 步骤2 双引擎之一（先执行）；支持通用/垂直搜索与网页 extract |
+| ANYSEARCH | 固定命令（内嵌自包含）：`<ANYSEARCH_CMD>`，唯一定义于 `references/13-anysearch-integration.md` §1 | 基于技能目录的相对路径、非动态探测；本表只引用不写死命令 | 步骤5 / 步骤2 双引擎之一（先执行）；支持通用/垂直搜索与网页 extract |
 | NATIVE_WEB | 原生 `web_search` + `web_fetch` | LLM 自带 | 双引擎任一不可用时的补偿通道（保双轨），或二者皆不可用时的单轨降级 |
 
 **版本差异声明**：`officecli` 命令参数随版本变化，任何命令失败必须 `officecli --help` 取权威 schema 重试（见 `references/02-environment-setup.md`、`references/04-officecli-guide.md`）。
@@ -160,7 +160,7 @@ bootstrap.md → step-01 → step-02 → step-03 → step-04 → step-05
 | `06-knowledge-base.md` | 合规性规则库：AI幻觉检测规则、事实核对清单、引用溯源要求。 | step-07（合规性自检前） |
 | `10-parameters-schema.md` | 12维参数模式定义：全局配置、用户输入、产物控制、自动派生参数。 | step-01（步骤1开始前） |
 | `11-examples.md` | 使用示例集：典型场景的输入输出范例。 | 按需（需要参考示例时） |
-| `12-edge-cases.md` | 边界与异常处理：超时降级、格式不支持、文件过大等场景处置路径。 | 按需（遇到异常时） |
+| `12-edge-cases.md` | 边界与异常处理：超时降级、OfficeCLI 调用失败、格式不支持、文件过大、资料严重矛盾、搜索无果等具体异常的处置路径（详见该文件 22 条边界场景）。 | 按需（遇到异常时） |
 | `docx-format-standard.md` | DOCX 公文格式标准：页面设置、标题层级、正文格式、页眉页脚规范。 | step-09、step-10（docx输出时） |
 
 ### 2.4 `assets/` — 模板与配置

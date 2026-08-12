@@ -9,6 +9,11 @@
 
 ---
 
+## [2026-08-12]
+
+### Fixed
+- **ref-material-writing**：迭代收敛修复——定义层消除 5.3 自相矛盾（禁止硬编码绝对目录却写死字面路径）、清除 8.2/8.3 机器/项目专属路径硬编码、7.1 模糊词（合理性/必要时/等场景）替换为客观判据、10.2 补 description 独立「适用于」陈述；代码层修复 F1（constants.json 缺失时 SAFE_DOMAINS 兜底 + stderr 告警，消除垂直搜索静默全失效）、F2（_call_api 对 200 非 JSON 响应容错）、F3（_load_env 仅注入白名单 ANYSEARCH_API_KEY，不再全盘覆盖 os.environ/PATH）、F4（脚本默认路径增加可读报错）、F6（max_results 校验 1–10）、F7（key=value 分支去引号）、F8（上游比对 SHA 归一化）、F9（_render_doc 容错）；复审计新增 N1（_render_doc 缺键兜底）、N2（batch_search per-item max_results 边界校验）；新增全场景+边界回归测试 `scripts/smoke/test_anysearch_cli.py`（unittest + mock，33 例全过）。双层复审计（skill-forge 11 维度 / code-review-combo 五焦点）均 0 致命/0 严重。
+
 ## [2026-08-08]
 
 ### Changed

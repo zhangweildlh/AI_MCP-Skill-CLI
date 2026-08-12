@@ -16,10 +16,9 @@
 - `references/10-parameters-schema.md`（信息缺口量化阈值：每论点≥2 独立来源，每章≥3 引用）
 - `assets/_流水线状态.md`
 - 逻辑原语：READ_FILE、WRITE_FILE、FILE_STAT、WEB_SEARCH、WEB_FETCH、AGENT_SEARCH、EXTRACT、ANYSEARCH、NATIVE_WEB
-- **AnySearch 固定调用命令（硬编码，禁止改动）**：
-  `uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py <子命令> [选项]`
-  ⚠️ 严禁省略 `uv run --project D:/Tools/Assembly/python/myenv` 而直接使用 `python scripts/anysearch_cli.py`。API key 由该目录内 `.env` 自动加载，无需在命令传参。
-  > **⚠️ 路径分隔符（U1 修复，强制）**：本命令路径**统一用正斜杠 `/`**（如 `D:/Tools/...`）。若 `shell_exec` 宿主为 Bash（Git Bash 等 POSIX shell），反斜杠 `\` 会被 Bash 当作转义字符导致路径被吃字符、命令失败；**正斜杠在 Bash 与 PowerShell 宿主下均可用**，故此命令及本步骤所有命令路径一律写正斜杠（PowerShell 宿主下反斜杠虽可用，但为跨宿主一致，统一正斜杠）。
+- **`references/13-anysearch-integration.md`（本步必读）**：AnySearch 固定调用命令的**唯一定义处（单一事实源）**。本步下文所有 AnySearch 命令一律写作占位符 `<ANYSEARCH_CMD> <子命令> [选项]`，**执行前必须先读 references/13 §1 取得完整命令前缀再展开**，本文件不重复写死命令。
+  ⚠️ 严禁省略 references/13 §1 定义的 `uv run --project ...` 前缀而直接使用 `python scripts/anysearch_cli.py`。API key 由技能根 `.env` 自动加载，无需在命令传参。
+  > **⚠️ 路径分隔符（U1 修复，强制）**：AnySearch 命令路径**统一用正斜杠 `/`**（如 `D:/Tools/...`，详见 references/13 §1）。若 `shell_exec` 宿主为 Bash（Git Bash 等 POSIX shell），反斜杠 `\` 会被 Bash 当作转义字符导致路径被吃字符、命令失败；**正斜杠在 Bash 与 PowerShell 宿主下均可用**，故本步骤所有命令路径一律写正斜杠（PowerShell 宿主下反斜杠虽可用，但为跨宿主一致，统一正斜杠）。
 
 ## [执行]
 
@@ -49,13 +48,13 @@
 ### 5.4 垂直领域判定（仅 AnySearch 轨道，由 AI 自主决策）
 - **判定依据**：本步读取的 12 维度参数——写作主题、写作目的（诉求）、写作思路、以及 `_提纲.md` 章节标题与关键词。AI 据此**自行分析并判断本次任务涉及哪些 AnySearch 垂直领域**（finance / business / legal / academic / health / energy / environment / agriculture / travel / film / gaming / security / ip / code / social_media / resource 等）。
 - **执行（一次性、会话内缓存）**：对判定出的每个领域调用一次
-  `uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py get_sub_domains --domains 领域1,领域2,...`
+  `<ANYSEARCH_CMD> get_sub_domains --domains 领域1,领域2,...`
   解析返回的子领域（sub_domain）及其必填参数，会话内缓存，**不重复调用**。
 - 后续 AnySearch 搜索优先选用匹配的垂直子领域；纯百科类可走通用搜索（omit --domain）。
 
 #### 5.4.1 实证结论（中文任务特别规则，须固化）
 AnySearch 垂直域多为**美国 / 国际向**（例：`legal`=US Congress、`environment`=aqi、`business`/`energy` 等），**无中国国策 / 标准类垂直域**。因此：
-- 涉及**中文政策文件**（HJ / GB 编号、国发 / 环发 / 生态环境部令等文号）、**中国国家标准 / 行业标准**的检索，**不走垂直域**，直接 `uv run ... anysearch_cli.py search "关键词" --max_results 10`（omit `--domain`），避免误判空域导致检索失败。
+- 涉及**中文政策文件**（HJ / GB 编号、国发 / 环发 / 生态环境部令等文号）、**中国国家标准 / 行业标准**的检索，**不走垂直域**，直接 `<ANYSEARCH_CMD> search "关键词" --max_results 10`（omit `--domain`），避免误判空域导致检索失败。
 - 仅在任务主题确属上述国际向领域（如跨国企业财报、美股代码、国际学术文献）时，才按 5.4 正常走 `get_sub_domains` → 垂直搜索。
 - 该结论须在 `references/13-anysearch-integration.md` 固化，避免续跑会话中 AI 误判中文政策为垂直域。
 
@@ -66,11 +65,11 @@ AnySearch 垂直域多为**美国 / 国际向**（例：`legal`=US Congress、`e
 #### 轨道 A — AnySearch（先跑完）
 对每个关键词执行 2 轮（不足可再 1 轮，最多 3 轮）：
 1. **通用 / 垂直搜索**：
-   - 通用：`uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py search "关键词"`
-   - 垂直（命中 5.4 判定领域）：`uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py search "关键词" --domain X --sub_domain Y [--sub_domain_params '{...}']`
-   - 多关键词并行（单条命令内）：`uv run ... anysearch_cli.py batch_search --query "词1" --query "词2" ...`（或用 `--queries @file.json`，单调用 2–5 条）
+   - 通用：`<ANYSEARCH_CMD> search "关键词"`
+   - 垂直（命中 5.4 判定领域）：`<ANYSEARCH_CMD> search "关键词" --domain X --sub_domain Y [--sub_domain_params '{...}']`
+   - 多关键词并行（单条命令内）：`<ANYSEARCH_CMD> batch_search --query "词1" --query "词2" ...`（或用 `--queries @file.json`，单调用 2–5 条）
 2. **正文抓取**：对搜索结果中需深读的高价值 URL 调用
-   `uv run ... anysearch_cli.py extract "https://..."`（HTML 全文转 Markdown，截断 50k 字符）
+   `<ANYSEARCH_CMD> extract "https://..."`（HTML 全文转 Markdown，截断 50k 字符）
 3. 将本轮结果以标签 **`[搜索K{序号}-AnySearch]`** 暂存（K=关键词序号）。
 
 #### 轨道 B — Firecrawl（AnySearch 全部轮次完成后再跑，结果不相互影响）

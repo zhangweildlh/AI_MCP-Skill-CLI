@@ -1,21 +1,21 @@
-﻿# 全局环境约束与工具前置流程
+# 全局环境约束与工具前置流程
 
 ## 全局环境约束（强制遵循）
 
 **本 Skill 默认遵循以下"全局环境约束"规则。但是，如果本 Skill 内部某个功能模块、函数或语句段显式指定了该模块的"环境约束"规则（比如 输出文件的文件名生成规则、保存路径或文件格式 ），则优先遵循该模块内部的指定，该指定仅作用于该模块，不能污染或覆盖本 Skill 其他模块的默认行为。**
 
 1. **[占位符]**：使用 `[]` 和 `<>` 作为占位符标识，比如 `[输出目录]`、`[文件名.docx]` 、`[需要输入的内容]`；在构造实际命令时替换为"实际输出路径"、"实际文件名"和"实际待写入的内容"。
-2. **[当前工作目录]**：存放**待处理的输入文件**（如用户提供的 参考资料、文件等）的父目录。默认路径为： `D:\Documents\Downloads` 。
+2. **[当前工作目录]**：存放**待处理的输入文件**（如用户提供的 参考资料、文件等）的父目录。默认路径为：`[默认下载目录]`（由用户指定或运行环境解析，运行时解析为实际下载目录，禁止写死字面绝对路径）。
    - 如果用户明确指定了绝对路径的 "当前工作目录"，则**直接使用**该路径；如果用户明确指定了相对路径的 "当前工作目录"，则将其解析为：[当前工作目录]/[相对路径]；否则使用**默认路径**。
    - 这是本 Skill 执行任务时，读取用户提供的**输入文件**（如 参考资料、文件等）的根目录。此目录仅用于定位数据源和文件源，不用于查找 Skill 定义或可执行代码。
    - Shell 与 Powershell 工作目录**必须**切换到此路径。
-3. **[输出目录]**：所有输出文件和最终交付成果的根目录；默认路径为： `D:\Documents\Downloads` 。
+3. **[输出目录]**：所有输出文件和最终交付成果的根目录；默认路径为：`[默认下载目录]`（由用户指定或运行环境解析，运行时解析为实际输出根目录，禁止写死字面绝对路径）。
    - 如果用户明确指定了绝对路径的 "输出目录"，则**直接使用**该路径；如果用户明确指定了相对路径的 "输出目录" ，则将其解析为：[输出目录]/[相对路径]；否则使用**默认路径**。
-4. **[Skill技能根目录]**： Skill 相关资产存放的根目录（SKILL.md 定义文件、子 Skill 定义文件、脚本、资源、模板等）；默认路径为： `D:\Documents\AI_MCP-Skill-CLI` 。
+4. **[Skill技能根目录]**： Skill 相关资产存放的根目录（SKILL.md 定义文件、子 Skill 定义文件、脚本、资源、模板等）；默认路径由用户提供或运行环境解析（运行时按 `[Skill技能根目录]/[name]` 拼接为绝对路径，禁止写死字面绝对路径）。
    - 如果用户明确指定了绝对路径的 "[Skill技能根目录]" ，则**直接使用**该路径；如果用户明确指定了相对路径的 "[Skill技能根目录]" ，则将其解析为：[Skill技能根目录]/[相对路径]；否则按下面第 5 条执行。
 5. **[name]目录**：本 Skill 所有资产存放目录，即 YAML frontmatter 中的 `name` 。该目录位于[Skill技能根目录]中：[Skill技能根目录]/[name]。
    - 本 Skill 定义文件存放于此目录中。
-   - 本 Skill 使用**相对路径**（如 `./references/01-writing-standards.md` 或 `references/01-writing-standards.md`）加载、调用子 Skill或加载、阅读资源文件或者使用模板文件时，**必须**以此目录作为相对路径的解析根目录（如 `D:\Documents\AI_MCP-Skill-CLI\ref-material-writing\references\01-writing-standards.md` ），而不依赖于当前工作目录（CWD）。
+   - 本 Skill 使用**相对路径**（如 `./references/01-writing-standards.md` 或 `references/01-writing-standards.md`）加载、调用子 Skill或加载、阅读资源文件或者使用模板文件时，**必须**以此目录作为相对路径的解析根目录（如 `[Skill技能根目录]/[name]/references/01-writing-standards.md` ），而不依赖于当前工作目录（CWD）。
 6. **[临时目录]**：所有下载缓存、数据缓存等临时文件存放的父目录；默认路径为：当前系统环境变量 `TMP` (在本地 Powershell 中使用命令 `$env:TMP` 查询；在本地 CMD 中使用命令 `echo %TMP%` 查询)。
 7. **所有 `shell_exec` 执行命令的 `cwd` 始终为 `[当前工作目录]`。但若命令中使用了相对路径，则一律先拼接为绝对路径后传入命令，不依赖 `cd` 操作。**
    - 若相对路径指向 Skill 内部资产（如 `references/`、`assets/` 等），则拼接根为 [Skill技能根目录]/[name]。
@@ -33,12 +33,12 @@
     - **[当前时间戳]**：格式："yyyy-MM-dd-HH-mm-ss"，取系统当前日期，**通过 PowerShell 命令 `Get-Date -Format 'yyyy-MM-dd-HH-mm-ss'` 获取**。
 13. **输出格式默认值**：如果用户在调用本 Skill 时明确指定了**最终文稿**的文件格式（如 `.md`），则使用用户指定的格式输出**最终文稿**。否则默认采用 `.docx` 文件格式输出**最终文稿**。
 14. **降级规则**：如果因技术原因导致无法生成 `.docx` 文件或者写入失败（含「步骤9：结构化输出」降级规则触发），则自动改用 Markdown 格式（`.md`）重新输出、保存，并以自然语言告知用户已降级。
-15. **AnySearch 内嵌命令（双引擎搜索专用，自包含）**：步骤5 / 步骤2 调用 AnySearch 时，**必须**使用以下固定命令，且**严禁省略** `uv run --project D:/Tools/Assembly/python/myenv` 前缀而直接使用 `python`：
-    `uv run --project D:/Tools/Assembly/python/myenv python scripts/anysearch_cli.py <子命令> [选项]`
+15. **AnySearch 内嵌命令（双引擎搜索专用，自包含）**：步骤5 / 步骤2 调用 AnySearch 时，**必须**使用固定命令 `<ANYSEARCH_CMD> <子命令> [选项]`，且**严禁省略** UV 前缀而直接使用 `python`：
+    - **命令本体唯一定义于 `references/13-anysearch-integration.md` §1（单一事实源）**，本文件只引用不重复写死；调用前先读该节取得完整前缀（`<ANYSEARCH_CMD>`）再展开。
     - 该命令指向本技能**内嵌自包含**的 AnySearch CLI 副本（`scripts/anysearch_cli.py`），API key 由技能根 `.env`（`ANYSEARCH_API_KEY`）自动加载，命令中无需传 key；本技能不依赖任何外部 Skill。
-    - 内嵌副本路径统一用基于技能目录的相对路径 `scripts/anysearch_cli.py`（运行时按技能目录 `[Skill技能根目录]/[name]` 拼接为绝对路径，不依赖 CWD），**禁止硬编码 ref-material-writing 的绝对目录**；`uv run --project D:/Tools/Assembly/python/myenv` 为本地 UV 环境前缀，须保留。
+    - 内嵌副本路径统一用基于技能目录的相对路径 `scripts/anysearch_cli.py`（运行时按技能目录 `[Skill技能根目录]/[name]` 拼接为绝对路径，不依赖 CWD），**禁止硬编码 ref-material-writing 的绝对目录**；references/13 §1 定义的 UV 环境前缀须保留。
     - **⚠️ 路径分隔符（U1 修复，强制）**：本命令及本 Skill 所有命令中的路径**统一用正斜杠 `/`**（如 `D:/Tools/...`、`D:/Documents/...`）。若 `shell_exec` 宿主为 Bash（Git Bash 等 POSIX shell），反斜杠 `\` 会被 Bash 当作转义字符导致路径被吃字符、命令失败；正斜杠在 Bash 与 PowerShell 宿主下均可用，故统一正斜杠（PowerShell 宿主下反斜杠虽可用，但为跨宿主一致，不用反斜杠）。
-   - **⚠️ 前置预检（与 §"使用外部命令前置工作流程"一致）**：AnySearch CLI 依赖 `uv run --project D:/Tools/Assembly/python/myenv` 与技能根 `.env` 的 `ANYSEARCH_API_KEY`，首次使用前须确认 `uv` 可用且技能根 `.env` 已就位（key 缺失则自动匿名降级，见 `references/13-anysearch-integration.md` §4，不阻断流程）。
+   - **⚠️ 前置预检（与 §"使用外部命令前置工作流程"一致）**：AnySearch CLI 依赖 references/13 §1 指定的本地 UV 环境与技能根 `.env` 的 `ANYSEARCH_API_KEY`，首次使用前须确认 `uv` 可用且技能根 `.env` 已就位（key 缺失则自动匿名降级，见 `references/13-anysearch-integration.md` §4，不阻断流程）。
 
 ---
 
@@ -100,7 +100,7 @@ where.exe [待查询的外部命令]
 
 1. **失败即查 help**：任何外部命令（尤其 `officecli`）执行失败后，必须运行该命令的 `--help`（或 `officecli help docx <element>`）获取**当前版本权威帮助**，以此作为使用标准并重试；**禁止凭记忆硬编码 flag**。
 2. **officecli 专项**：验证 / 用法统一以 `officecli --help` 为权威（详见 `references/04-officecli-guide.md` 的 Help-First Rule）。
-3. **工具名动态解析**：本 Skill 的步骤模块不硬编码平台特定工具名。会话开始由 `_router/bootstrap.md`（Gate-0）探测全部逻辑原语（READ_FILE / WRITE_FILE / FILE_STAT / WEB_SEARCH / WEB_FETCH / AGENT_SEARCH / EXTRACT / SHELL / OFFICE / ANYSEARCH / NATIVE_WEB）的可用工具，生成「工具能力映射表」写入状态文件；后续步骤一律引用映射表。例外：ANYSEARCH 为固定外部命令（硬编码路径，见约束 15），不纳入动态探测，直接登记调用命令。Firecrawl 与 AnySearch 在步骤5 为双引擎平权并行；LLM 原生 `web_search`/`web_fetch`（NATIVE_WEB）为补偿/降级通道；原生文件工具优先于 MCP。
+3. **工具名动态解析**：本 Skill 的步骤模块不硬编码平台特定工具名。会话开始由 `_router/bootstrap.md`（Gate-0）探测全部逻辑原语（READ_FILE / WRITE_FILE / FILE_STAT / WEB_SEARCH / WEB_FETCH / AGENT_SEARCH / EXTRACT / SHELL / OFFICE / ANYSEARCH / NATIVE_WEB）的可用工具，生成「工具能力映射表」写入状态文件；后续步骤一律引用映射表。例外：ANYSEARCH 为固定外部命令（命令本体唯一定义于 references/13 §1 单一事实源，见约束 15），不纳入动态探测，直接登记调用命令。Firecrawl 与 AnySearch 在步骤5 为双引擎平权并行；LLM 原生 `web_search`/`web_fetch`（NATIVE_WEB）为补偿/降级通道；原生文件工具优先于 MCP。
 
 ---
 
