@@ -28,14 +28,64 @@ function copyDir(src, dst) {
   });
 }
 
+// 递归清除目标目录内文件的只读位（Windows 上 fs.cpSync 会传播源只读位到目标，
+// 导致后续 copyFileSync 覆盖目标 SKILL.md 时 EPERM；此处显式复位，兼容"主副本只读"纪律）。
+function clearTargetReadOnly(dir) {
+  function walk(d) {
+    let entries;
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      try {
+        if (e.isDirectory()) walk(p);
+        else fs.chmodSync(p, 0o644);
+      } catch { /* 忽略个别文件权限错误 */ }
+    }
+  }
+  walk(dir);
+}
+
 if (!fs.existsSync(path.join(SRC, 'package.json'))) {
   console.error('源目录异常，请先完成本地化注入:', SRC);
   process.exit(1);
 }
 copyDir(SRC, TARGET);
+clearTargetReadOnly(TARGET); // 复位目标只读位（兼容源只读），避免后续覆盖 EPERM
+verifySync(SRC, TARGET); // 完整性校验：捕获"源有而目标缺"的失同步（A1，默认告警，--strict 致命）
 // 顶层 SKILL.md（WorkBuddy 加载入口，亦由 apply_localize 在主副本同步）
 fs.copyFileSync(path.join(TARGET, 'skills', 'chrome-devtools', 'SKILL.md'), path.join(TARGET, 'SKILL.md'));
 console.log('\n[完成] 已覆盖安装 WorkBuddy 本地使用副本（拷贝即走，最小）: ' + TARGET);
 console.log('  - 顶层 SKILL.md 可被 WorkBuddy 加载');
 console.log('  - 运行时依赖（node_modules/build）位于全局 $(npm root -g)，未随镜像包含');
 console.log('下一步：运行 `node localization/deploy.cjs` 全局安装并生成 MCP 配置，将 mcpServers 内容写入 ~/.workbuddy/mcp.json，在连接器管理页"信任"。');
+
+// 同步完整性校验（A1）：镜像后比对源与目标，捕获"源有而目标缺"的失同步
+// （如主副本新增 skills/chrome-devtools-cli/ 但漏跑本脚本）。默认告警；--strict 致命退出。
+function verifySync(src, dst) {
+  const strict = process.argv.includes('--strict');
+  const exclude = new Set(['node_modules', 'build', '.git', 'local-config.json', 'mcp-local-config.json']);
+  const missing = [];
+  function walk(dir, rel) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (exclude.has(e.name)) continue;
+      const p = path.join(dir, e.name);
+      const r = rel ? path.join(rel, e.name) : e.name;
+      if (e.isDirectory()) walk(p, r);
+      else if (!fs.existsSync(path.join(dst, r))) missing.push(r);
+    }
+  }
+  walk(src, '');
+  console.log('\n=== 同步完整性校验 ===');
+  if (missing.length === 0) {
+    console.log('[OK] 部署副本与主副本一致（除派生物 node_modules/build/本地配置）。');
+    return;
+  }
+  for (const m of missing) console.warn('[校验告警] 部署副本缺失（可能失同步，建议重跑本脚本）: ' + m);
+  if (strict) {
+    console.error('[校验失败] --strict 模式下发现 ' + missing.length + ' 处缺失，已非零退出。');
+    process.exit(1);
+  }
+  console.log('[提示] 共 ' + missing.length + ' 处缺失；非 --strict 模式仅告警，不阻断。');
+}

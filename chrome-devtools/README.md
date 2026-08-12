@@ -1022,9 +1022,11 @@ For a reference implementation, see the [Gemini CLI browser agent documentation]
 chrome-devtools/                ← 整个文件夹拷贝即走
 ├── SKILL.md                    ← 顶层自描述入口（由 apply_localize 从 skills/chrome-devtools/SKILL.md 同步）
 ├── README.md                   ← 本文（含本地化段）
-├── package.json                ← 含 overrides.zod 固定（compat.cjs 维护）
+├── sync_and_deploy.cjs         ← 单入口部署（先 mirror_to_target 镜像，再 localization/deploy 部署，强制顺序）
+├── mirror_to_target.cjs        ← 主副本→部署副本镜像（覆盖源码/本地化，含完整性校验 verifySync）
+├── package.json                ← 含 overrides.zod 固定（compat.cjs 维护）+ config.allowScripts 声明意图
 ├── package-lock.json           ├─ 上游源码镜像（self-evolution 参考 + 构建基线）
-├── server.json / tsconfig.json / .npmrc / .nvmrc / .gitignore / LICENSE
+├── server.json / tsconfig.json / .npmrc（allow-scripts[] 实际批准安装脚本）/ .nvmrc / .gitignore / LICENSE
 ├── src/  skills/  scripts/     ← 上游源码镜像（随上游升级刷新）
 ├── localization/               ← 自包含工具链（见模块 6）
 │   ├── deploy.cjs              ← 全局安装 + 构建 + 生成 MCP 配置
@@ -1052,11 +1054,17 @@ chrome-devtools/                ← 整个文件夹拷贝即走
 
 ## 模块 2：快速开始（一键部署 / 拷贝即走）
 
+> 推荐单入口（强制"先镜像、再部署"顺序，避免主副本改动后部署副本失同步）：
+
 ```
-node localization/deploy.cjs
+node sync_and_deploy.cjs            # 主副本根目录执行：先 mirror_to_target 镜像，再 localization/deploy 部署
+# 如需镜像阶段严格校验（缺失即非零退出），追加 --strict：
+node sync_and_deploy.cjs --strict
 ```
 
-该命令会依次：① 自动检测浏览器（缺失则交互要求指定并写入配置）→ ② 全局安装依赖/构建（恒跳过浏览器下载，写入 `$(npm root -g)`）→ ③ 幂等重注入本地化 → ④ 生成 `mcp-local-config.json`（全局 bin 路径）并打印接入指引。
+该单入口依次：① 镜像主副本→部署副本（同步源码/本地化，并跑 `verifySync` 完整性校验，报告源有而目标缺的项）→ ② 在部署副本自动检测浏览器（缺失则交互要求指定并写入配置）→ ③ 全局安装依赖/构建（恒跳过浏览器下载，写入 `$(npm root -g)`；依赖 .npmrc 的 `allow-scripts[]` 在安装时即批准并运行 5 个包 install scripts、消除 `allow-scripts` 噪声）→ ④ 幂等重注入本地化（**兼容 CRLF 行尾**，用 `\r?\n` 完整吃掉换行，子技能 SKILL.md 的 `description` 行不再因尾随 `\r` 误判"无 description 行"）→ ⑤ 生成 `mcp-local-config.json`（全局 bin 路径）并以**字段级合并**写入 `~/.workbuddy/mcp.json`（保留既有 `disabled` 等字段，不静默反转启用状态）。
+
+若部署副本已是最新镜像、仅需重新装依赖/构建/生成配置，可直接在部署副本运行 `node localization/deploy.cjs`。
 
 手动分步（等价于上述一键）：
 
@@ -1168,7 +1176,7 @@ chrome-devtools 可二选一使用，**严禁 `npx -y`**，一律走全局路径
 node localization/upstream.cjs
 ```
 
-自动完成：检测新版本 → `git clone --depth 1` 拉源码 → 剥离并覆盖本地目标文件（保留 localization/ 与 mirror_to_target.cjs）→ 重注入本地化（保全约束）→ 重新固定 zod（compat.cjs）→ **全局卸载/安装/构建**（依赖位于 `$(npm root -g)`）→ 重新部署（生成全局路径 MCP 配置）。
+自动完成：检测新版本 → `git clone --depth 1` 拉源码 → 剥离并覆盖本地目标文件（保留 localization/、mirror_to_target.cjs、sync_and_deploy.cjs）→ 重注入本地化（保全约束，兼容 CRLF 行尾）→ 重新固定 zod（compat.cjs）→ **保全 package.json 本地增量**（整文件覆盖后回填上游没有的 `scripts` 键，如 `test:localization`，避免本地定制丢失）→ **全局卸载/安装/构建**（依赖位于 `$(npm root -g)`，`config.allowScripts` 预批准 5 个包 + deploy.cjs 显式 `npm approve-scripts --allow-scripts-pending` 提交批准，仅 `config.allowScripts` 不足以抑制警告）→ 重新部署（生成全局路径 MCP 配置；`~/.workbuddy/mcp.json` 字段级合并保留既有 `disabled`）。
 
 ### 3) 手动升级（纯命令，不依赖脚本）
 
@@ -1191,6 +1199,8 @@ node localization/deploy.cjs                   # 重新部署（生成全局路�
 - 复用登录态必须 `--browserUrl` 直连已启动的浏览器；`--isolated` 默认临时 profile 会丢登录态。
 - 浏览器用 `--executablePath` 不用 `--channel`。
 - **严禁 `npx -y`**：一律 `node "$(npm root -g)/..."` 或 `npm install -g .`。
+- `package.json` 本地增量（如 `scripts.test:localization`、`config.allowScripts`）由 `upstream.cjs` 在升级时保全；新增本地定制须落在"上游无、本地有"的键上，否则整文件覆盖升级时会被上游抹掉。
+- `deploy.cjs` 向 `~/.workbuddy/mcp.json` 写入 chrome-devtools 条目采用**字段级合并**（保留用户原有 `disabled` 等字段），任何改动不得改回整条目覆盖，以免静默反转启用状态。
 - 中文路径在本机会导致 node/npm 失败；跨机移植以 ASCII 路径主副本为准，脚本均按脚本所在目录相对解析。
 - `--categoryExtensions` 仅 pipe 连接支持；`--browserUrl` 模式暂不支持（待上游 #149）。
 - 本地化段以哨兵 `LOCALIZED:360Chromex` 标记；`--strip` 再注入可刷新，直接重跑则仅保全不刷新（兜底）。

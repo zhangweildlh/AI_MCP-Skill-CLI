@@ -14,6 +14,24 @@
 ### Fixed
 - **ref-material-writing**：迭代收敛修复——定义层消除 5.3 自相矛盾（禁止硬编码绝对目录却写死字面路径）、清除 8.2/8.3 机器/项目专属路径硬编码、7.1 模糊词（合理性/必要时/等场景）替换为客观判据、10.2 补 description 独立「适用于」陈述；代码层修复 F1（constants.json 缺失时 SAFE_DOMAINS 兜底 + stderr 告警，消除垂直搜索静默全失效）、F2（_call_api 对 200 非 JSON 响应容错）、F3（_load_env 仅注入白名单 ANYSEARCH_API_KEY，不再全盘覆盖 os.environ/PATH）、F4（脚本默认路径增加可读报错）、F6（max_results 校验 1–10）、F7（key=value 分支去引号）、F8（上游比对 SHA 归一化）、F9（_render_doc 容错）；复审计新增 N1（_render_doc 缺键兜底）、N2（batch_search per-item max_results 边界校验）；新增全场景+边界回归测试 `scripts/smoke/test_anysearch_cli.py`（unittest + mock，33 例全过）。双层复审计（skill-forge 11 维度 / code-review-combo 五焦点）均 0 致命/0 严重。
 
+### Added
+- **根级单文件技能（新增 3 个）**：`Skill-外部工具引入评估与落地.md`（external-tool-onboarding）、`Skill-对当前对话会话做经验沉淀和方法论固化.md`（task-methodology-consolidation）、`Skill-文档引用调用有效性检验.md`（md-crossref-audit）；新增调研报告 `github-personal-manager-同类项目调研_20260812.md`（github-personal-manager 全站同类项目调研，工作区文件、未改动技能源）。
+- **chrome-devtools 双端部署**：新增 `sync_and_deploy.cjs`、`mirror_to_target.cjs` 与 `localization/{apply_localize,cli_run,deploy,start,upstream}.cjs` 本地化/同步部署脚本，支持 master → WorkBuddy 安装副本双端部署；`package.json` / `.npmrc` / `README.md` / `SKILL.md` 同步更新。
+
+### Changed
+- **chrome-devtools/SKILL.md**：补充双端部署（master → WorkBuddy）工作流与脚本用法。
+- **Workbuddy专属/Skill-memory-consolidate.md**、**Workbuddy专属/Skill-workflow-distill.md**：技能文档内容更新。
+- **mimo-code-collab/SKILL.md**：协同技能定义更新。
+- **Skill-元技能，Skill创建校验器.md**（skill-forge）：元技能双模定义更新。
+
+### Removed
+- **Skill-文件内容整理重组.md**（file-structure-organizer）：技能文件删除。
+- **Skill-多代码审计报告归一收敛.md**（code-audit-consolidation）：技能文件删除，由 `Skill-多源代码审查整合收敛.md` 承接同名能力（疑似重命名）。
+- **tender-review-kit/.github/workflows/ci.yml**：移除该子项目 GitHub Actions CI 配置。
+
+### Docs
+- **README.md**：技能总览由 16 → 18 个活跃技能（9 目录型 + 9 根级单文件）；移除已删 file-structure-organizer，更新 code-audit-consolidation 指向新文件 `Skill-多源代码审查整合收敛.md`，新增 3 个根级单文件技能说明；`Memory-Data/` 辅助说明补充 `MEMORY.md` 索引文件。
+
 ## [2026-08-08]
 
 ### Changed
