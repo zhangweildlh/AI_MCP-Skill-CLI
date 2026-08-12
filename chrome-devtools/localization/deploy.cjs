@@ -20,7 +20,8 @@ const path = require('path');
 
 const REPO = path.resolve(__dirname, '..');
 const PKG_NAME = 'chrome-devtools-mcp';
-require('./compat.cjs')(); // 确保 package.json 固定 zod 兼容版本，避免 npm install 浮动装 v4 导致编译失败
+const UPSTREAM = path.join(REPO, 'upstream'); // 方案 A：构建目录隔离在 upstream/ 子技能
+require('./compat.cjs')(); // 确保 upstream/package.json 固定 zod 兼容版本，避免 npm install 浮动装 v4 导致编译失败
 
 // 跨平台全局安装/构建环境：恒跳过浏览器内核下载
 function globalEnv() {
@@ -103,11 +104,14 @@ sh('node "' + path.join(__dirname, 'verify_browser.cjs') + '"'); // F2: 经 sh()
 console.log('=== 2) 本地安装全部依赖（PUPPETEER_SKIP_DOWNLOAD=1） ===');
 console.log('[依赖] 安装依赖（装齐 devDependencies，含 puppeteer-core 等运行时）...');
 console.log('[依赖] 安装脚本批准由 .npmrc 的 allow-scripts[] 在安装时即生效（无需额外步骤）。');
-sh('npm install', REPO, globalEnv());
+sh('npm install', UPSTREAM, globalEnv());
+
+console.log('=== 2.5) vendoring devtools-frontend（按 UPSTREAM_REF 钉版本；构建前必需，且已被 .gitignore 排除不随仓库分发） ===');
+sh('node "' + path.join(__dirname, 'vendor_frontend.cjs') + '"');
 
 console.log('=== 3) 构建（tsc -> build/，必须在全局符号链接之前，否则 bin 目标不存在导致 npm 跳过 bin 符号链接） ===');
 console.log('[构建] 重新构建（强制，避免运行陈旧产物）...');
-sh('npm run build', REPO, globalEnv());
+sh('npm run build', UPSTREAM, globalEnv());
 
 console.log('=== 4) 全局符号链接 $(npm root -g)/chrome-devtools-mcp -> 本文件夹，并确保 bin 命令可用 ===');
 if (fs.existsSync(globalBinPath())) {
@@ -115,11 +119,11 @@ if (fs.existsSync(globalBinPath())) {
 } else {
   console.log('[全局] 创建全局符号链接...');
   try {
-    sh('npm install -g .', REPO, globalEnv());
+    sh('npm install -g ./upstream', REPO, globalEnv());
   } catch (e) {
     console.log('[全局] 首次失败，尝试卸载后重装...');
     try { sh('npm uninstall -g ' + PKG_NAME, REPO, globalEnv()); } catch (_) {}
-    sh('npm install -g .', REPO, globalEnv());
+    sh('npm install -g ./upstream', REPO, globalEnv());
   }
 }
 ensureGlobalBinLinks(); // 防御：npm 可能跳过 bin 链接或 <prefix>/bin 不存在，显式确保 bin 命令可用

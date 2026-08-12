@@ -8,14 +8,16 @@ const { execSync } = require('child_process');
 const REPO = path.resolve(__dirname, '..');
 const FRAG = path.join(__dirname, 'fragments');
 const SENTINEL = '<!-- LOCALIZED:360Chromex -->';
+// 方案 A：纯上游快照隔离在 upstream/ 子目录；注入目标一律指向 upstream/ 内
+const UPSTREAM = path.join(REPO, 'upstream');
 
 // 已知注入目标清单（写死，A2）：这些目标是本地化设计的合法注入点；若缺失，
 // 视为"主副本→部署副本失同步"（如主副本新增子技能后漏跑 mirror_to_target.cjs），
 // 必须明确告警（而非与普通缺失一样静默跳过）。如需新增注入目标，在此扩展。
 const KNOWN_TARGETS = new Set([
-  'skills/chrome-devtools/SKILL.md',
-  'skills/chrome-devtools-cli/SKILL.md',
-  'README.md',
+  'upstream/skills/chrome-devtools/SKILL.md',
+  'upstream/skills/chrome-devtools-cli/SKILL.md',
+  'upstream/README.md',
 ]);
 
 function readConfig() {
@@ -125,29 +127,46 @@ function genMcpConfig() {
 }
 
 function main() {
-  if (!fs.existsSync(path.join(REPO, 'package.json'))) {
-    console.error('未在仓库内运行，预期仓库根: ' + REPO);
+  // 方案 A：根目录无 package.json（已迁移到 upstream/ 子技能），故守卫改查 upstream/package.json。
+  if (!fs.existsSync(path.join(UPSTREAM, 'package.json'))) {
+    console.error('未在仓库内运行，预期 upstream/ 子技能存在: ' + UPSTREAM);
     process.exit(1);
+  }
+
+  // 自检模式：仅校验守卫与注入目标存在性，不修改任何文件（供 CI/测试使用，防 F-01/F-02 回归）。
+  if (process.argv.includes('--check')) {
+    let ok = true;
+    for (const t of KNOWN_TARGETS) {
+      const p = path.join(REPO, t);
+      if (!fs.existsSync(p)) { console.error('[CHECK-FAIL] 注入目标缺失: ' + t); ok = false; }
+      else console.log('[CHECK-OK] 注入目标存在: ' + t);
+    }
+    const topSkillSrc = path.join(UPSTREAM, 'skills', 'chrome-devtools', 'SKILL.md');
+    if (!fs.existsSync(topSkillSrc)) { console.error('[CHECK-FAIL] 顶层 SKILL.md 同步源缺失: ' + topSkillSrc); ok = false; }
+    else console.log('[CHECK-OK] 顶层 SKILL.md 同步源存在');
+    if (!ok) { console.error('[CHECK] 失败：存在缺失的注入目标，本地化注入将静默跳过（F-01/F-02 回归）。'); process.exit(1); }
+    console.log('[CHECK] 通过：守卫与全部注入目标就绪，本地化注入可正常落地。');
+    process.exit(0);
   }
 
   // 上游更新后刷新：先剥离旧本地化段，后续再重跑本脚本重新注入。
   if (process.argv.includes('--strip')) {
-    strip('skills/chrome-devtools/SKILL.md');
-    strip('skills/chrome-devtools-cli/SKILL.md');
-    strip('README.md');
+    strip('upstream/skills/chrome-devtools/SKILL.md');
+    strip('upstream/skills/chrome-devtools-cli/SKILL.md');
+    strip('upstream/README.md');
     console.log('\n[完成] 已剥离本地化段。请运行 `node localization/apply_localize.cjs` 重新注入最新片段。');
     process.exit(0);
   }
 
-  inject('skills/chrome-devtools/SKILL.md', '_frag_skill_main.md');
-  inject('skills/chrome-devtools-cli/SKILL.md', '_frag_skill_cli.md');
-  inject('README.md', '_frag_readme_local.md');
-  localizeDescription('skills/chrome-devtools/SKILL.md', '_frag_skill_main_desc.txt');
-  localizeDescription('skills/chrome-devtools-cli/SKILL.md', '_frag_skill_cli_desc.txt');
+  inject('upstream/skills/chrome-devtools/SKILL.md', '_frag_skill_main.md');
+  inject('upstream/skills/chrome-devtools-cli/SKILL.md', '_frag_skill_cli.md');
+  inject('upstream/README.md', '_frag_readme_local.md');
+  localizeDescription('upstream/skills/chrome-devtools/SKILL.md', '_frag_skill_main_desc.txt');
+  localizeDescription('upstream/skills/chrome-devtools-cli/SKILL.md', '_frag_skill_cli_desc.txt');
   genMcpConfig();
 
   // 同步顶层 SKILL.md：使本文件夹自描述、拷贝即走（无需先跑 mirror_to_target.cjs）
-  const mainSkill = path.join(REPO, 'skills', 'chrome-devtools', 'SKILL.md');
+  const mainSkill = path.join(UPSTREAM, 'skills', 'chrome-devtools', 'SKILL.md');
   const topSkill = path.join(REPO, 'SKILL.md');
   if (fs.existsSync(mainSkill)) { fs.copyFileSync(mainSkill, topSkill); console.log('[已同步] 顶层 SKILL.md（自描述入口）'); }
 
