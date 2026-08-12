@@ -79,7 +79,7 @@
 | `gh secret set` / `list` / `get` / `remove` | 仓库/组织/环境级加密密钥（CI 用） |
 | `gh variable set` / `list` / `get` / `delete` | 非机密变量（CI 用） |
 
-> 写密钥通常需 `read:org`/`admin:org` scope（本机令牌含 `admin:org`，可用）。
+> 写密钥通常需 `read:org` / `admin:org` scope（令牌具备相应 scope 时可用）。
 
 ## 标签/项目/规则集
 | 命令 | 作用 |

@@ -1,11 +1,11 @@
 ---
 name: github-personal-manager
-description: 面向个人日常所有 GitHub 管理与操作的统一执行技能（跨项目通用）。覆盖 9 个标准工作流：信息读取与搜索、日常同步巡检、标准代码修改、多工作树并行开发、CI 失败排错、Release 发版、分支清理回收、PR 全生命周期、清理工区。当用户要求对本地或远端 GitHub 仓库执行任何操作（改代码、写文件、提交、推送、开 PR、合 PR、同步、发版、清理分支、查仓库/代码/Issue/PR、清理工区）时触发；当用户说"帮我改一下 XX 仓库""向 XX 上游提个 PR""同步一下仓库""发个版""看看 CI 为什么红""清理分支""清理工区"时触发此技能。适用于个人 fork 仓库与上游贡献、本地代码修改全流程、每日同步巡检、多工作树并行开发、PR 全生命周期协作、工区清理。可协同 MEMORY.md 工作，也可脱离 MEMORY.md 独立运行。不适用于与 GitHub 无关的通用文件编辑、非 git 版本控制的文档操作，以及需要他人仓库写权限且未走 Fork+PR 的操作。
+description: 面向个人日常所有 GitHub 管理与操作的统一执行技能（跨项目通用）。覆盖 9 个标准工作流：信息读取与搜索、日常同步巡检、标准代码修改、多工作树并行开发、CI 失败排错、Release 发版、分支清理回收、PR 全生命周期、清理工区。当用户要求对本地或远端 GitHub 仓库执行任何操作（改代码、写文件、提交、推送、开 PR、合 PR、同步、发版、清理分支、查仓库/代码/Issue/PR、清理工区）时触发；当用户说"帮我改一下 XX 仓库""向 XX 上游提个 PR""同步一下仓库""发个版""看看 CI 为什么红""清理分支""清理工区"时触发此技能。适用于个人 fork 仓库与上游贡献、本地代码修改全流程、每日同步巡检、多工作树并行开发、PR 全生命周期协作、工区清理。可协同记忆系统工作，也可脱离记忆系统独立运行。不适用于与 GitHub 无关的通用文件编辑、非 git 版本控制的文档操作，以及需要他人仓库写权限且未走 Fork+PR 的操作。
 license: Apache-2.0
 metadata:
   author: zhangweildlh
   version: "2.1.0"
-compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个命令行工具，并登录 GitHub 账号。git/gh 工具路径**不硬编码**——每次进入本技能先 `where.exe git` / `where.exe gh` 取实际路径（详见阶段 0）。本地 GitHub 仓库根目录默认值 `REPO_ROOT` = `D:/Documents/AI_Work_Temp`（该目录本身不是仓库项目，仅为存放各仓库的根；此为允许的硬编码默认值，可在 config 改），用户给出绝对路径的仓库目录时以用户输入优先。GitHub 用户名默认值 `GH_USER=zhangweildlh`（允许的硬编码默认值，可由 origin 远端拥有者覆盖）。
+compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个命令行工具，并登录 GitHub 账号。git/gh 工具路径不硬编码——每次进入本技能先 `where.exe git` / `where.exe gh` 取实际路径（详见阶段 0）。本地 GitHub 仓库根目录默认值 `REPO_ROOT` = `D:/Documents/AI_Work_Temp`（该目录本身不是仓库项目，仅为存放各仓库的根；此为允许的硬编码默认值，可在 config 改），用户给出绝对路径的仓库目录时以用户输入优先。GitHub 用户名默认值 `GH_USER=zhangweildlh`（允许的硬编码默认值，可由 origin 远端拥有者覆盖）。
 ---
 
 # GitHub 个人管理助手
@@ -15,15 +15,15 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 
 本技能自带一组**可执行脚本**（`scripts/` 目录），把"看状态、同步、开 PR、查 CI、清理分支、多工作树并行"等高频动作固化下来。你**必须按本文件明确列出的脚本与相对路径去调用**，不要自行猜测或改写脚本逻辑。
 
-> **本技能即 `github-personal-manager`**：`MEMORY.md` 第13章「工作流一 · github-personal-manager 自动激活」要激活的正是本技能。因此本文件**不含**「自动激活」章节——激活由 MEMORY 负责，本文件直接提供被激活后的全部能力。
+> **本技能即 `github-personal-manager`**：本文件直接提供被激活后的全部能力，**不含**「自动激活」章节。若运行环境无记忆系统（如 MEMORY），请用平台技能系统按名 `github-personal-manager` 主动加载本技能（见下方「触发与加载」说明）。
 
-## 与 MEMORY.md 的关系（协同 + 脱离双模式）
-本技能设计为「高通用性、跨项目」的一站式 GitHub 操作标准。两种运行模式均受支持，且行为一致：
+## 运行模式（协同可选 + 独立完整）
+本技能设计为「高通用性、跨项目」的一站式 GitHub 操作标准。是否协同记忆系统均可，行为一致：
 
-1. **协同 MEMORY.md（MEMORY 在场）**：本技能实现 `MEMORY.md` 第14–22章定义的**工作流二 ~ 工作流十**（共 9 个）；`MEMORY` 的「工作流一 · 自动激活」负责在 GitHub 意图出现时激活本技能，本文件不再重复。
-2. **脱离 MEMORY.md（MEMORY 不在场）**：本文件即为**权威单一事源**——所有硬约束（路径核验、禁强推/删 main、三段式二次授权、dry-run 优先、`--no-ff` 合并、revert 仅回滚、只推 origin、入库隐私闸门）与 9 个工作流均已内嵌，无需外部记忆即可独立、正确运行。
+1. **协同记忆系统（可选）**：本技能可与其他记忆/上下文系统协同——由其在 GitHub 意图出现时激活本技能；本文件不再重复「自动激活」章节。
+2. **独立运行（默认且完整）**：本文件即为**权威单一事源**——所有硬约束（路径核验、禁强推/删 main、三段式二次授权、dry-run 优先、`--no-ff` 合并、revert 仅回滚、只推 origin、入库隐私闸门）与 9 个工作流均已内嵌，无需外部记忆即可独立、正确运行。
 
-> 本文件中的「（见 MEMORY 第X章）」仅为双向对照注解，不构成逻辑回环或依赖；即使 MEMORY 缺失，本技能依旧完整可用。
+> **触发与加载**：无论是否协同记忆系统，本技能均按名 `github-personal-manager` 被平台技能系统加载。加载后即为完整能力集，无需任何外部文件或记忆在场即可执行全部 9 个工作流与硬约束。
 
 ## 回复风格硬性规则
 1. 所有面向用户的回显必须"大白话"，先讲清"是什么、为什么、会怎样"，再给精确命令，避免堆砌术语与黑话；技术概念第一次出现时用类比或场景化说明。
@@ -72,17 +72,18 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 3. GitHub 用户名默认值 `GH_USER=zhangweildlh`（允许的硬编码默认值）；邮箱由 `GH_EMAIL` 提供（仅用于提交身份，非工具路径）；实际用户名以 `sop_resolve_repo.sh` 从 origin 远端提取的拥有者为准，缺 origin 时回退到该默认值。
 4. 排除目录：`.mimocode` 与 `.workbuddy` 及其下所有文件一律不视为 GitHub 仓库或代码文件，任何操作均排除这两目录。
 5. 工具分工：本地版本控制用 `git`，远端读取/搜索/PR/CI/Release 用 `gh`；标准流程不依赖任何 MCP。
+6. 首次部署（自包含闭环）：复制 `config/github-sop.config.template.sh` 为同目录 `config/github-sop.config.sh` 并填入本机值（`cp config/github-sop.config.template.sh config/github-sop.config.sh`）；该实例文件已被 `.gitignore` 忽略、不入库，脚本缺失时自动回退 PATH 解析 git/gh，全新安装无 config 也能运行。
 
-## 顶级全局禁令（本技能的硬约束，脱离 MEMORY.md 亦可独立执行；与 MEMORY 第1/10/11章一致）
-1. **路径核验（最高优先级，见 MEMORY 第10章）**：任何 git/gh/文件读写前，先 `ls "<目录>/.git"` 确认 `.git` 存在，再 `git -C "D:/绝对/Windows/路径" rev-parse --show-toplevel`（`D:/` 盘符格式）确认仓库根；**绝不直接对根目录执行 git 操作**。禁止 `git -C /d/...`（Unix 风格根路径，Git Bash 下必误报 `fatal: not a git repository`）。`git rev-parse` 报 `not a git repository` 时**先怀疑路径格式/当前目录错误，绝不直接判定"该目录不是 git 仓库"**，必须先 `ls "<目录>/.git"` 复核。路径异常（指向非预期仓库、根目录意外出现 `.git`）立即暂停、大白话说明、先与用户对齐"要操作的文件夹路径"后再继续。
-2. **禁止强推/删除「你的远端仓库(origin) 的 main」及任何已开启分支保护的分支（见 MEMORY 第1.1章）**：包括 `git push --force` / `--force-with-lease` / `-f` 到 `origin/main`，以及删除 main 分支（任何手段）。正常（非强推）推送(push)到 main 不受限（推标签、走 PR 合并(merge)后自动更新等）。
-3. **标签移动/重推用「删远端标签 + 重推」，严禁强推标签（见 MEMORY 第1.1章）**：`git push origin :refs/tags/vX` → `git push origin vX`；禁用 `git push --force-with-lease origin vX`。
-4. **只推 origin，绝不推 upstream（见 MEMORY 第16.7章）**：`git push` 默认目标为 `origin`；给上游仓库(upstream) 贡献一律走 PR（`gh pr create`），绝不 `git push upstream`。强推仅允许功能分支(feat) 且用 `--force-with-lease`，绝不强推 main。
-5. **三段式二次授权铁律（见 MEMORY 第1.2章，优先级高于一切便利）**：任何"强推/删除自家 main（或任何受保护分支）"的操作，必须走三段式——① 用户先显式授权（表达要做）；② 我必须主动暂停，大白话说明后果、列出将执行的精确动作；③ 用户给出**第二次**显式授权后，方可执行。缺任一环节（尤其第二次授权）一律不执行。凡一次性授权执行过的强推/删除，绝不自动沿用为惯例。标签删除/分支删除等其它破坏性操作不受此铁律限制，但仍遵循各自门禁（先列清单+状态、暂停等确认）。
-6. **入库隐私闸门（见 MEMORY 第1.3章，2026-08-04 实测拦截后确立）**：① `git add` 前先 `git add --dry-run` 预览将纳入的文件范围，确认无敏感/无关文件；② 推送(push) 前做隐私扫描，绝不提交真实手机号、身份证号、家庭住址、令牌(token)/密钥等；③ 测试/临时目录默认以 `.gitignore` 拒绝跟踪，确需纳入的走白名单放行。
+## 顶级全局禁令（本技能的硬约束，独立执行亦完整；各条均为自包含规则，无需外部记忆）
+1. **路径核验（最高优先级）**：任何 git/gh/文件读写前，先 `ls "<目录>/.git"` 确认 `.git` 存在，再 `git -C "D:/绝对/Windows/路径" rev-parse --show-toplevel`（`D:/` 盘符格式）确认仓库根；**绝不直接对根目录执行 git 操作**。禁止 `git -C /d/...`（Unix 风格根路径，Git Bash 下必误报 `fatal: not a git repository`）。`git rev-parse` 报 `not a git repository` 时**先怀疑路径格式/当前目录错误，绝不直接判定"该目录不是 git 仓库"**，必须先 `ls "<目录>/.git"` 复核。路径异常（指向非预期仓库、根目录意外出现 `.git`）立即暂停、大白话说明、先与用户对齐"要操作的文件夹路径"后再继续。
+2. **禁止强推/删除「你的远端仓库(origin) 的 main」及任何已开启分支保护的分支**：包括 `git push --force` / `--force-with-lease` / `-f` 到 `origin/main`，以及删除 main 分支（任何手段）。正常（非强推）推送(push)到 main 不受限（推标签、走 PR 合并(merge)后自动更新等）。
+3. **标签移动/重推用「删远端标签 + 重推」，严禁强推标签**：`git push origin :refs/tags/vX` → `git push origin vX`；禁用 `git push --force-with-lease origin vX`。
+4. **只推 origin，绝不推 upstream**：`git push` 默认目标为 `origin`；给上游仓库(upstream) 贡献一律走 PR（`gh pr create`），绝不 `git push upstream`。强推仅允许功能分支(feat) 且用 `--force-with-lease`，绝不强推 main。
+5. **三段式二次授权铁律（优先级高于一切便利）**：任何"强推/删除自家 main（或任何受保护分支）"的操作，必须走三段式——① 用户先显式授权（表达要做）；② 我必须主动暂停，大白话说明后果、列出将执行的精确动作；③ 用户给出**第二次**显式授权后，方可执行。缺任一环节（尤其第二次授权）一律不执行。凡一次性授权执行过的强推/删除，绝不自动沿用为惯例。标签删除/分支删除等其它破坏性操作不受此铁律限制，但仍遵循各自门禁（先列清单+状态、暂停等确认）。
+6. **入库隐私闸门（2026-08-04 实测拦截后确立）**：① `git add` 前先 `git add --dry-run` 预览将纳入的文件范围，确认无敏感/无关文件；② 推送(push) 前运行 `bash scripts/sop_privacy_gate.sh <仓库路径>` 做隐私扫描（脚本内置敏感文件名/密钥指纹清单，详见其 `-h`），绝不提交真实手机号、身份证号、家庭住址、令牌(token)/密钥等；③ 测试/临时目录默认以 `.gitignore` 拒绝跟踪，确需纳入的走白名单放行。
 7. **dry-run 优先（公开动作二次安全门）**：所有写操作脚本默认只打印将执行什么（干跑），加 `--confirm` 才真正执行。即使手动执行 git/gh 写命令，凡属公开动作（删除分支、打标签、发版、删远端）也先说明、后执行。
-8. **合并与回滚纪律（见 MEMORY 第17章）**：多工作树/并行开发合并一律 `git merge --no-ff`（生成双父合并碑、保留中间提交谱系、不改写历史）；回滚一律 `git revert -m 1 <合并碑>`，**禁用 `reset --hard` + 强推**。已推送的提交属公开历史，禁止改写（rebase -i / amend / --force 推送）。
-9. **公开动作一律暂停确认（见 MEMORY 第13.6章强门禁）**：删除分支、打标签、创建 Release、删除远端分支等，先大白话说明将做什么、后果、产物，暂停等明确指令；一切冲突、公开动作一律"大白话 + 后果 + 暂停等指令"，绝不自动执行。
+8. **合并与回滚纪律**：多工作树/并行开发合并一律 `git merge --no-ff`（生成双父合并碑、保留中间提交谱系、不改写历史）；回滚一律 `git revert -m 1 <合并碑>`，**禁用 `reset --hard` + 强推**（`reset` 三模式在含 `.workbuddy` 工作树等场景的细节见 references/fork-ci-pitfalls.md 第44点）。已推送的提交属公开历史，禁止改写（rebase -i / amend / --force 推送）。
+9. **公开动作一律暂停确认（强门禁）**：删除分支、打标签、创建 Release、删除远端分支等，先大白话说明将做什么、后果、产物，暂停等明确指令；一切冲突、公开动作一律"大白话 + 后果 + 暂停等指令"，绝不自动执行。
 
 ## 环境硬约束
 1. 本机无 Docker，任何涉及 Docker 的安装/部署方案一律忽略，改用原生路径。
@@ -91,9 +92,9 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 ## 输入参数
 | 参数名 | 类型 | 必填 | 说明 |
 |--------|------|------|------|
-| 仓库名 | 字符串 | 否 | 目标仓库名称（本地根目录一级子目录名）或绝对路径；未提供则要求用户明确 |
+| 仓库名（正文指令中记为 <仓库路径>） | 字符串 | 否 | 目标仓库名称（本地根目录一级子目录名）或绝对路径；未提供则要求用户明确 |
 | 任务指令 | 字符串 | 否 | 用户想执行的具体 GitHub 操作；未提供则列举可用操作清单 |
-| 分支主题 | 字符串 | 否 | 功能分支(feat) 的主题词，用于 `feat/[topic]` |
+| 分支主题（正文指令中记为 <分支> 主题词） | 字符串 | 否 | 功能分支(feat) 的主题词，用于 `feat/[topic]` |
 | 上游仓库 | 字符串 | 否 | 上游仓库(upstream) 的 `owner/repo` 标识 |
 | Fork 仓库 | 字符串 | 否 | fork 仓库的 `<login>/[fork]` 标识（`<login>` 取 config 的 `GH_USER`） |
 | 版本号 | 字符串 | 否 | Release 版本号，格式 `v[version]` |
@@ -147,17 +148,17 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 
 ## 核心工作流
 
-> 以下 9 个工作流与 `MEMORY.md` 第14–22章（工作流二 ~ 工作流十）逐一对应。工作流编号直接沿用 MEMORY，便于双向对照；本文件即为各工作流的权威实现，脱离 MEMORY 亦可独立执行。
+> 以下 9 个工作流为本技能内置权威实现；工作流编号沿用既有约定便于维护；各工作流均自包含，可独立执行。
 
 ### 工作流二：信息读取与搜索（gh 优先）
-（对应 MEMORY 第14章；本技能不含「自动激活」章节，那由 MEMORY 工作流一负责。）
+（gh 优先：仓库/代码/Issue/PR 读取与搜索。）
 1. 适用范围：用户给 GitHub 网址要求阅读/分析；LLM 需读取 GitHub 信息；任何搜索 GitHub 仓库/代码/Issue/PR 的需求。
 2. 优先顺序（硬规则）：首选 `gh`；仅当 `gh` 不可用（缺失/未登录/网络不可达）或确实搜不到/无对应能力（代码搜索仅索引默认分支、需渲染网页）时，才回退 WebFetch/WebSearch。禁止无理由跳过 `gh` 直接用网页搜索。
 3. 启动前必须先完成路径核验（见顶部「顶级全局禁令」第 1 条）；纯读取操作亦不豁免。
 4. 跨命令约束：代码搜索（`gh search code`）仅索引默认分支；`gh` 返回原始文本（`gh api contents` 返 base64 需解码）。`gh` 能力总览与各命令清单见 references/gh-capability.md。
 
 ### 工作流三：日常同步巡检
-（对应 MEMORY 第15章。前提：阶段 0 已确认 `git` 与 `gh` 可用，且已完成路径核验。先 `cd` 到技能根目录。）
+（前提：阶段 0 已确认 `git` 与 `gh` 可用，且已完成路径核验。先 `cd` 到技能根目录。）
 1. **第一步（只看清状态，绝不改动）**：运行
    `bash scripts/sop_sync_precheck.sh <仓库路径>`
    该脚本只读输出：remote 列表、main 的上游跟踪关系、工作区是否干净、本地 main ↔ origin/main 的落后/领先计数、origin/main ↔ upstream/main 的 fork领先/上游领先计数。
@@ -175,7 +176,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
    `bash scripts/sop_sync_report.sh <仓库路径> <合并前本地tip>` —— 以"合并前本地 tip"为基准，输出**结构化的上游更新分析报告**（新增功能 / 改进与优化 / Bug 修复 / 破坏性变更 / 其他 + 详细提交记录表）；不传 tip 时自动取 `upstream/main` 最近 20 条作参考。该报告只读、无需 `--confirm`，是本次同步交付给用户的核心产物，务必完整呈现。
 
 ### 工作流四：标准代码修改
-（对应 MEMORY 第16章。前提：阶段 0 工具可用，已完成路径核验。先 `cd` 到技能根目录。）
+（前提：阶段 0 工具可用，已完成路径核验。先 `cd` 到技能根目录。）
 1. 阶段 0 闸门：完整性（无 WIP/TODO/空实现）、正确性（逐文件 Read + `git diff` 复核）、静态校验（仅可跑不触发本地编译的格式化类检查；编译型 lint/test 一律交 CI）。未过则先修复。
 2. 同步与建分支（手动 `git`，无专门脚本）：`git switch main && git pull upstream main && git push origin main`；`git switch -c feat/[topic]`（先建分支再提交(commit)）。
    - **born 检查（防根提交异常）**：建分支后、首次 `git commit` 前，务必 `git rev-parse HEAD` 确认当前分支已 born（解析出有效 SHA、有父提交）；若报 `unknown revision` → 先 `git reset --mixed main` 修复，绝不直接 `git add -A && git commit`。
@@ -185,7 +186,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
    - **Tier 2（docs/、CONTRIBUTING、配置样例、接口契约、i18n、examples，强建议）未同步 → 提交(commit)前须处理或显式说明为何不改**：加 `--strict` 运行脚本可让 Tier 2 未同步同样阻断（`exit 2`）。
    - **Tier 3（测试、包清单、锁文件，提示）**：行为/依赖变动建议补测试或同步锁文件，仅提示不阻断。
    - 适用范围、"免触发"边界与完整分层定义见 `references/docs-sync-checklist.md`；本门禁不绕过任何顶级全局禁令/路径核验。
-4. 提交/推送/触发 CI（手动 `git`）：`git add [文件]` → `git commit -m "清晰描述，一 PR 一主题"` → `git push -u origin feat/[topic]`。
+4. 提交/推送/触发 CI（手动 `git`）：`git add [文件]` → `git commit -m "清晰描述，一 PR 一主题"` → **推送(push) 前先运行 `bash scripts/sop_privacy_gate.sh <仓库路径>`（见顶级全局禁令第 6 条），命中即暂停处理再 push** → `git push -u origin feat/[topic]`。
 5. **开 PR（必须走脚本，不手写 gh）**：运行
    `bash scripts/sop_pr_create.sh <仓库路径> --base <分支>` —— dry-run，打印将执行的 push + `gh pr create`；
    `bash scripts/sop_pr_create.sh <仓库路径> --base <分支> --confirm` —— 真正执行。
@@ -198,7 +199,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 11. 临时抽屉（stash）：开发到一半被打断时 `git stash push -m "feat A 做到一半"` 暂存，恢复时 `git stash pop`；stash 后仍需合适时机 pop 回来继续，巡检遇工作区脏会硬停止。
 
 ### 工作流五：多工作树并行开发（--no-ff 普通合并特化）
-（对应 MEMORY 第17章。适用：同一仓库需多任务并行、代码隔离，最终 `--no-ff` 普通合并回主线、整段可回滚。本质是「工作流四 标准代码修改」的并行多工作树特化。前提：阶段 0 工具可用、已完成路径核验；先 `cd` 到技能根目录。）
+（适用：同一仓库需多任务并行、代码隔离，最终 `--no-ff` 普通合并回主线、整段可回滚。本质是「工作流四 标准代码修改」的并行多工作树特化。前提：阶段 0 工具可用、已完成路径核验；先 `cd` 到技能根目录。）
 
 **核心原则（不可动摇）**：① 普通合并——功能分支(feat) 合入主线(main)一律 `git merge --no-ff`，生成双父合并碑、保留中间提交谱系、不改写历史；② 整段可回滚——合并碑双父结构，回滚唯一命令 `git revert -m 1 <合并碑>`；③ 历史不可变——已推送提交禁止改写（rebase -i/amend/--force）；④ 一分支一工作树，不同工作树须 checkout 不同分支。
 
@@ -228,7 +229,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 - **硬禁令（不可逾越）**：禁止对 `<REMOTE>/<BASE_BRANCH>` 强推/删除；合并与清理均不改写历史；最高优先级约定区域冲突必须暂停告知用户；删远端分支/打标签/发版属公开动作，须用户明确授权。
 
 ### 工作流六：CI 失败排错
-（对应 MEMORY 第18章。前提：阶段 0 工具可用，完成路径核验。先 `cd` 到技能根目录。）
+（前提：阶段 0 工具可用，完成路径核验。先 `cd` 到技能根目录。）
 1. **下载失败日志（脚本，只读）**：运行 `bash scripts/sop_ci_failed_log.sh <仓库路径>`，自动取最近一次 workflow run 并打印失败步骤日志，无需打开网页。
 2. **轮询 CI 状态（脚本，只读）**：运行 `bash scripts/sop_pr_checks.sh <仓库路径>`。
 3. 按现象对号入座（详见 references/fork-ci-pitfalls.md）：fmt 失败 → 格式化；clippy `-D warnings` → 改 feat 重验；`action_required` → 等维护者；整 CI 红且无关代码 → 取消 pinned SHA 勾选；发布 job 失败 → 给发布 job 加 `if: github.repository == '<upstream>'` 守卫（⚠️ actionlint 拒绝纯常量 `if: false`，须用非常量仓库名比较）；CHANGELOG 缺段 → 补段。
@@ -238,14 +239,14 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 5. 修复回推：代码/格式/clippy 类改在功能分支(feat) → `git push origin feat/[topic]` 自动重跑；改 workflow 文件或删/重推标签(tag) 属影响面较大动作 → 先说明再执行。`git push` 偶发 `github.com:443` 超时用 for 循环重试 3~5 次；若 `Recv failure: Connection was reset`（网络层封锁，重试无效），改用 `gh api` REST 接口绕过 git 智能 HTTP 协议提交/移标签。
 
 ### 工作流七：Release 发版
-（对应 MEMORY 第19章。本工作流无专门脚本，按以下手动流程（均为公开动作，需暂停确认）。前提：阶段 0 工具可用，完成路径核验。）
+（本工作流无专门脚本，按以下手动流程（均为公开动作，需暂停确认）。前提：阶段 0 工具可用，完成路径核验。）
 1. 发版前检查：CHANGELOG 顶部有对应 `## [X.Y.Z] - [date]` 段；`release.yml` 发布类 job 已加 `if: github.repository == '<upstream>'` 守卫（⚠️ 禁止写纯常量 `if: false`，actionlint 会报 `constant expression` 致整条 CI 失败）；未勾 pinned SHA；fork Settings → Actions → Workflow permissions = Read and write。可用 `git diff <上一tag> <本次tag> --stat` 复核本次发版改动范围。
 2. 打标签(tag) 触发（公开动作，暂停等指令）：`git tag -a v[version] -m "release v[version]"` → `git push origin v[version]`。重触发用「删远端标签 + 重推」（`git push origin :refs/tags/v[version]` → `git push origin v[version]`），禁强推标签。推前大白话说明版本号、触发工作流、产物，暂停确认。⚠️ 标签 SHA 核对：`git ls-remote --tags` 返回的是注解标签对象 SHA，核对须先 `git rev-parse v[version]^{commit}` 解引用出提交 SHA 再比。
 3. 监控与取产物：`gh run watch` → `gh release view v[version]` → `gh release download v[version]`。无自动发布时 `gh release create v[version] --generate-notes` + `gh release upload v[version] [产物文件]`。
 4. 硬前提：fork 发版仅自取构建产物，绝不发布到 crates.io/PyPI。
 
 ### 工作流八：分支清理回收
-（对应 MEMORY 第20章。前提：阶段 0 工具可用，完成路径核验。先 `cd` 到技能根目录。）
+（前提：阶段 0 工具可用，完成路径核验。先 `cd` 到技能根目录。）
 1. **只读合并状态（脚本）**：运行 `bash scripts/sop_branch_merged_status.sh <仓库路径>`，输出本地已合并 main 的分支（可安全删）、本地未合并 main 的分支（含未完成工作，勿删）、以及 origin 远程已合并 main 的分支。
 2. **清理过时远程跟踪引用（脚本，安全）**：运行 `bash scripts/sop_fetch_prune.sh <仓库路径>`，只清理本地过时引用，不改动任何远程分支。
 3. 清理（删除类动作，暂停等指令）：本地 `git branch -d feat/[topic]`（小写 `-d` 只删已合并，绝不擅自 `-D` 强删）；fork 远程 `git push origin --delete feat/[topic]`。`git fetch --prune` 可自动执行（即第 2 步脚本）。
@@ -254,7 +255,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 5. 工区内部对象回收（可选）：分支删除后若有悬空对象，`git reflog expire --expire=now --all` → `git gc --prune=now` 回收。
 
 ### 工作流九：PR 全生命周期操作
-（对应 MEMORY 第21章。统一覆盖开 PR、评审回应、合并、收尾等一切 PR 操作。前提：阶段 0 工具可用，完成路径核验（见顶级全局禁令第 1 条），严守硬禁令（只推 origin、禁强推/删 main）。先 `cd` 到技能根目录。）
+（统一覆盖开 PR、评审回应、合并、收尾等一切 PR 操作。前提：阶段 0 工具可用，完成路径核验（见顶级全局禁令第 1 条），严守硬禁令（只推 origin、禁强推/删 main）。先 `cd` 到技能根目录。）
 
 - **阶段 0 — 前置门禁**：路径核验（必须）；仓库三元组提取 `bash scripts/sop_resolve_repo.sh <仓库路径>`；严守顶级全局禁令（绝不强推/删 `origin/main`、只推 origin）。
 - **阶段 1 — 开新 PR 前的三核验**：① 路径核验通过；② 分支核验：`git rev-parse --abbrev-ref HEAD` 确为 `feat/<topic>`（非 main、非游离）、`git rev-parse HEAD` 须 born（否则 `git reset --mixed main` 修复）、分支已推 `origin/feat/<topic>`、工作区干净（`git status --porcelain` 为空）；③ 本地↔origin↔upstream 对齐：开 PR 前必须 `git fetch upstream && git rebase upstream/main feat/<topic>`（或 merge）保证基于最新 main。
@@ -273,7 +274,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 - **强门禁总述**：仅「路径核验通过 + 分支/对齐通过 + 重复 PR 已排除 + 上游规范已遵循 + 正文合规 + CI 全绿」的 PR 可开/可合；一切冲突、公开动作（强推 feat 需 `--force-with-lease` 二次确认、合并受保护分支走 PR、删分支前 PR 状态核验）一律大白话 + 后果 + 暂停等指令。
 
 ### 工作流十：清理工区维护
-（对应 MEMORY 第22章。适用：用户明确要求「清理工区」。本流程只处理"工区文件"清理，不触碰远程仓库/CI/发版。前提：已完成路径核验。）
+（适用：用户明确要求「清理工区」。本流程只处理"工区文件"清理，不触碰远程仓库/CI/发版。前提：已完成路径核验。）
 
 - **可删除文件定义（清理目标集）**：以下类型**一律视为可删除**（不含下方受保护清单）：垃圾/无用/过期文件；阶段性报告/实施计划；开发日志/分析文件（不含项目级 `MEMORY.md`、每日工作日志）；实施契约/进度/能力/计划/工作流分析稿；审计报告/代码审查报告（一次性产出）；临时测试文件/测试脚本（**明确排除冒烟测试文件**）；截图（过程性）；构建产物（`dist/`、`build/`、`out/`、产物压缩包）。
 - **清理工区工作流（强门禁：先搜列、后确认、再删除）**：
@@ -312,6 +313,12 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 2. 解析仓库：dynamic-mcp 是默认根目录一级子目录，存在，定位该路径。
 3. 按工作流四：切 main、拉上游、建 `feat/docs-readme`、改 README、提交(commit)、推送(push)，再运行 `bash scripts/sop_pr_create.sh <路径> --base main --confirm` 开 PR。
 4. 运行 `bash scripts/sop_pr_checks.sh <路径>` 轮询 CI 至绿，汇报 PR 编号与状态。
+5. 按「输出格式约束」第 5 条，向用户交付结构化结果报告（分节 + 表格），本示例对应的交付片段如下：
+   - **操作对象**：仓库 dynamic-mcp，分支 feat/docs-readme，目标 base=main
+   - **执行了什么**：切 main 拉上游并推 origin；建 feat 分支改 README；`sop_pr_create.sh --confirm` 开 PR；`sop_pr_checks.sh` 轮询
+   - **结果**：PR #123 已开，CI 全绿（checks 通过）
+   - **风险与异常**：无
+   - **下一步建议**：等待 upstream 维护者评审；评审通过后由维护者合并(merge)
 
 ### 示例二（边界场景）
 用户输入：「同步一下仓库」

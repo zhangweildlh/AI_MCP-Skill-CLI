@@ -96,7 +96,7 @@ if [ -z "$BRANCH" ]; then echo "⛔ 必须指定 --branch <feat/x>。"; exit 2; 
 #   ② 若在 fetch 前取 Tip，实际合并用的是 fetch 后的 SRC_REF，会导致合并碑提交信息里
 #      记录的尖端哈希与真实合并内容不符，且 merge-base --is-ancestor 校验捕获不到（旧 Tip 是新 Tip 的祖先），
 #      从而破坏「整段回滚」的溯源准确性。
-"$GIT_BIN" fetch "$ORIGIN_REMOTE" >/dev/null 2>&1
+"$GIT_BIN" fetch "$ORIGIN_REMOTE" "$BRANCH" 2>/dev/null || "$GIT_BIN" fetch "$ORIGIN_REMOTE" >/dev/null 2>&1
 SRC_REF="$ORIGIN_REMOTE/$BRANCH"
 if ! "$GIT_BIN" rev-parse --verify "$SRC_REF" >/dev/null 2>&1; then
   if "$GIT_BIN" rev-parse --verify "$BRANCH" >/dev/null 2>&1; then SRC_REF="$BRANCH"; else

@@ -44,7 +44,7 @@
 #   - 分类为基于提交信息首词的启发式匹配（conventional commits 关键词），仅供参考，
 #     精确分类请查阅上游 Release 说明或 CHANGELOG.md。
 #   - 冲突 / 双向分叉的处理不属于本脚本职责，请交由 sop_sync_upstream.sh。
-#   - 记忆映射: 日常同步巡检·第四步（吸收 github-repo-sync 步骤 6 的「报告基准点规则」）。
+#   - 对应 工作流三·第四步（吸收 github-repo-sync 步骤 6 的「报告基准点规则」）。
 #<!--HELP-END-->
 set -uo pipefail
 SOP_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -4,7 +4,7 @@
 # 中文名: 快进拉取 main（本地 ↔ 你的远端仓库(origin) 同步）
 #
 # 【功能】
-#   对齐「永久记忆·日常同步巡检」的本地 ↔ origin 同步策略，按四种状态分别处置：
+#   对齐「工作流三·日常同步巡检」的本地 ↔ origin 同步策略，按四种状态分别处置：
 #     - 工作区脏（有未提交改动） → 硬停止，打印前 20 条脏文件，等你的指令；
 #     - 仅落后（本地少于远端）   → 以快进方式拉取 origin main；
 #     - 仅领先（本地多于远端）   → 以快进方式推送到 origin main；
@@ -78,13 +78,15 @@ if [ "$cur" != "$MAIN_BRANCH" ]; then
   exit 1
 fi
 
-"$GIT_BIN" fetch "$ORIGIN_REMOTE" >/dev/null 2>&1
+if ! "$GIT_BIN" fetch "$ORIGIN_REMOTE" >/dev/null 2>&1; then
+  echo "⚠️ 远端抓取(fetch)失败，以下领先/落后计数可能基于陈旧引用，请核查网络或鉴权。" >&2
+fi
 read -r b a <<< "$(_sop_detect_local_origin)"
 echo "===== 快进拉取 main（本地 main ↔ origin/main）====="
 echo "状态: 落后=$b 领先=$a"
 
 if [ "$b" -gt 0 ] && [ "$a" -gt 0 ]; then
-  echo "🔀 双向分叉（本地与 origin 都有对方没有的提交）。按「永久记忆」策略：暂停，列 A–E，绝不自动处理。"
+  echo "🔀 双向分叉（本地与 origin 都有对方没有的提交）。按本技能同步策略：暂停，列 A–E，绝不自动处理。"
   echo "  A: 以 origin 为准  → git reset --hard origin/main"
   echo "  B: 以本地为准      → 经 feat 分支走 PR 合入后再同步（禁止强推 main）"
   echo "  C: 合并保留双方    → git merge origin/main"
@@ -97,8 +99,12 @@ fi
 if [ "$b" -gt 0 ]; then
   if [ "$CONFIRM" -eq 1 ]; then
     echo "➡️ 执行: git pull --ff-only $ORIGIN_REMOTE $MAIN_BRANCH"
-    "$GIT_BIN" pull --ff-only "$ORIGIN_REMOTE" "$MAIN_BRANCH"
-    echo "✅ 已快进拉取。"
+    if "$GIT_BIN" pull --ff-only "$ORIGIN_REMOTE" "$MAIN_BRANCH"; then
+      echo "✅ 已快进拉取。"
+    else
+      echo "⛔ 快进拉取失败（网络/非快进被拒/权限）。请核查后重试。" >&2
+      exit 1
+    fi
   else
     echo "🔍 [dry-run] 将执行: git pull --ff-only $ORIGIN_REMOTE $MAIN_BRANCH  （加 --confirm 真正执行）"
   fi
@@ -108,8 +114,12 @@ fi
 if [ "$a" -gt 0 ]; then
   if [ "$CONFIRM" -eq 1 ]; then
     echo "➡️ 执行: git push $ORIGIN_REMOTE $MAIN_BRANCH"
-    "$GIT_BIN" push "$ORIGIN_REMOTE" "$MAIN_BRANCH"
-    echo "✅ 已推送（快进）。"
+    if "$GIT_BIN" push "$ORIGIN_REMOTE" "$MAIN_BRANCH"; then
+      echo "✅ 已推送（快进）。"
+    else
+      echo "⛔ 推送失败（网络/非快进被拒/权限）。请核查后重试。" >&2
+      exit 1
+    fi
   else
     echo "🔍 [dry-run] 将执行: git push $ORIGIN_REMOTE $MAIN_BRANCH  （加 --confirm 真正执行）"
   fi
