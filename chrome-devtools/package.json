@@ -108,5 +108,14 @@
     },
     "puppeteer-core": "$puppeteer",
     "zod": "3.25.76"
+  },
+  "config": {
+    "allowScripts": {
+      "@google/genai": true,
+      "core-js": true,
+      "protobufjs": true,
+      "puppeteer": true,
+      "unrs-resolver": true
+    }
   }
 }

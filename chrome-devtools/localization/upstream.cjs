@@ -145,6 +145,23 @@ try {
     else { console.log('[跳过] 上游无文件: ' + f); }
   }
 
+  // 4.5) 保全 package.json 本地增量（P2-1）：上游整文件覆盖会丢失主副本相对上游新增的 scripts 等本地定制。
+  // 覆盖前 PKG 已是主副本（含本地增量）的解析结果；此处对比上游基线，抽取"主副本有而上游无"的 scripts 键，覆盖后回填。
+  const upstreamPkgPath = path.join(cloneDir, 'package.json');
+  if (PKG.scripts && fs.existsSync(upstreamPkgPath)) {
+    const upstreamPkg = JSON.parse(fs.readFileSync(upstreamPkgPath, 'utf8'));
+    const localScriptExtras = {};
+    for (const [k, v] of Object.entries(PKG.scripts)) {
+      if (!(k in (upstreamPkg.scripts || {}))) localScriptExtras[k] = v;
+    }
+    if (Object.keys(localScriptExtras).length) {
+      const merged = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
+      merged.scripts = Object.assign({}, merged.scripts || {}, localScriptExtras);
+      fs.writeFileSync(path.join(REPO, 'package.json'), JSON.stringify(merged, null, 2) + '\n', 'utf8');
+      console.log('[保全] 已回填 package.json 本地 scripts 增量: ' + Object.keys(localScriptExtras).join(', '));
+    }
+  }
+
   // 5) 重新注入本地化（含 description 中文化，幂等）
   console.log('=== 重新注入本地化 ===');
   sh('node "' + path.join(__dirname, 'apply_localize.cjs') + '"');
