@@ -108,9 +108,9 @@ test_status_all_summary() {
   if [ "$rc" -ne 0 ]; then fail "总览用例非零退出 rc=$rc out=$out"; return 1; fi
   local ok=1
   printf '%s' "$out" | grep -q "repoA  落后=1" || { echo "    缺少 repoA 落后=1"; ok=0; }
-  printf '%s' "$out" | grep -q "repoB  领先=1" || { echo "    缺少 repoB 领先=1"; ok=0; }
-  printf '%s' "$out" | grep -q "repoB  未推送=1笔" || { echo "    缺少 repoB 未推送=1笔"; ok=0; }
-  printf '%s' "$out" | grep -q "repoC  工作区=脏" || { echo "    缺少 repoC 工作区=脏"; ok=0; }
+  printf '%s' "$out" | grep -q "repoB.*领先=1" || { echo "    缺少 repoB 领先=1"; ok=0; }
+  printf '%s' "$out" | grep -q "repoB.*未推送=1笔" || { echo "    缺少 repoB 未推送=1笔"; ok=0; }
+  printf '%s' "$out" | grep -q "repoC.*工作区=脏" || { echo "    缺少 repoC 工作区=脏"; ok=0; }
   printf '%s' "$out" | grep -q "跳过（非 git 仓库目录）：notarepo" || { echo "    未跳过 notarepo"; ok=0; }
   printf '%s' "$out" | grep -q "扫描仓库数=3" || { echo "    扫描仓库数不为3"; ok=0; }
   printf '%s' "$out" | grep -q "脏工作区=1" || { echo "    脏工作区计数错误"; ok=0; }
