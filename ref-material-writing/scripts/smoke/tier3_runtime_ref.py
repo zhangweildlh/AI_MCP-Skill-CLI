@@ -53,6 +53,16 @@ def check_cli_help() -> list[str]:
     """Run the CLI with ``--help`` and assert exit code plus subcommands."""
     failures: list[str] = []
 
+    # F4 修复：uv 工程目录为本机专属默认值；若非由环境变量显式设置且目录不存在，
+    # 给出清晰提示并跳过 CLI 启动检查（降级而非神秘失败）。
+    _env_uv = os.environ.get("REF_MATERIAL_UV_PROJECT")
+    if _env_uv is None and not os.path.isdir(UV_PROJECT):
+        print(
+            f"[WARN] uv 工程目录不存在：{UV_PROJECT}；"
+            "跳过 CLI 启动检查（设置 REF_MATERIAL_UV_PROJECT 指向你的 uv 工程后可启用）。"
+        )
+        return failures
+
     cmd = [
         "uv",
         "run",

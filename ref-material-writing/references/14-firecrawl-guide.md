@@ -6,6 +6,36 @@
 
 ---
 
+## 0. 规范版本追踪
+
+> 目的：建立 Firecrawl 上游规范的版本追踪机制，使本指南能跟进 Firecrawl API / `openapi.json` 的演进，避免参数与能力描述随上游漂移而失效。本小节仅做追踪，不改动下方 8 类能力、AI 决策矩阵、参数速查、代码实证约束等内容。
+
+### 0.1 基线版本记录（待人工填写）
+
+- **记录时间**：<待人工填写，例如 YYYY-MM-DD>
+- **Firecrawl API 基线版本**：`<VERSION_PLACEHOLDER>`（如 `v2` / 具体 release tag；若无法联网确认精确版本，请在此标注 "待人工核对"）
+- **Firecrawl MCP 服务器版本**：`<MCP_VERSION_PLACEHOLDER>`（以所用 Firecrawl MCP / npx `firecrawl-mcp` 的版本说明为准）
+- **openapi.json 基线来源**：`<OPENAPI_SOURCE_PLACEHOLDER>`（例如 `https://docs.firecrawl.dev/api-reference` 或自托管实例的 `openapi.json` 路径）
+
+> 版本号由人工定期核对后填入上列占位符；本指南不自动联网拉取，避免引入外部依赖与不确定性。
+
+### 0.2 基线获取方式（如何取得规范原文）
+
+- **Firecrawl 官方文档**：`https://docs.firecrawl.dev/`（含 API Reference、`openapi.json`、变更说明）
+- **Firecrawl MCP 服务器**：查阅所用 `firecrawl-mcp` 的版本说明 / changelog（npx 包版本或自托管服务的 `/health`、`/` 版本端点）
+- **GitHub 仓库**：`https://github.com/mendableai/firecrawl` 的 `apps/api` 与 `apps/mcp-server` 的 release / tag
+
+### 0.3 后续跟进机制（人工核查点）
+
+定期（建议每月或重大写作任务前）执行以下人工核查：
+
+1. 访问 Firecrawl 官方 changelog / docs，确认 API 与 MCP 服务器是否有新版本或破坏性变更。
+2. 比对 `0.1` 中记录的基线版本与上游 latest；若不一致，修订占位符并记录变更日期。
+3. 若参数名/枚举/默认值发生变化，回到下方对应小节（能力目录、参数速查、约束）做同步修订，并保留"代码实证"来源标注。
+4. 可运行 `scripts/check_firecrawl_spec.py` 打印当前记录版本并获取去何处核对 latest 的指引（详见脚本注释）。
+
+---
+
 ## 1. 调用模板（权威）
 
 ```

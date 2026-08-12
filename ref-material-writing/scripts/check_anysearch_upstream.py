@@ -21,9 +21,15 @@ import sys
 
 # gh 可执行文件路径：本机专属，默认回退到用户工具链目录；可经环境变量
 # REF_MATERIAL_GH 覆盖，无需改脚本。
-GH = os.environ.get("REF_MATERIAL_GH", r"D:/Tools/Assembly/gh.exe")
+# gh 可执行文件路径：本机专属，默认回退到用户工具链目录；可经环境变量
+# REF_MATERIAL_GH 覆盖，无需改脚本。_env_gh 用于区分「是否由用户显式设置」，
+# 以便缺失时给出可读报错而非静默失败（见 F4 修复）。
+_env_gh = os.environ.get("REF_MATERIAL_GH")
+GH = _env_gh if _env_gh is not None else r"D:/Tools/Assembly/gh.exe"
 UPSTREAM_REPO = "anysearch-ai/anysearch-skill"
-# 本地 vendored 锚定的上游 commit（升级后须同步更新）
+# 本地 vendored 锚定的上游 commit（升级后须同步更新）。
+# F8 修复：此为缩写 SHA 前缀（9 位 hex），仅作本地对齐锚点，碰撞概率极低，
+# 不臆造不存在的完整 SHA。
 LOCAL_ANCHOR_SHA = "69b3088fd"
 
 
@@ -40,6 +46,17 @@ def run_gh(args):
 
 
 def main():
+    # F4 修复：gh 路径为本机专属默认值；若非由环境变量显式设置且文件不存在，
+    # 打印清晰报错并 exit(1)，避免后续 subprocess 静默失败、难以排错。
+    if _env_gh is None and not os.path.isfile(GH):
+        print(
+            f"[ERROR] gh 可执行文件未找到：{GH}；"
+            "请设置环境变量 REF_MATERIAL_GH 指向你的 gh.exe，"
+            "或安装 gh 命令行工具后重试。",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     out, err = run_gh(
         [
             "api",
@@ -63,7 +80,12 @@ def main():
     if latest_msg:
         print(f"上游提交说明   : {latest_msg[:80]}")
 
-    if latest_sha and latest_sha.startswith(LOCAL_ANCHOR_SHA):
+    # F8 修复：比对前归一化（去空白、转小写），并取 latest_sha 前 N 位
+    # （N = 锚点长度）做等长相等比较，消除「上游返回不同长度缩短 SHA 导致
+    # startswith 误判对齐」的风险；不臆造完整 SHA。
+    _latest_norm = latest_sha.strip().lower()
+    _anchor_norm = LOCAL_ANCHOR_SHA.strip().lower()
+    if _latest_norm and _latest_norm[: len(_anchor_norm)] == _anchor_norm:
         print("\n[OK] 本地 vendored 副本已对齐上游最新，无需更新。")
         sys.exit(0)
     else:

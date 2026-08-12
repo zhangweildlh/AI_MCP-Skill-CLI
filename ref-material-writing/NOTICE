@@ -1,0 +1,14 @@
+ref-material-writing Skill
+Copyright (c) 2026 zhangweildlh
+
+This product includes software derived from the anysearch-skill project
+(https://github.com/anysearch-ai/anysearch-skill), licensed under the
+Apache License, Version 2.0 (the "Apache 2.0 License").
+
+The AnySearch CLI vendored copy under scripts/anysearch_cli.py and the
+shared assets under scripts/shared/ (constants.json, doc_spec.md) are
+derivative works of anysearch-skill and remain subject to the Apache 2.0
+License. See the LICENSE file for the full license text.
+
+The remainder of this skill (document-orchestration router, the Firecrawl
+adaptation layer, and the writing logic) is original work.

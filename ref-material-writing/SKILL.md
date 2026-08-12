@@ -1,6 +1,6 @@
 ---
 name: ref-material-writing
-description: 基于写作需求、提纲和多份参考资料驱动的文档写作。当用户提供写作需求、提纲和多份参考资料并要求撰写文档/报告/方案/综述/建议书时触发；当用户强调"基于参考资料""不要编造""严格按提纲写"时优先使用；默认采用正式严谨的公文风格。不适用于无参考资料的内容创作、创意写作或仅润色改写。
+description: 基于写作需求、提纲和多份参考资料驱动的文档写作。当用户提供写作需求、提纲和多份参考资料并要求撰写文档/报告/方案/综述/建议书时触发；当用户强调"基于参考资料""不要编造""严格按提纲写"时优先使用；默认采用正式严谨的公文风格。适用于政府/企业正式文书、产业报告、商务建议书等有据可查的文档撰写场景。不适用于无参考资料的内容创作、创意写作或仅润色改写。
 license: Proprietary
 metadata:
   author: zhangweildlh
@@ -20,6 +20,7 @@ compatibility: >-
 > **本 Skill 采用渐进式披露设计**。主文件仅含核心路由与决策规则；每一步骤的详细规范位于 `_router/step-NN.md`，按执行顺序加载。
 > 文件读写（Markdown / TXT / 状态文件等）由 AI 使用其**原生文件读写能力**自主完成，工具名通过 `_router/bootstrap.md` 的「工具能力映射表」解析，**禁止在步骤中硬编码平台特定工具名**。
 > 详细环境约束见 `references/02-environment-setup.md`；Office 文件读写指南见 `references/04-officecli-guide.md`（含 Help-First 与版本差异声明）。
+> 参数定义见 `references/10-parameters-schema.md`；边界与异常见 `references/12-edge-cases.md`；使用示例见 `references/11-examples.md`。
 
 ## 角色与目标
 
@@ -64,7 +65,7 @@ compatibility: >-
 | **提纲缺失** | 不暂停流程，在「步骤4」中自动草拟 |
 | **信息不足** | 启动「步骤5」双引擎联网搜索；每引擎 3 轮后仍不足则标注「[数据待核实]」 |
 | **双引擎搜索** | 步骤5 缺口补全：AnySearch 与 Firecrawl 平权、顺序执行（先 AnySearch 后 Firecrawl）、结果合并；每引擎每关键词 2–3 轮；垂直领域由 AI 按任务主题/诉求/思路/提纲判定并传入 AnySearch；交叉验证新增「双引擎互证」级；任一引擎不可用由 LLM 原生 web_search/web_fetch 补偿保双轨，二者皆不可用转单轨原生 |
-| **AnySearch 命令来源** | **单一事实源 = `references/13-anysearch-integration.md` §1**：AnySearch 固定调用命令**仅在该处定义一次**（指向本技能内嵌自包含的 AnySearch CLI 副本）；脚本路径 `scripts/anysearch_cli.py` 为基于技能目录的相对路径，运行时按技能目录拼接绝对路径，uv 工程前缀 `<UV_PROJECT>` 为运行环境专属（默认 `D:/Tools/Assembly/python/myenv`，可由 `REF_MATERIAL_UV_PROJECT` 覆盖）。本技能其余文件（SKILL / bootstrap / _contract / step-02 / step-05 / compatibility / 02-environment-setup / _流水线状态）**一律不写死命令**，只用占位符 `<ANYSEARCH_CMD>` 引用；调用前须先读 references/13 §1 取得命令前缀再展开。命令变更**只改 references/13 §1 一处**，无需同步镜像。垂直域规则与实证结论（中文国策/标准无垂直域→通用搜索）同见 `references/13-anysearch-integration.md` |
+| **AnySearch 命令来源** | **单一事实源 = `references/13-anysearch-integration.md` §1**：AnySearch 固定调用命令**仅在该处定义一次**（指向本技能内嵌自包含的 AnySearch CLI 副本）；脚本路径 `scripts/anysearch_cli.py` 为基于技能目录的相对路径，运行时按技能目录拼接绝对路径，uv 工程前缀 `<UV_PROJECT>` 为运行环境专属（其默认值由运行环境决定，可由环境变量 `REF_MATERIAL_UV_PROJECT` 覆盖）。本技能其余文件（SKILL / bootstrap / _contract / step-02 / step-05 / compatibility / 02-environment-setup / _流水线状态）**一律不写死命令**，只用占位符 `<ANYSEARCH_CMD>` 引用；调用前须先读 references/13 §1 取得命令前缀再展开。命令变更**只改 references/13 §1 一处**，无需同步镜像。垂直域规则与实证结论（中文国策/标准无垂直域→通用搜索）同见 `references/13-anysearch-integration.md` |
 | **确认节点** | 「步骤1」和「步骤4」须用户确认；用户明确"无需确认"时可跳过 |
 | **状态文件读写** | 每个步骤执行前必须读取 `_流水线状态.md`，执行完成后必须更新 |
 | **工具调用** | 依「工具能力映射表」解析原语→实际工具；Firecrawl 与 AnySearch 为双引擎平权（步骤5 联网补全），原生文件工具优先于 MCP；原生搜索作为双引擎的补偿/降级通道 |
@@ -101,7 +102,7 @@ compatibility: >-
 | `_router/step-01.md` ~ `step-10.md` | 对应步骤执行前 |
 | `references/10-parameters-schema.md` | 步骤1开始前 |
 | `references/02-environment-setup.md` | 首次 shell_exec 前 |
-| `references/01-writing-standards.md` | 步骤6 正文撰写前 |
+| `references/01-writing-standards.md` | 步骤6 正文撰写前（**文风唯一事实源**：本文件定义全部文风细则，本 SKILL.md 的 description 与决策规则仅引用不重述） |
 | `references/06-knowledge-base.md` | 步骤7 开始前 |
 | `references/04-officecli-guide.md` | Office 文件读写时 |
 | `references/05-long-file-handling.md` | 超长 Office 文件读写时 |
