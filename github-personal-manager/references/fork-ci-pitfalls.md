@@ -27,7 +27,7 @@
 12. **用 gh 开启分支保护（2026-07-15 实测）**：`gh api graphql -F query=@-`（heredoc 喂 mutation）调用 `createBranchProtectionRule`。关键字段：`repositoryId`（用 `gh api repos/<owner>/<repo> -q .node_id` 取）、`pattern:"main"`、`requiresStatusChecks:true` + `requiredStatusCheckContexts:[...]`（精确匹配 CI 检查名，matrix 会产生 `Build (ubuntu-latest)` 等多条）、`requiresStrictStatusChecks:true`、`allowsForcePushes:false`、`allowsDeletions:false`、`isAdminEnforced:false`（即不开启 Do not allow bypassing，管理员/AI 可紧急绕过）、`requiresApprovingReviews:false`。⚠️ **API 无法表达「要求 PR + 0 审批」**：REST 的 `required_approving_review_count` 最小为 1，GraphQL 无独立 `requiresPullRequest` 字段；故以「CI 绿 + 禁强推 + 禁删 + 管理员可绕过 + 无审批」为最大化可达保护。注意 `gh api graphql` 默认会跑 schema 自检，必须用 `-F query=@-` 从 stdin 喂查询才会真正执行。
 
 ## git push 443 两类情形与 REST API 绕过（可移植方法论）
-> 与「永久记忆·CI 失败排错」一致。凡 `git push` 报 github.com:443 失败，务必先区分是偶发瞬断还是网络层封锁，二者处置完全不同。
+> 与「工作流六·CI 失败排错」一致。凡 `git push` 报 github.com:443 失败，务必先区分是偶发瞬断还是网络层封锁，二者处置完全不同。
 
 - **情形一·偶发瞬断（重试可过）**：`git push` 偶发 `github.com:443` 连接超时。处置：用 for 循环重试 3~5 次即可过；`gh` API 不受影响。
 - **情形二·持续性重置（网络层封锁，重试无效）**：`git push`/`git ls-remote` 报 `Recv failure: Connection was reset` 或 `Failed to connect to github.com port 443`，但 `gh api`（api.github.com）正常、且无任何代理变量。处置：**不要重试 git**，改用 GitHub REST API 绕过 git 智能 HTTP 协议：

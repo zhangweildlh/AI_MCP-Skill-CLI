@@ -137,6 +137,10 @@ fi
 WT_EXISTS=0
 WT_DIRTY=0
 WT_ORPHAN=0
+# 路径归一：统一为 Windows 形式(D:/...)，确保 git -C 不使用 /d/... Unix 风格根（SKILL 禁 git -C /d/...）
+if [ -n "$WTPATH" ] && command -v cygpath >/dev/null 2>&1; then
+  WTPATH="$(cygpath -m "$WTPATH" 2>/dev/null || echo "$WTPATH")"
+fi
 if [ -n "$WTPATH" ] && [ -e "$WTPATH" ]; then
   WT_EXISTS=1
   if [ -n "$("$GIT_BIN" -C "$WTPATH" status --porcelain 2>/dev/null)" ]; then WT_DIRTY=1; fi
@@ -229,7 +233,7 @@ if [ "$REMOTE_BRANCH_EXISTS" = "1" ]; then
   echo "   ⚠️ 公开动作：git push --delete $ORIGIN_REMOTE $BRANCH"
   if "$GIT_BIN" push --delete "$ORIGIN_REMOTE" "$BRANCH" >/dev/null 2>&1; then
     echo "✅ 远端分支已删"
-    # 兜底清理本地远程跟踪引用（与 MEMORY 第17章 17.14 口径一致；失败忽略）。
+    # 兜底清理本地远程跟踪引用（与「合并与回滚纪律·顶级全局禁令第 8 条」口径一致；失败忽略）。
     # 置于此处而非本地分支块内：跟踪引用只应在远端分支「确实删除成功」后才回收；
     # 若远端删除失败（无权限等），远端分支仍在，跟踪引用必须保留，否则本地状态失真。
     # 多数 git 版本 push --delete 会自动清理该引用，此处仅作残留兜底。

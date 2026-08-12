@@ -4,7 +4,7 @@
 # 中文名: 合并上游并推你的远端仓库（你的远端仓库(origin) ↔ 上游仓库(upstream) 同步）
 #
 # 【功能】
-#   对齐「MEMORY 第15章 工作流三·日常同步巡检·第二步」的 origin(fork) ↔ upstream 决策树。
+#   对齐「工作流三·日常同步巡检·第二步」的 origin(fork) ↔ upstream 决策树。
 #   先统计两个差值：M = 你的 fork 领先上游的提交数，K = 上游领先你的 fork 的提交数，
 #   再按四种组合分别处置：
 #     - M=0, K=0  → 已同步，无需操作；
@@ -87,7 +87,9 @@ if ! "$GIT_BIN" remote get-url "$UPSTREAM_REMOTE" >/dev/null 2>&1; then
   echo "⛔ 未配置 [$UPSTREAM_REMOTE] 远程，无法执行 upstream 同步。"; exit 1
 fi
 
-"$GIT_BIN" fetch "$ORIGIN_REMOTE" "$UPSTREAM_REMOTE" >/dev/null 2>&1
+if ! "$GIT_BIN" fetch "$ORIGIN_REMOTE" "$UPSTREAM_REMOTE" >/dev/null 2>&1; then
+  echo "⚠️ 远端抓取(fetch)失败，以下领先/落后计数可能基于陈旧引用，请核查网络或鉴权。" >&2
+fi
 read -r M K <<< "$(_sop_detect_origin_upstream)"
 echo "===== 合并上游并推 fork（origin/main ↔ upstream/main）====="
 echo "状态: fork领先=M=$M upstream领先=K=$K"
@@ -102,19 +104,19 @@ if [ "$M" -gt 0 ]; then
     prs="$("$GH_BIN" pr list --repo "$UPSTREAM_REPO" --author "$GH_USER" --state all --json number,state,title,headRefName 2>/dev/null)"
     open_pr="$(printf '%s' "$prs" | grep -o '"state":"OPEN"' | head -1)"
     if [ -n "$open_pr" ]; then
-      echo "📋 存在 open PR（PR 待审）。按记忆：继续，不重复开、不覆盖、不暂停。"
+      echo "📋 存在 open PR（PR 待审）。按本技能规则：继续，不重复开、不覆盖、不暂停。"
     else
       echo "📋 无 open PR。"
       if [ "$K" -gt 0 ]; then
         echo "⚠️ 同时 K>0，PR 可能落后上游，建议 rebase feat 后更新 PR。暂停等指令。"
         exit 0
       fi
-      echo "📋 按记忆「问题三」：应向 upstream 开 PR，但暂停等指令，不自动开。"
+      echo "📋 按工作流三规则：应向 upstream 开 PR，但暂停等指令，不自动开。"
       exit 0
     fi
   else
-    echo "⚠️ 未检测到 upstream 远端（或 UPSTREAM_REPO 为空），跳过 PR 核查。按记忆 M>0 需人工判断，暂停等指令。"
-    echo "   提示：本脚本已尝试从 git remote -v 解析 upstream；若确无 upstream 远端，请按记忆补充上游地址。"
+    echo "⚠️ 未检测到 upstream 远端（或 UPSTREAM_REPO 为空），跳过 PR 核查。按工作流三规则 M>0 需人工判断，暂停等指令。"
+    echo "   提示：本脚本已尝试从 git remote -v 解析 upstream；若确无 upstream 远端，请按工作流三规则补充上游地址。"
     exit 0
   fi
 fi
@@ -124,7 +126,7 @@ if [ "$K" -gt 0 ]; then
   if [ "$M" -gt 0 ]; then
     # M>0,K>0 → 先测冲突
     if ! "$GIT_BIN" merge-tree --write-tree "$ORIGIN_REMOTE/$MAIN_BRANCH" "$UPSTREAM_REMOTE/$MAIN_BRANCH" >/dev/null 2>&1; then
-      echo "🔀 合并将产生冲突。按记忆：暂停列 A–D，绝不自动选。"
+      echo "🔀 合并将产生冲突。按本技能规则：暂停列 A–D，绝不自动选。"
       echo "  A: 我方为准（保持 fork 领先，回退 upstream 部分）"
       echo "  B: upstream 为准（reset 到 upstream/main，fork 领先将丢）"
       echo "  C: 手动解决冲突后提交"
@@ -134,10 +136,18 @@ if [ "$K" -gt 0 ]; then
   fi
   if [ "$CONFIRM" -eq 1 ]; then
     echo "➡️ 执行: git merge $UPSTREAM_REMOTE/$MAIN_BRANCH --no-edit"
-    "$GIT_BIN" merge "$UPSTREAM_REMOTE/$MAIN_BRANCH" --no-edit
-    echo "➡️ 执行: git push $ORIGIN_REMOTE $MAIN_BRANCH"
-    "$GIT_BIN" push "$ORIGIN_REMOTE" "$MAIN_BRANCH"
-    echo "✅ 已合并 upstream 并推送 origin/main。"
+    if "$GIT_BIN" merge "$UPSTREAM_REMOTE/$MAIN_BRANCH" --no-edit; then
+      echo "➡️ 执行: git push $ORIGIN_REMOTE $MAIN_BRANCH"
+      if "$GIT_BIN" push "$ORIGIN_REMOTE" "$MAIN_BRANCH"; then
+        echo "✅ 已合并 upstream 并推送 origin/main。"
+      else
+        echo "⛔ 推送 origin/main 失败（网络/非快进被拒/权限）。合并已在本地完成但未推送，请核查后重试。" >&2
+        exit 1
+      fi
+    else
+      echo "⛔ 合并 upstream/main 失败（冲突或本地异常）。请核查后重试。" >&2
+      exit 1
+    fi
   else
     echo "[dry-run] 将执行: git merge $UPSTREAM_REMOTE/$MAIN_BRANCH --no-edit && git push $ORIGIN_REMOTE $MAIN_BRANCH （加 --confirm 执行）"
   fi

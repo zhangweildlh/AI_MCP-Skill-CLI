@@ -62,10 +62,18 @@ _sop_load_config() {
   local self_dir="${SOP_SELF_DIR:?SOP_SELF_DIR 未设置}"
   local root_dir
   root_dir="$(cd "$self_dir/.." && pwd)"
+  # 捕获调用方通过环境显式注入的工具路径（最高优先级，用于测试注入、临时覆盖等）。
+  # config 文件只应「补全默认值」，不得覆盖调用方已有的环境覆盖——否则会影响
+  # 用 GIT_BIN=/GH_BIN 注入 fake 工具的失败注入测试，以及任何临时覆盖需求。
+  # 优先级定为：调用方环境变量 > config 显式值 > where.exe/PATH 自动探测。
+  local _env_git="${GIT_BIN:-}" _env_gh="${GH_BIN:-}"
   if [ -f "$root_dir/config/github-sop.config.sh" ]; then
     # shellcheck disable=SC1091
     source "$root_dir/config/github-sop.config.sh"
   fi
+  # 仅当调用方显式设置时才恢复环境值，避免 config 覆盖测试/调用方注入
+  if [ -n "$_env_git" ]; then GIT_BIN="$_env_git"; fi
+  if [ -n "$_env_gh" ]; then GH_BIN="$_env_gh"; fi
   GIT_BIN="${GIT_BIN:-}"
   GH_BIN="${GH_BIN:-}"
   MAIN_BRANCH="${MAIN_BRANCH:-main}"

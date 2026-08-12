@@ -50,7 +50,7 @@ assert_rc_eq() {
 _all_scripts() { ls "$ROOT_DIR"/scripts/sop_*.sh 2>/dev/null; }
 
 # 含 `-*) exit 2` 严格选项解析的脚本（其余只读脚本把未知参数当仓库路径处理，不在此列）
-_STRICT_OPT_SCRIPTS="sop_sync_pull_ff sop_sync_upstream sop_pr_create sop_ci_rerun sop_fetch_prune sop_sync_report sop_docs_sync_check"
+_STRICT_OPT_SCRIPTS="sop_sync_pull_ff sop_sync_upstream sop_pr_create sop_ci_rerun sop_fetch_prune sop_sync_report sop_docs_sync_check sop_privacy_gate"
 
 # ===== 横切边界 =====
 
@@ -302,7 +302,8 @@ STUB
   "$ROOT_DIR/scripts/sop_pr_create.sh" "$local" --confirm >/dev/null 2>&1; rc=$?
   if [ "$rc" -ne 0 ]; then fail "脚本异常退出 rc=$rc"; return 1; fi
   if ! grep -q "push -u" "$log"; then fail "confirm 未触发 git push -u: $(cat "$log")"; return 1; fi
-  if ! grep -q "pr create --fill" "$log"; then fail "confirm 未触发 gh pr create --fill: $(cat "$log")"; return 1; fi
+  if ! grep -qE "pr create .*--fill" "$log"; then fail "confirm 未触发 gh pr create --fill: $(cat "$log")"; return 1; fi
+  if ! grep -qE "pr create .*--base main" "$log"; then fail "confirm 未带 --base main: $(cat "$log")"; return 1; fi
   pass "pr_create --confirm: 真实触发 git push -u + gh pr create --fill --base main"
 }
 

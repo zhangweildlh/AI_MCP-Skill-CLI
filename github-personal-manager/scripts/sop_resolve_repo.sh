@@ -62,8 +62,8 @@ _sop_resolve_remotes
 REPO_NAME="$SOP_ORIGIN_REPO"
 UPSTREAM_OWNER_REPO="$SOP_UPSTREAM_OWNER_REPO"
 
-# 兜底：origin 缺失时仓库名取目录名
-if [ -z "$REPO_NAME" ] || [ "$REPO_NAME" = "$GH_USER" ]; then
+# 兜底：origin 缺失时仓库名取目录名（仅当 REPO_NAME 为空；仓库名恰等于用户名时不误触发）
+if [ -z "$REPO_NAME" ]; then
   REPO_NAME="$(basename "$("$GIT_BIN" rev-parse --show-toplevel 2>/dev/null || pwd)")"
 fi
 
