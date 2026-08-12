@@ -1,0 +1,304 @@
+/**
+ * @license
+ * Copyright 2026 Google LLC
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import assert from 'node:assert';
+import {afterEach, describe, it} from 'node:test';
+
+import sinon from 'sinon';
+
+import {parseArguments} from '../src/bin/chrome-devtools-mcp-cli-options.js';
+import {McpContext} from '../src/McpContext.js';
+import {McpPage} from '../src/McpPage.js';
+import {ClearcutLogger} from '../src/telemetry/ClearcutLogger.js';
+import {zod} from '../src/third_party/index.js';
+import {ToolHandler} from '../src/ToolHandler.js';
+import {ToolCategory} from '../src/tools/categories.js';
+import type {
+  DefinedPageTool,
+  ToolDefinition,
+} from '../src/tools/ToolDefinition.js';
+import {Mutex} from '../src/third_party/index.js';
+
+describe('ToolHandler', () => {
+  afterEach(() => {
+    sinon.restore();
+    ClearcutLogger.resetForTesting();
+  });
+
+  it('calls page getter for page scoped tools', async () => {
+    let handlerCalled = false;
+    const tool: DefinedPageTool = {
+      name: 'page_tool',
+      description: 'A page scoped tool',
+      annotations: {
+        category: ToolCategory.INPUT,
+        readOnlyHint: false,
+      },
+      schema: {},
+      blockedByDialog: false,
+      verifyFilesSchema: [],
+      pageScoped: true,
+      handler: async () => {
+        handlerCalled = true;
+      },
+    };
+
+    const mockContext = sinon.createStubInstance(McpContext);
+    const mockPage = sinon.createStubInstance(McpPage);
+    mockContext.getSelectedMcpPage.returns(mockPage);
+
+    const toolMutex = new Mutex();
+    const serverArgs = parseArguments('1.0.0', ['node', 'script.js'], {
+      CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: 'true',
+    });
+
+    const toolHandler = new ToolHandler(
+      tool,
+      serverArgs,
+      async () => mockContext,
+      toolMutex,
+    );
+
+    assert.strictEqual(toolHandler.shouldRegister, true);
+    await toolHandler.handle({});
+
+    assert.strictEqual(mockContext.getSelectedMcpPage.calledOnce, true);
+    assert.strictEqual(handlerCalled, true);
+  });
+
+  it('does not pass page to handler for non-page scoped tools', async () => {
+    let handlerCalled = false;
+    const tool: ToolDefinition = {
+      name: 'global_tool',
+      description: 'A global tool',
+      annotations: {
+        category: ToolCategory.NAVIGATION,
+        readOnlyHint: true,
+      },
+      schema: {},
+      blockedByDialog: false,
+      verifyFilesSchema: [],
+      handler: async () => {
+        handlerCalled = true;
+      },
+    };
+
+    const mockContext = sinon.createStubInstance(McpContext);
+
+    const toolMutex = new Mutex();
+    const serverArgs = parseArguments('1.0.0', ['node', 'script.js'], {
+      CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: 'true',
+    });
+
+    const toolHandler = new ToolHandler(
+      tool,
+      serverArgs,
+      async () => mockContext,
+      toolMutex,
+    );
+
+    assert.strictEqual(toolHandler.shouldRegister, true);
+    const result = await toolHandler.handle({});
+
+    assert.strictEqual(mockContext.getDevToolsData.calledOnce, true);
+    assert.strictEqual(mockContext.getSelectedMcpPage.calledOnce, true);
+    assert.strictEqual(mockContext.getPageById.called, false);
+    assert.strictEqual(handlerCalled, true);
+    assert.strictEqual(result.isError, undefined);
+  });
+
+  it('appends correct context to tool call logs', async () => {
+    const baseTool: ToolDefinition = {
+      name: 'test_tool',
+      description: 'A test tool',
+      annotations: {
+        category: ToolCategory.NAVIGATION,
+        readOnlyHint: true,
+      },
+      schema: {},
+      blockedByDialog: false,
+      verifyFilesSchema: [],
+      handler: async () => {
+        return;
+      },
+    };
+
+    const testCases: Array<{
+      tool: ToolDefinition | DefinedPageTool;
+      devToolsData: Record<string, unknown>;
+      pageUrl?: string;
+      expectedContext: Record<string, unknown>;
+    }> = [
+      {
+        tool: {
+          ...baseTool,
+          name: 'page_tool',
+          pageScoped: true,
+        },
+        devToolsData: {cdpBackendNodeId: 1},
+        pageUrl: 'http://localhost:9222/',
+        expectedContext: {
+          is_devtools_open: true,
+          is_localhost: true,
+          devtools_data: {
+            is_dom_element_selected: true,
+          },
+        },
+      },
+      {
+        tool: {
+          ...baseTool,
+          name: 'global_tool',
+        },
+        devToolsData: {},
+        pageUrl: undefined,
+        expectedContext: {
+          is_devtools_open: false,
+        },
+      },
+    ];
+
+    for (const testCase of testCases) {
+      let handlerCalled = false;
+      testCase.tool.handler = async () => {
+        handlerCalled = true;
+      };
+
+      const mockContext = sinon.createStubInstance(McpContext);
+      mockContext.getDevToolsData.resolves(testCase.devToolsData);
+      if (testCase.pageUrl) {
+        const mockPage = {
+          pptrPage: {
+            isClosed: () => false,
+            url: () => testCase.pageUrl,
+          },
+        } as unknown as McpPage;
+        mockContext.getSelectedMcpPage.returns(mockPage);
+      }
+
+      const logSpy = sinon.spy();
+      sinon.stub(ClearcutLogger, 'get').returns({
+        logToolInvocation: logSpy,
+      } as unknown as ClearcutLogger);
+
+      const toolMutex = new Mutex();
+      const serverArgs = parseArguments('1.0.0', ['node', 'script.js'], {
+        CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: 'true',
+      });
+
+      const toolHandler = new ToolHandler(
+        testCase.tool,
+        serverArgs,
+        async () => mockContext,
+        toolMutex,
+      );
+
+      await toolHandler.handle({});
+
+      assert.strictEqual(logSpy.calledOnce, true);
+      assert.deepStrictEqual(
+        logSpy.firstCall.args[0].context,
+        testCase.expectedContext,
+      );
+      assert.strictEqual(handlerCalled, true);
+
+      sinon.restore();
+      ClearcutLogger.resetForTesting();
+    }
+  });
+
+  it('reports unknown registered tool arguments clearly', async () => {
+    let handlerCalled = false;
+    const tool: ToolDefinition = {
+      name: 'lenient_tool',
+      description: 'A tool with a required argument',
+      annotations: {
+        category: ToolCategory.NAVIGATION,
+        readOnlyHint: true,
+      },
+      schema: {
+        url: zod.string(),
+      },
+      blockedByDialog: false,
+      verifyFilesSchema: [],
+      handler: async () => {
+        handlerCalled = true;
+      },
+    };
+
+    const mockContext = sinon.createStubInstance(McpContext);
+
+    const toolMutex = new Mutex();
+    const serverArgs = parseArguments('1.0.0', ['node', 'script.js'], {
+      CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: 'true',
+    });
+
+    const toolHandler = new ToolHandler(
+      tool,
+      serverArgs,
+      async () => mockContext,
+      toolMutex,
+    );
+
+    const params = {url: 'https://example.com', description: 'open the page'};
+    assert.strictEqual(
+      toolHandler.registeredInputSchema.safeParse(params).success,
+      true,
+    );
+
+    const result = await toolHandler.handle(params);
+
+    assert.strictEqual(result.isError, true);
+    assert.match(
+      result.content[0].type === 'text' ? result.content[0].text : '',
+      /Unknown argument for tool "lenient_tool": "description"\. Expected arguments: "url"\./,
+    );
+    assert.strictEqual(handlerCalled, false);
+  });
+
+  it('sets shouldRegister to false and returns disabled reason when category is disabled', async () => {
+    let handlerCalled = false;
+    const tool: ToolDefinition = {
+      name: 'disabled_tool',
+      description: 'A disabled tool',
+      annotations: {
+        category: ToolCategory.EMULATION,
+        readOnlyHint: true,
+      },
+      schema: {},
+      blockedByDialog: false,
+      verifyFilesSchema: [],
+      handler: async () => {
+        handlerCalled = true;
+      },
+    };
+
+    const mockContext = sinon.createStubInstance(McpContext);
+    const toolMutex = new Mutex();
+    const serverArgs = parseArguments(
+      '1.0.0',
+      ['node', 'script.js', '--categoryEmulation=false'],
+      {CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS: 'true'},
+    );
+
+    const toolHandler = new ToolHandler(
+      tool,
+      serverArgs,
+      async () => mockContext,
+      toolMutex,
+    );
+
+    assert.strictEqual(toolHandler.shouldRegister, false);
+
+    const result = await toolHandler.handle({});
+    assert.strictEqual(result.isError, true);
+    assert.match(
+      result.content[0].type === 'text' ? result.content[0].text : '',
+      /is currently disabled/,
+    );
+    assert.strictEqual(handlerCalled, false);
+  });
+});

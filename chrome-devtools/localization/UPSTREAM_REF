@@ -1,0 +1,16 @@
+# 上游钉版本锚点（由 localization/upstream.cjs 与 compat.cjs 读取）
+# 来源：ChromeDevTools/chrome-devtools-mcp @ main 分支（对应 npm 发布版本 1.7.0）
+UPSTREAM_VERSION=1.7.0
+UPSTREAM_SOURCE=ChromeDevTools/chrome-devtools-mcp@main
+SNAPSHOT_DATE=2026-08-12
+
+# devtools-frontend 子模块（上游以 git submodule 引入，本地以 vendored 副本承载）
+# 构建前由 localization/ 兼容脚本按下方钉版本 clone 填充（见 .gitmodules 原始定义）
+DEVTOOLS_FRONTEND_REPO=https://github.com/ChromeDevTools/devtools-frontend.git
+DEVTOOLS_FRONTEND_BRANCH=main
+# 钉版本 commit：由 chrome-devtools-mcp 标签 chrome-devtools-mcp-v1.7.0 的树解析得到
+# （COMMIT_SHA=774d78f5eef5e610407a0c92fa6ec5ed74b027e8 → 其树中 devtools-frontend 子模块 SHA）
+DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
+# 注：本机以 vendored 源码树承载（非 git submodule，避免 GB 级 .git 入库）。
+# 仅 front_end/ 源码树被 vendored； codemirror 的 package/*.mjs 由旧构建副本补回（post-build.ts 需），
+# 这些资产被 .gitignore 排除（upstream/devtools-frontend/），不入库。
