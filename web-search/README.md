@@ -7,7 +7,7 @@
 web-search/
 ├── SKILL.md          # 父：协调 + 双轨裁决 + 本地化 overlay + 强门禁
 ├── README.md         # 本文件：含上游演进快速跟进指南
-├── .env              # 父级持有真实密钥（ANYSEARCH_API_KEY；FIRECRAWL_API_KEY 由 firecrawl login 提供），已入库（明文，用户已知晓并接受）
+├── .env              # 父级持有真实密钥（ANYSEARCH_API_KEY；FIRECRAWL_API_KEY 由 firecrawl login 提供），**已移出 git 跟踪（git-ignored，仅驻留本地磁盘）；该密钥曾入库历史，须到 anysearch 控制台轮换作废**
 ├── anysearch-skill/  # 子 Skill（上游扁平并入，非独立 clone）
 │   ├── SKILL.md
 │   ├── scripts/anysearch_cli.py
@@ -15,7 +15,8 @@ web-search/
 ├── firecrawl/        # 适配层（基于官方 CLI，非 clone）
 │   └── SKILL.md
 └── tests/            # 审计修复回归测试（stdlib unittest）
-    └── test_fixes.py
+    ├── test_fixes.py   # 7 例：契约守护（_load_env/路径/交互/密钥不落盘/一致性）
+    └── test_full.py    # 42 例：全场景+全边界（解析器/批搜/搜索/抽取/_load_env/_call_api + 文档合规）
 ```
 
 ## 上游演进快速跟进指南
@@ -30,7 +31,7 @@ web-search/
 
 | 日期 | 上游 commit | 变更摘要 |
 |------|------------|----------|
-|      |            |          |
+| 2026-08-11 | 扁平并入未记录 SHA（基于上游 v3.0.1） | 本仓库安全整改：`.env` 移出 git 跟踪并加入 `.gitignore`；子 SKILL.md 补 `name`/目录不一致注释；删除死文件 `anysearch-skill/.github/workflows/ci.yml`；新增 `tests/test_full.py` |
 
 ### B. Firecrawl（gh-api 跟进适配层，非 clone）
 - 官方 CLI：`firecrawl/cli`（npm 全局安装，PATH 已注册）；适配知识在 `firecrawl/SKILL.md`
@@ -45,10 +46,10 @@ web-search/
 
 | 日期 | openapi 版本/SHA | 变更摘要 |
 |------|------------------|----------|
-|      |                  |          |
+| 2026-08-11 | 未抓取（待 `gh api` 跟进） | 本仓库安全整改同步：适配层 `name` 注释；复核「`FIRECRAWL_API_KEY` 不落盘」硬约束 |
 
 ## 密钥
-- 父级 `.env` 持有 `ANYSEARCH_API_KEY` 真实值（已入库，明文，用户已知晓并接受）；`FIRECRAWL_API_KEY` **不**入库，由 `firecrawl login` 全局凭据提供。
+- 父级 `.env` 持有 `ANYSEARCH_API_KEY` 真实值（**已移出 git 跟踪，明文仅驻留本地磁盘、未入库；该密钥曾进入 git 历史，须到 anysearch 控制台轮换作废**）；`FIRECRAWL_API_KEY` **不**入库，由 `firecrawl login` 全局凭据提供。
 - 子技能 `anysearch-skill/.env.example` 仅占位；Firecrawl 适配层不存密钥，运行时由 `firecrawl login` 凭据注入。
 
 ## 安装（Firecrawl CLI 全局）
@@ -67,7 +68,7 @@ firecrawl --version
 uv run --with requests python -m unittest discover -s web-search/tests -v
 ```
 
-覆盖项（`tests/test_fixes.py`）：
+覆盖项（`tests/test_fixes.py`，7 例）：
 
 | 用例 | 守护的契约 |
 |------|-----------|
@@ -78,5 +79,7 @@ uv run --with requests python -m unittest discover -s web-search/tests -v
 | `test_c10_skill_and_readme_contract_consistent` | SKILL.md 与 README.md 的脚本路径/密钥位置/升级方式描述一致 |
 | `test_f7_cli_contract` | 真实执行 `firecrawl interact --help` 校验上游 CLI 契约（CLI 缺失则 skip） |
 | `test_d8_env_lookup_stops_at_nearest` | `_load_env` 命中第一个 .env 后 break（就近优先），父级 .env 不得静默覆盖 |
+
+> **`tests/test_full.py`（42 例，全场景+全边界）** 另覆盖：`_parse_sub_domain_params` / `_parse_json_list` / `_repair_json` 全边界；`batch_search`(0/1/5/6 查询与 `@file`/共享优先级)；`search`(`--max_results` 封顶 10)；`extract`(位置/`--url`/缺失)；`_load_env`(BOM/注释/空值/就近/父级回退/多键)；`_call_api`(HTTPError/ConnectionError/Timeout/`error` 字段/无 text)；以及父/子 `SKILL.md` 文档合规（示例章节、`<主题>` 占位符、`name`/目录注释、死文件已删、`.env` 出库）。
 
 该套件已接入仓库冒烟门禁 Tier 3（`scripts/smoke/tier3_runtime.py`），CI 会自动执行。

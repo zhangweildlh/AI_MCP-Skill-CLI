@@ -5,12 +5,14 @@
 #   - Memory-Data 目录内「非 .md 文件」不入库（.md 文件保留入库）
 #   - .workbuddy 为本地项目配置，不入库（仅本地读取）
 #   - Syncfolders 同步数据库、*.7z 压缩包不入库
-#   - 用户明确允许：anysearch-skill/.env、web-search/.env、ref-material-writing/.env
-#     入库（含真实 API Key 与隐私），故不忽略。ref-material-writing 自 2026-08-03
-#     起内嵌自有 AnySearch CLI 副本（scripts/anysearch_cli.py + scripts/shared/），
-#     其 .env 与 web-search 同策略显式允许。
-#   - 注：仓库级忽略规则仅匹配 env/ 目录与 .venv/ 目录，不忽略顶层 .env 文件，
-#     故上述 .env 本就会被跟踪；此处仅为策略显式声明，便于维护者知晓。
+#   - 用户明确允许入库（含真实 API Key 与隐私，仅限私有仓库、绝不外推）：
+#       · ref-material-writing/.env（D-2026-0811-01 授权，保持私有）
+#       · anysearch-skill/.env
+#   - web-search/.env：2026-08-11 安全决议改判为「绝不入库」（真实密钥已落 git 历史、
+#     须到 anysearch.com/settings/api-keys 轮换作废），须忽略，与
+#     scripts/smoke/tier0_secrets.py 的 MUST_IGNORE 一致。
+#   - 注：仓库级忽略规则仅匹配 env/ 与 .venv/ 目录，不忽略顶层 .env 文件，
+#     故需忽略的顶层 .env 在下方「敏感凭据」段单独显式声明。
 # =====================================================================
 
 # ---------- 用户明确排除 ----------
@@ -29,6 +31,8 @@ __pycache__/
 .venv/
 venv/
 env/
+# ---------- 敏感凭据（绝不入库，与 tier0_secrets.py MUST_IGNORE 一致）----------
+web-search/.env
 node_modules/
 *.log
 .sisyphus/
