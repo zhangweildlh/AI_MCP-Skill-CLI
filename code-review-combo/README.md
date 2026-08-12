@@ -17,6 +17,8 @@
 
 ## 二、术语约定
 
+> 注意：内嵌的 `review-spd` 子技能为上流英文副本（源仓库 `zhu1090093659/spec_driven_develop`，见第六节 6.1），由 combo 主技能以中文统一编排。如需严格中文一致，可将其 `SKILL.md` 本地化为中文，但须同步保持 JSON Schema（category/mode/summary）与 Phase 1–6 契约不变，避免破坏阶段三合并兼容性。
+
 - 正文中的「open-code-review-delegate 子技能」与其底层工具「OCR / ocr」指代同一子技能。
 - JSON 字段 `verified_by` 取值 `ocr-only` 即「仅 open-code-review-delegate 子技能发现」；`review-spd-only` 即「仅 review-spd 发现」；`both` 即「两者共同确认」。
 - JSON 字段 `cross_check` 取值 `confirmed`（交叉验证确认）/ `new`（新发现）/ `disputed`（有争议）。
@@ -158,6 +160,7 @@ gh api repos/zhu1090093659/spec_driven_develop/contents/plugins/spec-driven-deve
 
 | 同步时间 | 子技能 | 上游 SHA / 版本 | 改动摘要 |
 |----------|--------|----------------|----------|
+| 2026-08-08 | open-code-review-delegate 上游跟随 + review-spd 复核 | open-code-review-delegate 委托模式 SKILL.md = `b1c7c6a` (2026-08-07)；仓库最新 `62e2b99` 仅改 CLI Go 代码与 cli-reference 文档；review-spd 真上游 = `d5d3477` (2026-07-26) | 按 README 6.4-A 比对：① open-code-review-delegate 委托模式 SKILL.md 较上次记录 `4ee453f` 新增 `ocr delegate preview`/`rule` 支持 `--format json`、Step 4 强制覆盖清单（reviewable_files 逐项 reviewed/skipped + 理由、大改动分批）、Step 6 summary 新增 `total_files`/`reviewed_files`/`skipped_files`/`coverage_rate`、Gotchas 新增「覆盖率为强制项」。combo 中文增强副本（1.1.0）已并入上述变更，保留 8 类 `category` 枚举与 JSON Schema 对齐；ocr CLI 仍由 SKILL.md 自安装，CLI Go 代码改动不影响 combo 副本。② review-spd 真上游 `d5d3477` 自 2026-07-31 检查后无新提交，combo 副本功能领先（含 JSON 输出改造），无需跟随。 |
 | 2026-07-30 | review-spd | 真上游基线 = `zhu1090093659/spec_driven_develop`；**实际同步源 = fork `zhangweildlh/spec_driven_develop` 的 `feat/review-spd-json-output` 分支 commit `35cc1e8`**（含本地 JSON 输出改造 + L1/L2/M1 修复） | 统一 severity 定义（L1）、固化 branch 模式 `from=base`/`to=head`（L2）、Structured JSON 节补充文本↔JSON 对照示例（M1）。combo 的 review-spd 副本**实际来自 fork `35cc1e8`，非直接来自真上游**（真上游彼时尚未合入 JSON 输出改造）。后续 6.3 上游检查时，应比对真上游 `review-spd` 目录与 combo 副本的**内容差异**；若真上游已合入 `feat/review-spd-json-output` 或自身演进，以真上游为准重新同步，并记录真上游 SHA。 |
 | 2026-07-30 | 初始构建 | — | 从 `spec_driven_develop` 仓库副本（含 JSON 输出改造）复制 review-spd；从已安装副本复制 open-code-review-delegate（其含 ocr CLI 自安装）。 |
 | 2026-07-31 | 上游检查（无功能性跟随） | review-spd 真上游 = `d5d3477` (2026-07-26)；ocr 委托模式 SKILL.md = `4ee453f` (2026-07-16，仓库最新 `d55f5e5` 仅改 CLI Go 代码) | 真实 `gh api` + 内容 diff 比对：① review-spd 真上游 `d5d3477` 做 "single-source and slim all prompts" 精简重构，但**未合入**本 fork 的 JSON 输出改造（SKILL.md 无 Dual output 段、output-format.md 无 Structured JSON 段）；combo 副本含 JSON 输出，功能领先，故**不覆盖式跟随**（避免丢失 JSON 输出能力）。② ocr 委托模式 SKILL.md 仍为 `4ee453f`，近期提交仅改 CLI 代码；combo 副本（`1.1.0` 中文增强）的 `category` 8 类枚举、`--commit` 参数、JSON Schema 已与上游对齐，无需跟随。结论：两子技能当前无需功能性同步；持续监控真上游是否合入 JSON 输出。 |
@@ -175,4 +178,4 @@ gh api repos/zhu1090093659/spec_driven_develop/contents/plugins/spec-driven-deve
 5. 用 review-spd 交叉验证 `code-review-combo` → 无 BUG。
 6. 用 Skill 校验器 11 维校验 `code-review-combo` → 通过。
 
-> 注：第 4–5 条审计 `code-review-combo` 自身时，因本技能目录不在 Git 仓库内、且主体为 `.md` 文件，按 SKILL.md「.md excluded」边界走**宿主直接读取文件的静态审查**（不触发「目标非 Git 仓库」拒绝）；`review-context.py` 在该场景下不适用（其 `require_git_repo()` 会返回 `not inside a git repository`），故阶段二对 combo 自身不调用该脚本，改由宿主直读文件后按 review-spd 五焦点审查。
+> 注：第 4–5 条审计 `code-review-combo` 自身时，因本技能目录不在 Git 仓库内、且主体为 `.md` 文件，走**宿主直接读取文件的静态审查**；这属于维护者主动选择的独立路径，与 SKILL.md 异常处理中「目标非 Git 仓库 → 停止」互不冲突——该拒绝规则仅针对**被审查目标**，而自审是维护动作，不触发拒绝。`review-context.py` 在该场景下不适用（其 `require_git_repo()` 会返回 `not inside a git repository`），故阶段二对 combo 自身不调用该脚本，改由宿主直读文件后按 review-spd 五焦点审查。

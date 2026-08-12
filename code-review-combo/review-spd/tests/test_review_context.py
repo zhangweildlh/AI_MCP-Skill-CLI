@@ -13,6 +13,7 @@ review-context.py，并断言其产出的 Markdown 契约。它们锁定了：
 （无依赖，纯标准库即可运行）。
 """
 
+import datetime
 import os
 import subprocess
 import sys
@@ -60,6 +61,36 @@ def write(repo: Path, rel: str, content: str) -> None:
     p = repo / rel
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
+
+
+def write_bytes(repo: Path, rel: str, data: bytes) -> None:
+    p = repo / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(data)
+
+
+def commit_file(repo: Path, rel: str, content: str, *, date: str | None = None,
+                message: str = "c") -> None:
+    """Write `rel`, stage everything, and commit (optionally back-dated).
+
+    `date` is any git-acceptable date string (e.g. an ISO 8601 timestamp); when
+    given it is applied to both author and committer dates so commit-range tests
+    can produce commits at controlled points in time.
+    """
+    write(repo, rel, content)
+    env = None
+    if date is not None:
+        env = {**os.environ, "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+    subprocess.run(
+        ["git", "add", "-A"],
+        cwd=str(repo), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        check=True, env=env,
+    )
+    subprocess.run(
+        ["git", "commit", "-q", "-m", message],
+        cwd=str(repo), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        check=True, env=env,
+    )
 
 
 class TestUncommitted(unittest.TestCase):
@@ -138,6 +169,33 @@ class TestCommitRange(unittest.TestCase):
         self.assertIn("Mode: `commit-range`", proc.stdout)
         self.assertIn("feature work", proc.stdout)
 
+    def test_commit_range_only_since_collects(self):
+        repo = make_repo()
+        commit_file(repo, "f.txt", "1\n", message="init")
+        commit_file(repo, "f.txt", "2\n", message="recent work")
+        proc = run_script(repo, "--since", "1 day ago")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Mode: `commit-range`", proc.stdout)
+        self.assertIn("recent work", proc.stdout)
+
+    def test_commit_range_only_until_collects(self):
+        repo = make_repo()
+        # Back-date a commit so it lands inside [default 3 days ago .. --until 1 day ago].
+        when = (datetime.datetime.now() - datetime.timedelta(days=2)).isoformat()
+        commit_file(repo, "f.txt", "1\n", date=when, message="old work")
+        proc = run_script(repo, "--until", "1 day ago")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Mode: `commit-range`", proc.stdout)
+        self.assertIn("old work", proc.stdout)
+
+    def test_commit_range_empty_past_range_has_no_changes(self):
+        repo = make_repo()
+        commit_file(repo, "f.txt", "1\n", message="init")
+        proc = run_script(repo, "--since", "10 years ago", "--until", "9 years ago")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Mode: `commit-range`", proc.stdout)
+        self.assertIn("Has changes: `no`", proc.stdout)
+
 
 class TestBranch(unittest.TestCase):
     def test_branch_review_collects_diff(self):
@@ -153,6 +211,106 @@ class TestBranch(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("Mode: `branch`", proc.stdout)
         self.assertIn("feature work", proc.stdout)
+
+    def test_branch_autodetect_base_without_origin(self):
+        # Repo has a local `main` and no `origin/*`; base must fall back to `main`.
+        repo = make_repo()
+        commit_file(repo, "f.txt", "1\n", message="init")
+        git(repo, "checkout", "-q", "-b", "feature")
+        commit_file(repo, "f.txt", "2\n", message="feature work")
+        proc = run_script(repo, "--branch", "feature")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Mode: `branch`", proc.stdout)
+        self.assertIn("Base: `main`", proc.stdout)
+        self.assertIn("feature work", proc.stdout)
+
+    def test_branch_not_found(self):
+        repo = make_repo()
+        commit_file(repo, "f.txt", "1\n", message="init")
+        proc = run_script(repo, "--branch", "doesnotexist")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("branch/ref not found", proc.stderr)
+
+    def test_base_not_found(self):
+        repo = make_repo()
+        commit_file(repo, "f.txt", "1\n", message="init")
+        git(repo, "checkout", "-q", "-b", "feature")
+        commit_file(repo, "f.txt", "2\n", message="feature work")
+        proc = run_script(repo, "--branch", "feature", "--base", "nonexistent")
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("base ref not found", proc.stderr)
+
+
+class TestUntrackedBoundaries(unittest.TestCase):
+    """Untracked-file diff boundaries: binary and oversized content must be omitted."""
+
+    def test_untracked_binary_omitted(self):
+        repo = make_repo()
+        commit_file(repo, "init.txt", "x\n", message="init")
+        write_bytes(repo, "b.bin", b"abc\x00def")
+        proc = run_script(repo)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("binary content", proc.stdout)
+        # The raw binary bytes must not be dumped into the unified diff.
+        self.assertNotIn("abc", proc.stdout)
+
+    def test_untracked_large_omitted(self):
+        repo = make_repo()
+        commit_file(repo, "init.txt", "x\n", message="init")
+        write_bytes(repo, "big.bin", b"z" * (200_001))
+        proc = run_script(repo)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("larger than", proc.stdout)
+        self.assertIn("200000", proc.stdout)
+
+
+class TestEmptyRepo(unittest.TestCase):
+    """git init + untracked file, but no commits yet (no HEAD)."""
+
+    def test_uncommitted_without_commits_does_not_crash(self):
+        repo = make_repo()  # only `git init`; no commit yet
+        write(repo, "a.txt", "x\n")
+        proc = run_script(repo)
+        # Must exit cleanly even though `git diff HEAD` has no HEAD to compare against.
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("Mode: `uncommitted`", proc.stdout)
+        self.assertIn("a.txt", proc.stdout)
+        self.assertIn("Has changes: `yes`", proc.stdout)
+
+
+class TestPathScopeExtended(unittest.TestCase):
+    """Additional --path scoping contracts beyond the C-1 regression pair."""
+
+    def test_nested_subdir_scope(self):
+        repo = make_repo()
+        commit_file(repo, "sub/deep/x.txt", "v1\n", message="init")
+        commit_file(repo, "sub/y.txt", "v1\n", message="init2")
+        write(repo, "sub/deep/x.txt", "v2\n")
+        write(repo, "sub/y.txt", "v2\n")
+        proc = run_script(repo, "--path", "sub/deep")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("sub/deep/x.txt", proc.stdout)
+        self.assertNotIn("sub/y.txt", proc.stdout)
+
+    def test_nonexistent_subdir_scope(self):
+        repo = make_repo()
+        commit_file(repo, "a.txt", "v1\n", message="init")
+        write(repo, "a.txt", "v2\n")
+        proc = run_script(repo, "--path", "nonexistent")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # Nothing lives under a non-existent directory, so no repo file appears.
+        self.assertNotIn("a.txt", proc.stdout)
+
+    def test_untracked_outside_path_excluded(self):
+        repo = make_repo()
+        commit_file(repo, "sub/kept.txt", "v1\n", message="init")
+        commit_file(repo, "other/ign.txt", "v1\n", message="init2")
+        write(repo, "sub/kept.txt", "v2\n")
+        write(repo, "other/untracked.txt", "u\n")
+        proc = run_script(repo, "--path", "sub")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("sub/kept.txt", proc.stdout)
+        self.assertNotIn("other/untracked.txt", proc.stdout)
 
 
 if __name__ == "__main__":
