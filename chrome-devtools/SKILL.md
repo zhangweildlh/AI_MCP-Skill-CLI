@@ -3,70 +3,6 @@ name: chrome-devtools
 description: "通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome / 360Chromex 等）进行网页调试、浏览器自动化、性能分析与网络检查的中文本地化技能。服务器以全局方式安装（npm install -g，位于 $(npm root -g)），可任选 MCP 服务模式或 CLI 模式使用。激活关键词：Chrome DevTools、浏览器自动化、网页调试、页面快照(take_snapshot)、元素交互(点击/填写/拖拽)、性能分析(Lighthouse/Performance Insight)、内存泄漏排查、网络请求检查、控制台日志、网页截图。适用场景：调试网页或 Web 应用、自动化点击/填写/导航、分析 LCP/内存/可访问性、抓取页面结构与控制台、连接已登录浏览器复用登录态。不适用场景：纯后端或 CLI 任务、无需浏览器的数据处理、本机无可用浏览器且未用 verify_browser 指定路径的情况。"
 ---
 
-## 架构与维护（父技能 + 子技能解耦）
-
-> 本技能采用**方案 A**解耦架构：父技能（本地化层，可改） + 子技能（`upstream/` 纯上游快照，不改源码）。本地化改造经 `apply_localize.cjs` 以哨兵 `<!-- LOCALIZED:360Chromex -->` 幂等注入，与上游源码物理隔离，便于跟随上游升级而无需 fork 上游。
-
-### 目录结构
-
-```
-chrome-devtools/
-├── SKILL.md                      # 父技能主文档（使用者视角·本地化用法）
-├── .gitignore                    # 排除机器专属配置与 vendored 大体积资产
-├── chrome-devtools_v1.6.0.zip    # 历史版本备份（本地，不入库，见 .gitignore）
-├── localization/                 # 【父技能·可改】本地化层
-│   ├── UPSTREAM_REF              # 上游钉版本锚点（版本 + devtools-frontend commit）
-│   ├── apply_localize.cjs        # 哨兵幂等注入本地化片段到 upstream/（核心）
-│   ├── upstream.cjs              # 从钉版本 clone 上游到 upstream/（重部署用）
-│   ├── deploy.cjs                # 全局安装 + 构建 + vendoring 编排
-│   ├── vendor_frontend.cjs       # 按 UPSTREAM_REF 钉版本 sparse-clone devtools-frontend
-│   ├── compat.cjs / verify_browser.cjs / start.cjs / cli_run.cjs
-│   ├── fragments/                # 本地化注入片段源（_frag_*.md）
-│   └── test/localize.test.cjs    # 本地化层单元测试（预期 8/8 PASS）
-└── upstream/                     # 【子技能·纯快照·不改源码】ChromeDevTools/chrome-devtools-mcp @ 1.7.0
-    ├── skills/                   # 上游 5 个子技能（chrome-devtools / a11y-debugging / ...）
-    ├── src/ build/               # 上游源码与构建产物（build 不入库）
-    ├── package.json              # 上游包定义（本地化层守卫校验此文件存在）
-    └── devtools-frontend/        # vendored 副本（按钉版本填充，不入库）
-```
-
-### UPSTREAM_REF 钉版本锚点
-
-`localization/UPSTREAM_REF` 是本地化层与上游之间的**唯一版本契约**：
-
-- `UPSTREAM_VERSION=1.7.0`：跟随的上游 npm 发布版本（当前快照来源 `ChromeDevTools/chrome-devtools-mcp@main` 于 2026-08-12 对齐 1.7.0）。
-- `DEVTOOLS_FRONTEND_COMMIT=b0a8253...`：devtools-frontend 子模块的钉版本 commit（由上游标签 `chrome-devtools-mcp-v1.7.0` 树解析得到）。构建依赖此精确 commit，`vendor_frontend.cjs` 据此 sparse-clone。
-
-**何时更新**：仅当 deliberate 决定跟随上游新版本时。更新步骤——修改 `UPSTREAM_REF` 的两个版本字段 → 重跑 `upstream.cjs`（刷新 `upstream/` 快照）→ 重跑 `apply_localize.cjs`（重新注入本地化片段）→ 重跑测试。禁止随手 bump 版本号却不刷新快照。
-
-### devtools-frontend vendoring（F-08 复现依赖）
-
-上游以 git submodule 引入 `devtools-frontend`（GB 级），本方案改为 **vendored 源码树**承载，避免巨型 `.git` 入库：
-
-- `deploy.cjs` 步骤 2.5 调用 `vendor_frontend.cjs`，按 `UPSTREAM_REF` 的 `DEVTOOLS_FRONTEND_COMMIT` 做 sparse-clone（`--filter=blob:none --sparse` + `sparse-checkout set front_end` + `checkout <commit>`），仅取 `front_end/` 树。
-- `upstream/devtools-frontend/` 被 `.gitignore` 排除，**不入库**；新机器 `npm run build` 前必须先跑 `deploy.cjs`（或单独 `node localization/vendor_frontend.cjs`）填充，否则构建失败。
-- 幂等：`vendor_frontend.cjs` 已存在则跳过；支持 `--dry-run` 预览。
-
-### 陌生 Agent 自主跟进步骤（维护 / 重部署）
-
-若你（Agent）接手本技能做维护或在新机器复现，按序执行（均在 `chrome-devtools/` 根目录内）：
-
-1. **核验钉版本**：读 `localization/UPSTREAM_REF`，确认 `UPSTREAM_VERSION` 与 `DEVTOOLS_FRONTEND_COMMIT`。
-2. **刷新上游快照（如需升级）**：`node localization/upstream.cjs`（clone 钉版本到 `upstream/`，排除 `.git`/`node_modules`/`build`）。
-3. **注入本地化（必须）**：`node localization/apply_localize.cjs`；`--check` 可无副作用自检守卫与目标存在性（通过输出 `[CHECK] 通过`）。若 `--check` 失败，先解决 `upstream/package.json` 存在性等前置。
-4. **构建前 vendoring（必须）**：`node localization/vendor_frontend.cjs`（或走 `deploy.cjs` 步骤 2.5 自动触发）。
-5. **全局安装与构建**：`node localization/deploy.cjs`（npm install -g + build + vendoring 编排）。
-6. **回归自检**：`node localization/test/localize.test.cjs`（预期 8/8 PASS，含 `--check` 断言 T7）。
-7. **仅提交 chrome-devtools 目录**：`chrome-devtools_v1.6.0.zip` 等备份严禁入库（见 `.gitignore`）。
-
-### resize_page 兼容性边界（1.7.0 新增）
-
-上游 1.7.0 新增 `resize_page` 工具（`upstream/src/tools/pages.ts`），用于调整**选中页面窗口**尺寸。已知边界：
-
-- 依赖 CDP 窗口管理域；当目标窗口处于**最大化/全屏**状态时，需先还原窗口状态才能 resize（上游 PR #748 已处理该场景）。
-- 360Chromex 一般可用；若遇 CDP 不支持（类比扩展工具 `Extensions` 域被裁剪的情况），降级为手动调整窗口尺寸，切勿反复重试浪费时间。
-- 该工具调整的是页面窗口，不是视口 emulation；与 `emulate` 的视口模拟是两回事。
-
 ## Core Concepts
 
 **Browser lifecycle**: Browser starts automatically on first tool call using a persistent Chrome profile. Configure via CLI args in the MCP server configuration. The server is installed **globally** (`npm install -g`, located at `$(npm root -g)/chrome-devtools-mcp`), so do **not** use `npx -y`. To see all options:
@@ -272,7 +208,7 @@ node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" take_
 
 ### 核心操作速查（MCP 工具名保持英文）
 
-- **页面/导航**：`list_pages`、`select_page`、`navigate_page --url`、`new_page`、`close_page`、`resize_page <宽> <高>`（调整选中页面窗口尺寸；兼容边界见「架构与维护」章节）
+- **页面/导航**：`list_pages`、`select_page`、`navigate_page --url`、`new_page`、`close_page`、`resize_page <宽> <高>`（调整选中页面窗口尺寸）
 - **结构/交互**：`take_snapshot`（文本快照，获取元素 `uid`）、`click <uid>`、`fill <uid> <文本>`、`hover`、`drag <src> <dst>`、`press_key`、`type_text`、`upload_file`
 - **截图**：`take_screenshot`（可 `--fullPage`、`--filePath` 存盘）
 - **控制台/日志**：`list_console_messages`、`get_console_message`
