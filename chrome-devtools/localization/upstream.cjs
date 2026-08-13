@@ -16,12 +16,18 @@ const UPSTREAM_REPO = 'ChromeDevTools/chrome-devtools-mcp';
 const UPSTREAM_PKG = path.join(UPSTREAM, 'package.json');
 const DRY = process.argv.includes('--dry-run');
 
-// 受保护排除集：全树拷贝（cloneDir -> upstream/）时永不覆盖/删除的项。
+// 钉版本锚点：若 localization/UPSTREAM_REF 指定了 UPSTREAM_TAG，则克隆该标签而非默认分支。
+// 原因：main 分支存在 submodule 未同步的 transient 不一致（tsc 构建报 DebuggerLanguagePlugin 类型错误），
+// 故本方案固定部署自洽的发布版本 v1.7.0（其 tsconfig 引用 devtools-frontend/front_end/...，即顶层路径）。
+const UPSTREAM_REF = readUpstreamRef();
+const CLONE_TAG = (UPSTREAM_REF && UPSTREAM_REF.UPSTREAM_TAG) ? UPSTREAM_REF.UPSTREAM_TAG : '';
+
+// 受保护排除集：全树拷贝（cloneDir -> upstream/）时永不覆盖/删除的项（按相对 upstream/ 的路径匹配）。
 // 主要针对 upstream/ 内不应被上游覆盖的本地资产/生成物：
-//   devtools-frontend（vendored 构建产物，非 submodule，保留本地产物）
+//   devtools-frontend（vendored 构建产物，非 submodule，保留本地产物；与 v1.7.0 submodule 顶层路径一致）
 //   node_modules / build（运行时生成，避免破坏已装依赖与构建产物）
 const PROTECTED = new Set([
-  'devtools-frontend',
+  'devtools-frontend', // vendored 构建产物（v1.7.0 顶层路径）
   'node_modules',
   'build',
   '.gitmodules', // 上游用 submodule 承载 devtools-frontend；本方案改用 vendored 产物，故不引入 .gitmodules
@@ -60,7 +66,7 @@ function copyTree(src, dst, protectedSet) {
       // 排除 node_modules / build（任意层级）与 .git：cloneDir 含 .git，整树拷贝会将其拷入 upstream/.git，
       // 形成嵌套 git 仓库污染父仓（git status 异常、可能误判 gitlink）。pruneStale 已同样排除 .git。
       if (base === 'node_modules' || base === 'build' || base === '.git') return false;
-      const rel = path.relative(dst, p);
+      const rel = path.relative(src, p);
       if (protectedSet && protectedSet.has(rel)) return false;
       return true;
     },
@@ -92,9 +98,12 @@ function pruneStale(src, dst) {
   walk(dst);
 }
 
-if (!fs.existsSync(UPSTREAM_PKG)) {
-  console.error('[错误] 未找到 upstream/package.json，请先完成脚手架迁移（G1a）。');
-  process.exit(1);
+// 全新引导（bootstrap）检测：upstream/ 不存在时，本脚本将直接从钉版本仓库克隆并填充，
+// 无需预置 upstream/（满足"主副本最小化、upstream/ 可衍生"的要求：删除主副本 upstream/ 后，
+// 陌生 Agent 仅凭 README + 本脚本即可重建）。已存在时则按"升级"流程处理。
+const upstreamExists = fs.existsSync(UPSTREAM_PKG);
+if (!upstreamExists) {
+  console.log('[信息] 未检测到 upstream/package.json，进入全新引导（bootstrap）模式：将直接从钉版本仓库克隆并填充 upstream/。');
 }
 
 // 1) 检测上游最新版本（优先 npm view，其次 gh release）
@@ -109,17 +118,23 @@ try {
     process.exit(1);
   }
 }
-const localVer = JSON.parse(fs.readFileSync(UPSTREAM_PKG, 'utf8')).version;
-console.log('本地 upstream 版本: ' + localVer + ' / 上游最新: ' + latest);
+// 仅当 upstream/ 已存在（升级场景）时读取本地版本；bootstrap 场景无本地版本可比较。
+let localVer = null;
+if (upstreamExists) {
+  localVer = JSON.parse(fs.readFileSync(UPSTREAM_PKG, 'utf8')).version;
+  console.log('本地 upstream 版本: ' + localVer + ' / 上游最新: ' + latest);
+} else {
+  console.log('本地 upstream 尚未初始化（bootstrap）；上游最新: ' + latest);
+}
 
 if (DRY) {
-  console.log('[DRY-RUN] 将执行：clone 上游(main) -> strip 本地化 -> 全树拷贝到 upstream/(受保护排除) -> pruneStale(src/scripts/skills) -> 定向合并(compat) -> 重注入 -> deploy');
+  console.log('[DRY-RUN] 将执行：clone 上游(' + (CLONE_TAG || 'main(默认分支)') + ') -> strip 本地化 -> 全树拷贝到 upstream/(受保护排除) -> pruneStale(src/scripts/skills) -> 定向合并(compat) -> 重注入 -> deploy');
   console.log('[DRY-RUN] 受保护排除集: ' + [...PROTECTED].join(', '));
   console.log('[DRY-RUN] devtools-frontend 为 vendored 构建产物，upgrade 时保留本地产物（不参与上游镜像）。');
   process.exit(0);
 }
 
-if (localVer === latest) {
+if (localVer && localVer === latest) {
   console.log('[OK] 已是最新（' + localVer + '），仍重新注入本地化并合并约束（幂等），确保不漂移。');
 }
 
@@ -129,11 +144,19 @@ try {
   const cloneDir = path.join(tmp, 'repo');
   let cloned = false;
   try {
-    sh('git clone --depth 1 https://github.com/' + UPSTREAM_REPO + '.git "' + cloneDir + '"', tmp);
+    if (CLONE_TAG) {
+      sh('git clone --depth 1 --branch "' + CLONE_TAG + '" https://github.com/' + UPSTREAM_REPO + '.git "' + cloneDir + '"', tmp);
+    } else {
+      sh('git clone --depth 1 https://github.com/' + UPSTREAM_REPO + '.git "' + cloneDir + '"', tmp);
+    }
     cloned = true;
   } catch (e) {
     try {
-      sh('gh repo clone ' + UPSTREAM_REPO + ' "' + cloneDir + '" -- --depth 1', tmp);
+      if (CLONE_TAG) {
+        sh('gh repo clone ' + UPSTREAM_REPO + ' "' + cloneDir + '" -- --branch "' + CLONE_TAG + '" --depth 1', tmp);
+      } else {
+        sh('gh repo clone ' + UPSTREAM_REPO + ' "' + cloneDir + '" -- --depth 1', tmp);
+      }
       cloned = true;
     } catch (e2) {
       console.error('[错误] 无法 clone 上游源码（需联网且 git/gh 可用）。可手动按 README 操作。');
@@ -142,9 +165,11 @@ try {
   }
   if (!cloned) process.exit(1);
 
-  // 3) 剥离旧本地化段（还原纯上游基线）
-  console.log('=== 剥离旧本地化段 ===');
-  sh('node "' + path.join(__dirname, 'apply_localize.cjs') + '" --strip');
+  // 3) 剥离旧本地化段（还原纯上游基线）——仅当已有 upstream/ 时执行（bootstrap 无旧段可剥离）
+  if (upstreamExists) {
+    console.log('=== 剥离旧本地化段 ===');
+    sh('node "' + path.join(__dirname, 'apply_localize.cjs') + '" --strip');
+  }
 
   // 4) 全树拷贝（受保护排除集）：cloneDir -> upstream/
   console.log('=== 全树拷贝上游到 upstream/（受保护排除集）===');

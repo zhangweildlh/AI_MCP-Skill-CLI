@@ -35,6 +35,6 @@ node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js" -
 
 - 360Chromex 须用 `--executablePath` 指定，不能用 `--channel`（官方仅识别 chrome / canary / edge 等）。
 - `--isolated` 默认 `true`，会生成临时 profile 并丢失登录态；要复用登录态必须走 `--browserUrl` 直连已启动实例。
-- `--categoryExtensions`（外部扩展）仅 pipe 连接支持，`--browserUrl` 模式暂不支持（待上游 issue #149）。
+- `--categoryExtensions`（外部扩展）：CLI `start` 模式默认已启用扩展（上游 #149 关于 browserUrl 模式扩展的限制已于 1.6.0 CLI start 路径解除）；MCP server 模式如需扩展工具须在 args 显式加 `--categoryExtensions`。
 - `--no-usage-statistics` 关闭遥测。
 - 严禁 `npx -y`：一律 `node "$(npm root -g)/..."` 或 `npm install -g .` 全局安装。
