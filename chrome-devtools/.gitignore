@@ -158,6 +158,7 @@ mcp-local-config.json
 upstream/node_modules/
 upstream/build/
 # devtools-frontend 为上游 git 子模块的 vendored 副本（体积大），构建前由 localization/ 兼容脚本按钉版本 clone 填充，不入库
+# 路径与上游 v1.7.0 .gitmodules 的 submodule 路径一致（upstream/devtools-frontend，顶层）
 upstream/devtools-frontend/
 
 # 用户历史版本备份压缩包（v1.6.0 等），属本地备份、不随仓库分发，严禁入库

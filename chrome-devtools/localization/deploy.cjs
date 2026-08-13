@@ -106,6 +106,9 @@ console.log('[依赖] 安装依赖（装齐 devDependencies，含 puppeteer-core
 console.log('[依赖] 安装脚本批准由 .npmrc 的 allow-scripts[] 在安装时即生效（无需额外步骤）。');
 sh('npm install', UPSTREAM, globalEnv());
 
+console.log('=== 2.4) 剥离 @paulirish/trace_engine 冲突全局声明（TS2717 上游 workaround，须于 tsc 前执行） ===');
+sh('node "' + path.join(__dirname, 'fix_trace_engine_dts.cjs') + '"');
+
 console.log('=== 2.5) vendoring devtools-frontend（按 UPSTREAM_REF 钉版本；构建前必需，且已被 .gitignore 排除不随仓库分发） ===');
 sh('node "' + path.join(__dirname, 'vendor_frontend.cjs') + '"');
 
