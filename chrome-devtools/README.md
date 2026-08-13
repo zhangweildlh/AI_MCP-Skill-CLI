@@ -1,1244 +1,368 @@
-# Chrome DevTools for agents
-
-[![npm chrome-devtools-mcp package](https://img.shields.io/npm/v/chrome-devtools-mcp.svg)](https://npmjs.org/package/chrome-devtools-mcp)
-
-Chrome DevTools for agents (`chrome-devtools-mcp`) lets your coding agent (such as Antigravity, Claude, Cursor or Copilot)
-control and inspect a live Chrome browser. It acts as a Model-Context-Protocol
-(MCP) server, giving your AI coding assistant access to the full power of
-Chrome DevTools for reliable automation, in-depth debugging, and performance analysis.
-A [CLI](docs/cli.md) is also provided for use without MCP.
-
-## [Tool reference](./docs/tool-reference.md) | [Changelog](./CHANGELOG.md) | [Contributing](./CONTRIBUTING.md) | [Troubleshooting](./docs/troubleshooting.md) | [Design Principles](./docs/design-principles.md)
-
-## Key features
-
-- **Get performance insights**: Uses [Chrome
-  DevTools](https://github.com/ChromeDevTools/devtools-frontend) to record
-  traces and extract actionable performance insights.
-- **Advanced browser debugging**: Analyze network requests, take screenshots and
-  check browser console messages (with source-mapped stack traces).
-- **Reliable automation**. Uses
-  [puppeteer](https://github.com/puppeteer/puppeteer) to automate actions in
-  Chrome and automatically wait for action results.
-
-## Disclaimers
-
-`chrome-devtools-mcp` exposes content of the browser instance to the MCP clients
-allowing them to inspect, debug, and modify any data in the browser or DevTools.
-Avoid sharing sensitive or personal information that you don't want to share with
-MCP clients.
-
-`chrome-devtools-mcp` officially supports Google Chrome and [Chrome for Testing](https://developer.chrome.com/blog/chrome-for-testing/) only.
-Other Chromium-based browsers may work, but this is not guaranteed, and you may encounter unexpected behavior. Use at your own discretion.
-We are committed to providing fixes and support for the latest version of [Extended Stable Chrome](https://chromiumdash.appspot.com/schedule).
-
-Performance tools may send trace URLs to the Google CrUX API to fetch real-user
-experience data. This helps provide a holistic performance picture by
-presenting field data alongside lab data. This data is collected by the [Chrome
-User Experience Report (CrUX)](https://developer.chrome.com/docs/crux). To disable
-this, run with the `--no-performance-crux` flag.
-
-## **Usage statistics**
-
-Google collects usage statistics (such as tool invocation success rates, latency, and environment information) to improve the reliability and performance of Chrome DevTools MCP.
-
-Data collection is **enabled by default**. You can opt-out by passing the `--no-usage-statistics` flag when starting the server:
-
-```json
-"args": ["-y", "chrome-devtools-mcp@latest", "--no-usage-statistics"]
-```
-
-Google handles this data in accordance with the [Google Privacy Policy](https://policies.google.com/privacy).
-
-Google's collection of usage statistics for Chrome DevTools MCP is independent from the Chrome browser's usage statistics. Opting out of Chrome metrics does not automatically opt you out of this tool, and vice-versa.
-
-Collection is disabled if `CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS` or `CI` env variables are set.
-
-## Update checks
-
-By default, the server periodically checks the npm registry for updates and logs a notification when a newer version is available.
-You can disable these update checks by setting the `CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS` environment variable.
-
-## Requirements
-
-- [Node.js](https://nodejs.org/) [LTS](https://github.com/nodejs/Release#release-schedule) version.
-- [Chrome](https://www.google.com/chrome/) current stable version or newer.
-- [npm](https://www.npmjs.com/)
-
-## Getting started
-
-Add the following config to your MCP client:
-
-```json
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest"]
-    }
-  }
-}
-```
-
-> [!NOTE]
-> Using `chrome-devtools-mcp@latest` ensures that your MCP client will always use the latest version of the Chrome DevTools MCP server.
-
-If you are interested in doing only basic browser tasks, use the `--slim` mode:
-
-```json
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest", "--slim", "--headless"]
-    }
-  }
-}
-```
-
-See [Slim tool reference](./docs/slim-tool-reference.md).
-
-### MCP Client configuration
-
-<details>
-  <summary>Amp</summary>
-  Follow https://ampcode.com/manual#mcp and use the config provided above. You can also install the Chrome DevTools MCP server using the CLI:
-
-```bash
-amp mcp add chrome-devtools -- npx chrome-devtools-mcp@latest
-```
-
-</details>
-
-<details>
-  <summary>Antigravity</summary>
-
-To use the Chrome DevTools MCP server follow the instructions from <a href="https://antigravity.google/docs/mcp">Antigravity's docs</a> to install a custom MCP server. Add the following config to the MCP servers config:
-
-```bash
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "chrome-devtools-mcp@latest",
-        "--browser-url=http://127.0.0.1:9222"
-      ]
-    }
-  }
-}
-```
-
-This will make the Chrome DevTools MCP server automatically connect to the browser that Antigravity is using. If you are not using port 9222, make sure to adjust accordingly.
-
-Chrome DevTools MCP will not start the browser instance automatically using this approach because the Chrome DevTools MCP server connects to Antigravity's built-in browser. If the browser is not already running, you have to start it first by clicking the Chrome icon at the top right corner.
-
-</details>
-
-<details>
-  <summary>Claude Code</summary>
-
-**Install via CLI (MCP only)**
-
-Use the Claude Code CLI to add the Chrome DevTools MCP server (<a href="https://code.claude.com/docs/en/mcp">guide</a>):
-
-```bash
-claude mcp add chrome-devtools --scope user npx chrome-devtools-mcp@latest
-```
-
-**Install as a Plugin (MCP + Skills)**
-
-> [!NOTE]
-> If you already had Chrome DevTools MCP installed previously for Claude Code, make sure to remove it first from your installation and configuration files.
-
-To install Chrome DevTools MCP with skills, add the marketplace registry in Claude Code:
-
-```sh
-/plugin marketplace add ChromeDevTools/chrome-devtools-mcp
-```
-
-Then, install the plugin:
-
-```sh
-/plugin install chrome-devtools-mcp@chrome-devtools-plugins
-```
-
-Restart Claude Code to have the MCP server and skills load (check with `/skills`).
-
-> [!TIP]
-> If the plugin installation fails with a `Failed to clone repository` error (e.g., HTTPS connectivity issues behind a corporate firewall), see the [troubleshooting guide](./docs/troubleshooting.md#claude-code-plugin-installation-fails-with-failed-to-clone-repository) for workarounds, or use the CLI installation method above instead.
-
-</details>
-
-<details>
-  <summary>Cline</summary>
-  Follow https://docs.cline.bot/mcp/configuring-mcp-servers and use the config provided above.
-</details>
-
-<details>
-  <summary>Codex</summary>
-  Follow the <a href="https://developers.openai.com/codex/mcp/#configure-with-the-cli">configure MCP guide</a>
-  using the standard config from above. You can also install the Chrome DevTools MCP server using the Codex CLI:
-
-```bash
-codex mcp add chrome-devtools -- npx chrome-devtools-mcp@latest
-```
-
-**On Windows 11**
-
-Configure the Chrome install location and increase the startup timeout by updating `.codex/config.toml` and adding the following `env` and `startup_timeout_ms` parameters:
-
-```
-[mcp_servers.chrome-devtools]
-command = "cmd"
-args = [
-    "/c",
-    "npx",
-    "-y",
-    "chrome-devtools-mcp@latest",
-]
-env = { SystemRoot="C:\\Windows", PROGRAMFILES="C:\\Program Files" }
-startup_timeout_ms = 20_000
-```
-
-</details>
-
-<details>
-  <summary>Command Code</summary>
-
-Use the Command Code CLI to add the Chrome DevTools MCP server (<a href="https://commandcode.ai/docs/mcp">MCP guide</a>):
-
-```bash
-cmd mcp add chrome-devtools --scope user npx chrome-devtools-mcp@latest
-```
-
-</details>
-
-<details>
-  <summary>Copilot CLI</summary>
-
-Start Copilot CLI:
-
-```
-copilot
-```
-
-Start the dialog to add a new MCP server by running:
-
-```
-/mcp add
-```
-
-Configure the following fields and press `CTRL+S` to save the configuration:
-
-- **Server name:** `chrome-devtools`
-- **Server Type:** `[1] Local`
-- **Command:** `npx -y chrome-devtools-mcp@latest`
-
-</details>
-
-<details>
-  <summary>Copilot / VS Code</summary>
-
-**Install as a Plugin (Recommended)**
-
-The easiest way to get up and running is to install `chrome-devtools-mcp` as an agent plugin.
-This bundles the **MCP server** and all **skills** together, so your agent gets both the tools
-and the expert guidance it needs to use them effectively.
-
-1.  Open the **Command Palette** (`Cmd+Shift+P` on macOS or `Ctrl+Shift+P` on Windows/Linux).
-2.  Search for and run the **Chat: Install Plugin From Source** command.
-3.  Paste in our repository name: `ChromeDevTools/chrome-devtools-mcp`.
-
-That's it! Your agent is now supercharged with Chrome DevTools capabilities.
+# chrome-devtools 本地化技能（使用与演进手册）
+
+> **本文件定位**：给人阅读，也是「任一不了解本项目 / 本技能」的 Agent 在跟踪上游仓库、演进代码与版本时使用的手册。陌生 Agent 在读完本文件后，应能**自主、自动**地完成：日常调用、新机器复现部署、跟随上游升级、刷新本地化片段、运行回归测试。
+>
+> **与 SKILL.md 的分工**：`SKILL.md` 仅面向运行时——给 WorkBuddy / Agent 调用浏览器、启动服务、理解红线用的精简指令（不含解释性 / 维护性内容）。一切「为什么这样设计」「如何演进」「目录为何如此布局」「版本如何钉」等说明类信息，**都在本 README.md**。
 
 ---
 
-**Install as an MCP Server (MCP only)**
+## 1. 项目概述
 
-**Click the button to install:**
+本技能是上游开源项目 `ChromeDevTools/chrome-devtools-mcp`（Chrome DevTools MCP 服务器，用于驱动本地浏览器做网页调试、自动化、性能分析、网络检查）的**中文本地化封装**。
 
-[<img src="https://img.shields.io/badge/VS_Code-VS_Code?style=flat-square&label=Install%20Server&color=0098FF" alt="Install in VS Code">](https://vscode.dev/redirect/mcp/install?name=io.github.ChromeDevTools%2Fchrome-devtools-mcp&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22chrome-devtools-mcp%22%5D%2C%22env%22%3A%7B%7D%7D)
+本地化的核心目标（围绕本机环境）：
 
-[<img src="https://img.shields.io/badge/VS_Code_Insiders-VS_Code_Insiders?style=flat-square&label=Install%20Server&color=24bfa5" alt="Install in VS Code Insiders">](https://insiders.vscode.dev/redirect?url=vscode-insiders%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522io.github.ChromeDevTools%252Fchrome-devtools-mcp%2522%252C%2522config%2522%253A%257B%2522command%2522%253A%2522npx%2522%252C%2522args%2522%253A%255B%2522-y%2522%252C%2522chrome-devtools-mcp%2522%255D%252C%2522env%2522%253A%257B%257D%257D%257D)
+- 复用本机已安装的 **360Chromex 浏览器**及其登录态（不下载任何浏览器内核，依赖 `puppeteer-core`）。
+- 以 **全局安装**方式部署（`npm install -g`，位于 `$(npm root -g)`），不依赖 `npx -y`。
+- 经 `--browserUrl` 直连已启动的浏览器实例，保留登录态。
+- 关键本地化约束（如 `--executablePath` 而非 `--channel`、`PUPPETEER_SKIP_DOWNLOAD=1`）以**物理隔离**方式注入上游快照，便于跟随上游升级而无需 fork 上游。
 
-**Or install manually:**
-
-Follow the VS Code [MCP configuration guide](https://code.visualstudio.com/docs/copilot/chat/mcp-servers#_add-an-mcp-server) using the standard config from above, or use the CLI:
-
-For macOS and Linux:
-
-```bash
-code --add-mcp '{"name":"io.github.ChromeDevTools/chrome-devtools-mcp","command":"npx","args":["-y","chrome-devtools-mcp"],"env":{}}'
-```
-
-For Windows (PowerShell):
-
-```powershell
-code --add-mcp '{"""name""":"""io.github.ChromeDevTools/chrome-devtools-mcp""","""command""":"""npx""","""args""":["""-y""","""chrome-devtools-mcp"""]}'
-```
-
-</details>
-
-<details>
-  <summary>Cursor</summary>
-
-**Click the button to install:**
-
-[<img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Install in Cursor">](https://cursor.com/en/install-mcp?name=chrome-devtools&config=eyJjb21tYW5kIjoibnB4IC15IGNocm9tZS1kZXZ0b29scy1tY3BAbGF0ZXN0In0%3D)
-
-**Or install manually:**
-
-Go to `Cursor Settings` -> `MCP` -> `New MCP Server`. Use the config provided above.
-
-</details>
-
-<details>
-  <summary>Devin CLI</summary>
-
-**Install via CLI (MCP only)**
-
-Use the Devin CLI to add the Chrome DevTools MCP server (<a href="https://docs.devin.ai/cli/extensibility/mcp/configuration">guide</a>):
-
-```bash
-devin mcp add chrome-devtools -- npx chrome-devtools-mcp@latest
-```
-
-</details>
-
-<details>
-  <summary>Factory CLI</summary>
-Use the Factory CLI to add the Chrome DevTools MCP server (<a href="https://docs.factory.ai/cli/configuration/mcp">guide</a>):
-
-```bash
-droid mcp add chrome-devtools "npx -y chrome-devtools-mcp@latest"
-```
-
-</details>
-
-<details>
-  <summary>Gemini CLI</summary>
-Install the Chrome DevTools MCP server using the Gemini CLI.
-
-**Project wide:**
-
-```bash
-# Either MCP only:
-gemini mcp add chrome-devtools npx chrome-devtools-mcp@latest
-# Or as a Gemini extension (MCP+Skills):
-gemini extensions install --auto-update https://github.com/ChromeDevTools/chrome-devtools-mcp
-```
-
-**Globally:**
-
-```bash
-gemini mcp add -s user chrome-devtools npx chrome-devtools-mcp@latest
-```
-
-Alternatively, follow the <a href="https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md#how-to-set-up-your-mcp-server">MCP guide</a> and use the standard config from above.
-
-</details>
-
-<details>
-  <summary>Gemini Code Assist</summary>
-  Follow the <a href="https://cloud.google.com/gemini/docs/codeassist/use-agentic-chat-pair-programmer#configure-mcp-servers">configure MCP guide</a>
-  using the standard config from above.
-</details>
-
-<details>
-  <summary>Grok Build CLI</summary>
-
-```bash
-grok mcp add chrome-devtools npx chrome-devtools-mcp@latest
-```
-
-See the <a href="https://docs.x.ai/build/features/skills-plugins-marketplaces">docs</a> for more options
-</details>
-
-<details>
-  <summary>JetBrains AI Assistant & Junie</summary>
-
-Go to `Settings | Tools | AI Assistant | Model Context Protocol (MCP)` -> `Add`. Use the config provided above.
-The same way chrome-devtools-mcp can be configured for JetBrains Junie in `Settings | Tools | Junie | MCP Settings` -> `Add`. Use the config provided above.
-
-</details>
-
-<details>
-  <summary>Kiro</summary>
-
-In **Kiro Settings**, go to `Configure MCP` > `Open Workspace or User MCP Config` > Use the configuration snippet provided above.
-
-Or, from the IDE **Activity Bar** > `Kiro` > `MCP Servers` > `Click Open MCP Config`. Use the configuration snippet provided above.
-
-</details>
-
-<details>
-  <summary>Katalon Studio</summary>
-
-The Chrome DevTools MCP server can be used with <a href="https://docs.katalon.com/katalon-studio/studioassist/mcp-servers/setting-up-chrome-devtools-mcp-server-for-studioassist">Katalon StudioAssist</a> via an MCP proxy.
-
-**Step 1:** Install the MCP proxy by following the <a href="https://docs.katalon.com/katalon-studio/studioassist/mcp-servers/setting-up-mcp-proxy-for-stdio-mcp-servers">MCP proxy setup guide</a>.
-
-**Step 2:** Start the Chrome DevTools MCP server with the proxy:
-
-```bash
-mcp-proxy --transport streamablehttp --port 8080 -- npx -y chrome-devtools-mcp@latest
-```
-
-**Note:** You may need to pick another port if 8080 is already in use.
-
-**Step 3:** In Katalon Studio, add the server to StudioAssist with the following settings:
-
-- **Connection URL:** `http://127.0.0.1:8080/mcp`
-- **Transport type:** `HTTP`
-
-Once connected, the Chrome DevTools MCP tools will be available in StudioAssist.
-
-</details>
-
-<details>
-  <summary>Mistral Vibe</summary>
-
-Add in ~/.vibe/config.toml:
-
-```toml
-[[mcp_servers]]
-name = "chrome-devtools"
-transport = "stdio"
-command = "npx"
-args = ["chrome-devtools-mcp@latest"]
-```
-
-</details>
-
-<details>
-  <summary>OpenCode</summary>
-
-Add the following configuration to your `opencode.json` file. If you don't have one, create it at `~/.config/opencode/opencode.json` (<a href="https://opencode.ai/docs/mcp-servers">guide</a>):
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "chrome-devtools": {
-      "type": "local",
-      "command": ["npx", "-y", "chrome-devtools-mcp@latest"]
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-  <summary>Qoder</summary>
-
-In **Qoder Settings**, go to `MCP Server` > `+ Add` > Use the configuration snippet provided above.
-
-Alternatively, follow the <a href="https://docs.qoder.com/user-guide/chat/model-context-protocol">MCP guide</a> and use the standard config from above.
-
-</details>
-
-<details>
-  <summary>Qoder CLI</summary>
-
-Install the Chrome DevTools MCP server using the Qoder CLI (<a href="https://docs.qoder.com/cli/using-cli#mcp-servers">guide</a>):
-
-**Project wide:**
-
-```bash
-qodercli mcp add chrome-devtools -- npx chrome-devtools-mcp@latest
-```
-
-**Globally:**
-
-```bash
-qodercli mcp add -s user chrome-devtools -- npx chrome-devtools-mcp@latest
-```
-
-</details>
-
-<details>
-  <summary>Visual Studio</summary>
-
-**Click the button to install:**
-
-[<img src="https://img.shields.io/badge/Visual_Studio-Install-C16FDE?logo=visualstudio&logoColor=white" alt="Install in Visual Studio">](https://vs-open.link/mcp-install?%7B%22name%22%3A%22chrome-devtools%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22chrome-devtools-mcp%40latest%22%5D%7D)
-
-</details>
-
-<details>
-  <summary>Warp</summary>
-
-Go to `Settings | AI | Manage MCP Servers` -> `+ Add` to [add an MCP Server](https://docs.warp.dev/knowledge-and-collaboration/mcp#adding-an-mcp-server). Use the config provided above.
-
-</details>
-
-<details>
-  <summary>Windsurf</summary>
-  Follow the <a href="https://docs.windsurf.com/windsurf/cascade/mcp#mcp-config-json">configure MCP guide</a>
-  using the standard config from above.
-</details>
-
-### Your first prompt
-
-Enter the following prompt in your MCP Client to check if everything is working:
-
-```
-Check the performance of https://developers.chrome.com
-```
-
-Your MCP client should open the browser and record a performance trace.
-
-> [!NOTE]
-> The MCP server will start the browser automatically once the MCP client uses a tool that requires a running browser instance. Connecting to the Chrome DevTools MCP server on its own will not automatically start the browser.
-
-## Tools
-
-If you run into any issues, checkout our [troubleshooting guide](./docs/troubleshooting.md).
-
-<!-- BEGIN AUTO GENERATED TOOLS -->
-
-- **Input automation** (10 tools)
-  - [`click`](docs/tool-reference.md#click)
-  - [`drag`](docs/tool-reference.md#drag)
-  - [`fill`](docs/tool-reference.md#fill)
-  - [`fill_form`](docs/tool-reference.md#fill_form)
-  - [`handle_dialog`](docs/tool-reference.md#handle_dialog)
-  - [`hover`](docs/tool-reference.md#hover)
-  - [`press_key`](docs/tool-reference.md#press_key)
-  - [`type_text`](docs/tool-reference.md#type_text)
-  - [`upload_file`](docs/tool-reference.md#upload_file)
-  - [`click_at`](docs/tool-reference.md#click_at)
-- **Navigation automation** (6 tools)
-  - [`close_page`](docs/tool-reference.md#close_page)
-  - [`list_pages`](docs/tool-reference.md#list_pages)
-  - [`navigate_page`](docs/tool-reference.md#navigate_page)
-  - [`new_page`](docs/tool-reference.md#new_page)
-  - [`select_page`](docs/tool-reference.md#select_page)
-  - [`wait_for`](docs/tool-reference.md#wait_for)
-- **Emulation** (2 tools)
-  - [`emulate`](docs/tool-reference.md#emulate)
-  - [`resize_page`](docs/tool-reference.md#resize_page)
-- **Performance** (3 tools)
-  - [`performance_analyze_insight`](docs/tool-reference.md#performance_analyze_insight)
-  - [`performance_start_trace`](docs/tool-reference.md#performance_start_trace)
-  - [`performance_stop_trace`](docs/tool-reference.md#performance_stop_trace)
-- **Network** (2 tools)
-  - [`get_network_request`](docs/tool-reference.md#get_network_request)
-  - [`list_network_requests`](docs/tool-reference.md#list_network_requests)
-- **Debugging** (8 tools)
-  - [`evaluate_script`](docs/tool-reference.md#evaluate_script)
-  - [`get_console_message`](docs/tool-reference.md#get_console_message)
-  - [`lighthouse_audit`](docs/tool-reference.md#lighthouse_audit)
-  - [`list_console_messages`](docs/tool-reference.md#list_console_messages)
-  - [`take_screenshot`](docs/tool-reference.md#take_screenshot)
-  - [`take_snapshot`](docs/tool-reference.md#take_snapshot)
-  - [`screencast_start`](docs/tool-reference.md#screencast_start)
-  - [`screencast_stop`](docs/tool-reference.md#screencast_stop)
-- **Memory** (12 tools)
-  - [`take_heapsnapshot`](docs/tool-reference.md#take_heapsnapshot)
-  - [`close_heapsnapshot`](docs/tool-reference.md#close_heapsnapshot)
-  - [`compare_heapsnapshots`](docs/tool-reference.md#compare_heapsnapshots)
-  - [`get_heapsnapshot_class_nodes`](docs/tool-reference.md#get_heapsnapshot_class_nodes)
-  - [`get_heapsnapshot_details`](docs/tool-reference.md#get_heapsnapshot_details)
-  - [`get_heapsnapshot_dominators`](docs/tool-reference.md#get_heapsnapshot_dominators)
-  - [`get_heapsnapshot_duplicate_strings`](docs/tool-reference.md#get_heapsnapshot_duplicate_strings)
-  - [`get_heapsnapshot_edges`](docs/tool-reference.md#get_heapsnapshot_edges)
-  - [`get_heapsnapshot_object_details`](docs/tool-reference.md#get_heapsnapshot_object_details)
-  - [`get_heapsnapshot_retainers`](docs/tool-reference.md#get_heapsnapshot_retainers)
-  - [`get_heapsnapshot_retaining_paths`](docs/tool-reference.md#get_heapsnapshot_retaining_paths)
-  - [`get_heapsnapshot_summary`](docs/tool-reference.md#get_heapsnapshot_summary)
-- **Extensions** (5 tools)
-  - [`install_extension`](docs/tool-reference.md#install_extension)
-  - [`list_extensions`](docs/tool-reference.md#list_extensions)
-  - [`reload_extension`](docs/tool-reference.md#reload_extension)
-  - [`trigger_extension_action`](docs/tool-reference.md#trigger_extension_action)
-  - [`uninstall_extension`](docs/tool-reference.md#uninstall_extension)
-- **Third-party** (2 tools)
-  - [`execute_3p_developer_tool`](docs/tool-reference.md#execute_3p_developer_tool)
-  - [`list_3p_developer_tools`](docs/tool-reference.md#list_3p_developer_tools)
-- **WebMCP** (2 tools)
-  - [`execute_webmcp_tool`](docs/tool-reference.md#execute_webmcp_tool)
-  - [`list_webmcp_tools`](docs/tool-reference.md#list_webmcp_tools)
-
-<!-- END AUTO GENERATED TOOLS -->
-
-## Configuration
-
-The Chrome DevTools MCP server supports the following configuration option:
-
-<!-- BEGIN AUTO GENERATED OPTIONS -->
-
-- **`--autoConnect`/ `--auto-connect`**
-  If specified, automatically connects to a browser (Chrome 144+) running locally from the user data directory identified by the channel param (default channel is stable). Requires the remote debugging server to be started in the Chrome instance via chrome://inspect/#remote-debugging.
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--browserUrl`/ `--browser-url`, `-u`**
-  Connect to a running, debuggable Chrome instance (e.g. `http://127.0.0.1:9222`). For more details see: https://github.com/ChromeDevTools/chrome-devtools-mcp#connecting-to-a-running-chrome-instance.
-  - **Type:** string
-  - **Default:** `false`
-
-- **`--wsEndpoint`/ `--ws-endpoint`, `-w`**
-  WebSocket endpoint to connect to a running Chrome instance (e.g., ws://127.0.0.1:9222/devtools/browser/<id>). Alternative to --browserUrl.
-  - **Type:** string
-  - **Default:** `false`
-
-- **`--wsHeaders`/ `--ws-headers`**
-  Custom headers for WebSocket connection in JSON format (e.g., '{"Authorization":"Bearer token"}'). Only works with --wsEndpoint.
-  - **Type:** string
-  - **Default:** `false`
-
-- **`--headless`**
-  Whether to run in headless (no UI) mode.
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--executablePath`/ `--executable-path`, `-e`**
-  Path to custom Chrome executable.
-  - **Type:** string
-  - **Default:** `false`
-
-- **`--isolated`**
-  If specified, creates a temporary user-data-dir that is automatically cleaned up after the browser is closed. Defaults to false.
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--userDataDir`/ `--user-data-dir`**
-  Path to the user data directory for Chrome. Default is $HOME/.cache/chrome-devtools-mcp/chrome-profile$CHANNEL_SUFFIX_IF_NON_STABLE
-  - **Type:** string
-  - **Default:** `false`
-
-- **`--channel`**
-  Specify a different Chrome channel that should be used. The default is the stable channel version.
-  - **Type:** string
-  - **Choices:** `canary`, `dev`, `beta`, `stable`
-  - **Default:** `false`
-
-- **`--logFile`/ `--log-file`**
-  Path to a file to write debug logs to. Set the env variable `DEBUG` to `*` to enable verbose logs. Useful for submitting bug reports.
-  - **Type:** string
-  - **Default:** `false`
-
-- **`--viewport`**
-  Initial viewport size for the Chrome instances started by the server. For example, `1280x720`. In headless mode, max size is 3840x2160px.
-  - **Type:** string
-  - **Default:** `false`
-
-- **`--proxyServer`/ `--proxy-server`**
-  Proxy server configuration for Chrome passed as --proxy-server when launching the browser. See https://www.chromium.org/developers/design-documents/network-settings/ for details.
-  - **Type:** string
-  - **Default:** `false`
-
-- **`--acceptInsecureCerts`/ `--accept-insecure-certs`**
-  If enabled, ignores errors relative to self-signed and expired certificates. Use with caution.
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--experimentalPageIdRouting`/ `--experimental-page-id-routing`**
-  Whether to expose pageId on page-scoped tools and route requests by page ID (useful for concurrent agent sessions).
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--experimentalDevtools`/ `--experimental-devtools`**
-  Whether to enable automation over DevTools targets
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--experimentalVision`/ `--experimental-vision`**
-  Whether to enable coordinate-based tools such as click_at(x,y). Usually requires a computer-use model able to produce accurate coordinates by looking at screenshots.
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--memoryDebugging`/ `--memory-debugging`, `-experimentalMemory`**
-  Whether to enable memory debugging tools.
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--experimentalStructuredContent`/ `--experimental-structured-content`**
-  Whether to output structured formatted content.
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--experimentalIncludeAllPages`/ `--experimental-include-all-pages`**
-  Whether to include all kinds of pages such as webviews or background pages as pages.
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--experimentalScreencast`/ `--experimental-screencast`**
-  Exposes experimental screencast tools (requires ffmpeg). Install ffmpeg https://www.ffmpeg.org/download.html and ensure it is available in the MCP server PATH.
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--experimentalFfmpegPath`/ `--experimental-ffmpeg-path`**
-  Path to ffmpeg executable for screencast recording.
-  - **Type:** string
-  - **Default:** `false`
-
-- **`--categoryExperimentalWebmcp`/ `--category-experimental-webmcp`**
-  Set to true to enable debugging WebMCP tools. Requires Chrome 150+ with the following flag: `--enable-features=WebMCP`
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--chromeArg`/ `--chrome-arg`**
-  Additional arguments for Chrome. Only applies when Chrome is launched by chrome-devtools-mcp.
-  - **Type:** array
-  - **Default:** `false`
-
-- **`--blockedUrlPattern`/ `--blocked-url-pattern`**
-  Restricts browser's network access by blocking specified URL patterns (uses https://urlpattern.spec.whatwg.org/). Silently detaches from targets with blocked URLs upon connection, and blocks runtime requests (including navigations and subresources). Accepts an array of patterns.
-  - **Type:** array
-  - **Default:** `false`
-
-- **`--allowedUrlPattern`/ `--allowed-url-pattern`**
-  Restricts browser's network access by allowing only specified URL patterns (uses https://urlpattern.spec.whatwg.org/). Requires Chrome 149+. Silently detaches from targets with unallowed URLs upon connection, and blocks runtime requests (including navigations and subresources). Accepts an array of patterns.
-  - **Type:** array
-  - **Default:** `false`
-
-- **`--ignoreDefaultChromeArg`/ `--ignore-default-chrome-arg`**
-  Explicitly disable default arguments for Chrome. Only applies when Chrome is launched by chrome-devtools-mcp.
-  - **Type:** array
-  - **Default:** `false`
-
-- **`--categoryEmulation`/ `--category-emulation`**
-  Set to false to exclude tools related to emulation.
-  - **Type:** boolean
-  - **Default:** `true`
-
-- **`--categoryPerformance`/ `--category-performance`**
-  Set to false to exclude tools related to performance.
-  - **Type:** boolean
-  - **Default:** `true`
-
-- **`--categoryNetwork`/ `--category-network`**
-  Set to false to exclude tools related to network.
-  - **Type:** boolean
-  - **Default:** `true`
-
-- **`--categoryExtensions`/ `--category-extensions`**
-  Set to true to include tools related to extensions. Note: This feature is currently only supported with a pipe connection. autoConnect, browserUrl, and wsEndpoint are not supported with this feature until 149 will be released.
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--categoryExperimentalThirdParty`/ `--category-experimental-third-party`**
-  Set to true to enable third-party developer tools exposed by the inspected page itself
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--performanceCrux`/ `--performance-crux`**
-  Set to false to disable sending URLs from performance traces to CrUX API to get field performance data.
-  - **Type:** boolean
-  - **Default:** `true`
-
-- **`--usageStatistics`/ `--usage-statistics`**
-  Set to false to opt-out of usage statistics collection. Google collects usage data to improve the tool, handled under the Google Privacy Policy (https://policies.google.com/privacy). This is independent from Chrome browser metrics. Disabled if `CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS` or `CI` env variables are set.
-  - **Type:** boolean
-  - **Default:** `true`
-
-- **`--screenshotFormat`/ `--screenshot-format`**
-  Override the default output format used by take_screenshot when the caller does not specify one. JPEG and WebP are ~3-5x smaller than PNG, which helps reduce context size in AI conversations. Unset preserves the existing default ("png").
-  - **Type:** string
-  - **Choices:** `jpeg`, `png`, `webp`
-  - **Default:** `false`
-
-- **`--screenshotQuality`/ `--screenshot-quality`**
-  Override the default compression quality (0-100) used by take_screenshot for JPEG and WebP when the caller does not specify one. Lower values mean smaller files. Ignored for PNG. Unset preserves the Puppeteer default.
-  - **Type:** number
-  - **Default:** `false`
-
-- **`--screenshotMaxWidth`/ `--screenshot-max-width`**
-  Maximum width in pixels for screenshots. If the captured image is wider, it is downscaled (preserving aspect ratio) before being returned. Reduces context size in AI conversations. Unset means no resize.
-  - **Type:** number
-  - **Default:** `false`
-
-- **`--screenshotMaxHeight`/ `--screenshot-max-height`**
-  Maximum height in pixels for screenshots. If the captured image is taller, it is downscaled (preserving aspect ratio) before being returned. Can be combined with --screenshot-max-width; the smaller scale factor wins. Unset means no resize.
-  - **Type:** number
-  - **Default:** `false`
-
-- **`--slim`**
-  Exposes a "slim" set of 3 tools covering navigation, script execution and screenshots only. Useful for basic browser tasks.
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--redactNetworkHeaders`/ `--redact-network-headers`**
-  If true, redacts some of the network headers considered sensitive before returning to the client.
-  - **Type:** boolean
-  - **Default:** `false`
-
-- **`--allowUnrestrictedPaths`/ `--allow-unrestricted-paths`**
-  If set, disables the default path restriction that applies when the MCP client does not negotiate the roots capability. By default, file-writing tools are restricted to the OS temp directory when no roots are configured. Use this only when connecting a trusted local client that does not implement MCP roots and requires access to paths outside the temp directory.
-  - **Type:** boolean
-  - **Default:** `false`
-
-<!-- END AUTO GENERATED OPTIONS -->
-
-Pass them via the `args` property in the JSON configuration. For example:
-
-```json
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "npx",
-      "args": [
-        "chrome-devtools-mcp@latest",
-        "--channel=canary",
-        "--headless=true",
-        "--isolated=true"
-      ]
-    }
-  }
-}
-```
-
-### Connecting via WebSocket with custom headers
-
-You can connect directly to a Chrome WebSocket endpoint and include custom headers (e.g., for authentication):
-
-```json
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "npx",
-      "args": [
-        "chrome-devtools-mcp@latest",
-        "--wsEndpoint=ws://127.0.0.1:9222/devtools/browser/<id>",
-        "--wsHeaders={\"Authorization\":\"Bearer YOUR_TOKEN\"}"
-      ]
-    }
-  }
-}
-```
-
-To get the WebSocket endpoint from a running Chrome instance, visit `http://127.0.0.1:9222/json/version` and look for the `webSocketDebuggerUrl` field.
-
-You can also run `npx chrome-devtools-mcp@latest --help` to see all available configuration options.
-
-## Concepts
-
-### Concurrent sessions
-
-Most MCP clients start one Chrome DevTools MCP server per conversation. If your
-client shares a single server instance across concurrent agents or subagents,
-start the server with `--experimentalPageIdRouting`. This exposes `pageId` on
-page-scoped tools so each agent can route tool calls to the tab it is working
-with.
-
-```json
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "chrome-devtools-mcp@latest",
-        "--experimentalPageIdRouting"
-      ]
-    }
-  }
-}
-```
-
-If you run multiple independent MCP client sessions and want each session to
-launch its own temporary Chrome profile, also pass `--isolated`. This avoids
-sharing the default Chrome DevTools MCP user data directory between those
-server instances.
-
-### User data directory
-
-`chrome-devtools-mcp` starts a Chrome's stable channel instance using the following user
-data directory:
-
-- Linux / macOS: `$HOME/.cache/chrome-devtools-mcp/chrome-profile-$CHANNEL`
-- Windows: `%HOMEPATH%/.cache/chrome-devtools-mcp/chrome-profile-$CHANNEL`
-
-The user data directory is not cleared between runs and shared across
-all instances of `chrome-devtools-mcp`. Set the `isolated` option to `true`
-to use a temporary user data dir instead which will be cleared automatically after
-the browser is closed.
-
-### Connecting to a running Chrome instance
-
-By default, the Chrome DevTools MCP server will start a new Chrome instance with a dedicated profile. This might not be ideal in all situations:
-
-- If you would like to maintain the same application state when alternating between manual site testing and agent-driven testing.
-- When the MCP needs to sign into a website. Some accounts may prevent sign-in when the browser is controlled via WebDriver (the default launch mechanism for the Chrome DevTools MCP server).
-- If you're running your LLM inside a sandboxed environment, but you would like to connect to a Chrome instance that runs outside the sandbox.
-
-In these cases, start Chrome first and let the Chrome DevTools MCP server connect to it. There are two ways to do so:
-
-- **Automatic connection (available in Chrome 144)**: best for sharing state between manual and agent-driven testing.
-- **Manual connection via remote debugging port**: best when running inside a sandboxed environment.
-
-#### Automatically connecting to a running Chrome instance
-
-**Step 1:** Set up remote debugging in Chrome
-
-In Chrome (\>= M144), do the following to set up remote debugging:
-
-1.  Navigate to `chrome://inspect/#remote-debugging` to enable remote debugging.
-2.  Follow the dialog UI to allow or disallow incoming debugging connections.
-
-**Step 2:** Configure Chrome DevTools MCP server to automatically connect to a running Chrome Instance
-
-To connect the `chrome-devtools-mcp` server to the running Chrome instance, use
-`--autoConnect` command line argument for the MCP server.
-
-The following code snippet is an example configuration for gemini-cli:
-
-```json
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "npx",
-      "args": ["chrome-devtools-mcp@latest", "--autoConnect"]
-    }
-  }
-}
-```
-
-**Step 3:** Test your setup
-
-Make sure your browser is running. Open gemini-cli and run the following prompt:
-
-```none
-Check the performance of https://developers.chrome.com
-```
-
-> [!NOTE]
-> The <code>autoConnect</code> option requires the user to start Chrome. If the user has multiple active profiles, the MCP server will connect to the default profile (as determined by Chrome). The MCP server has access to all open windows for the selected profile.
-
-The Chrome DevTools MCP server will try to connect to your running Chrome
-instance. It shows a dialog asking for user permission.
-
-Clicking **Allow** results in the Chrome DevTools MCP server opening
-[developers.chrome.com](http://developers.chrome.com) and taking a performance
-trace.
-
-#### Manual connection using port forwarding
-
-You can connect to a running Chrome instance by using the `--browser-url` option. This is useful if you are running the MCP server in a sandboxed environment that does not allow starting a new Chrome instance.
-
-Here is a step-by-step guide on how to connect to a running Chrome instance:
-
-**Step 1: Configure the MCP client**
-
-Add the `--browser-url` option to your MCP client configuration. The value of this option should be the URL of the running Chrome instance. `http://127.0.0.1:9222` is a common default.
-
-```json
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "npx",
-      "args": [
-        "chrome-devtools-mcp@latest",
-        "--browser-url=http://127.0.0.1:9222"
-      ]
-    }
-  }
-}
-```
-
-**Step 2: Start the Chrome browser**
-
-> [!WARNING]
-> Enabling the remote debugging port opens up a debugging port on the running browser instance. Any application on your machine can connect to this port and control the browser. Make sure that you are not browsing any sensitive websites while the debugging port is open.
-
-Start the Chrome browser with the remote debugging port enabled. Make sure to close any running Chrome instances before starting a new one with the debugging port enabled. The port number you choose must be the same as the one you specified in the `--browser-url` option in your MCP client configuration.
-
-For security reasons, [Chrome requires you to use a non-default user data directory](https://developer.chrome.com/blog/remote-debugging-port) when enabling the remote debugging port. You can specify a custom directory using the `--user-data-dir` flag. This ensures that your regular browsing profile and data are not exposed to the debugging session.
-
-**macOS**
-
-```bash
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-profile-stable
-```
-
-**Linux**
-
-```bash
-/usr/bin/google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-profile-stable
-```
-
-**Windows**
-
-```bash
-"C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="%TEMP%\chrome-profile-stable"
-```
-
-**Step 3: Test your setup**
-
-After configuring the MCP client and starting the Chrome browser, you can test your setup by running a simple prompt in your MCP client:
-
-```
-Check the performance of https://developers.chrome.com
-```
-
-Your MCP client should connect to the running Chrome instance and receive a performance report.
-
-If you hit VM-to-host port forwarding issues, see the “Remote debugging between virtual machine (VM) and host fails” section in [`docs/troubleshooting.md`](./docs/troubleshooting.md#remote-debugging-between-virtual-machine-vm-and-host-fails).
-
-For more details on remote debugging, see the [Chrome DevTools documentation](https://developer.chrome.com/docs/devtools/remote-debugging/).
-
-### Debugging Chrome on Android
-
-Please consult [these instructions](./docs/debugging-android.md).
-
-## Known limitations
-
-See [Troubleshooting](./docs/troubleshooting.md).
-
-## Integrating as a browser subagent
-
-If you are developing agentic tooling and want to provide an integrated browser subagent as part of your product, we recommend building on top of Chrome DevTools for agents.
-
-For a reference implementation, see the [Gemini CLI browser agent documentation](https://geminicli.com/docs/core/subagents/#browser-agent).
+当前快照版本：`1.7.0`（钉版本日期 `2026-08-12`，见 `localization/UPSTREAM_REF`）。
 
 ---
 
-<!-- LOCALIZED:360Chromex -->
+## 2. 设计理念与架构（方案 A）
 
-# 中文使用指南（本地化版 · 全局安装 · 拷贝即走）
+### 2.1 父技能 + 子技能解耦
 
-> 本文为 chrome-devtools-mcp 的**中文本地化使用指南**，覆盖架构、安装、部署、使用与上游跟进。上方为上游英文原版 README（命令与英文术语保留供精确参考），日常以下方中文为准。
-> 本文已做**模块化、结构化整理**，内容不删减；与旧版相比主要变化：① 服务器改为**全局安装**（`npm install -g`，位于 `$(npm root -g)`）；② 主副本文件夹**拷贝即走**（不含 node_modules/build）；③ 浏览器**自动检测并规避便携版**；④ 新增 **MCP 服务模式 / CLI 模式 二选一**的初始检测逻辑。
+采用「方案 A」解耦架构，把「可自由改动的本地化层」与「纯上游代码快照」彻底分开：
+
+- **父技能（本目录根，可改）**：承载本地化逻辑与运行时说明，包括 `SKILL.md`、`.gitignore`、`localization/`。
+- **子技能（`upstream/`，纯上游快照，不改源码）**：原样存放 `ChromeDevTools/chrome-devtools-mcp` 的源码 / 构建 / 文档。任何本地化改造都**不修改 `upstream/` 内的源码**，而是通过注入片段叠加。
+
+### 2.2 本地化注入机制（哨兵幂等）
+
+本地化改造经 `localization/apply_localize.cjs`，以哨兵标记 `<!-- LOCALIZED:360Chromex -->` **幂等注入**到上游快照内的若干合法注入点（见第 6.1 节）。注入是「追加本地化段到文件末尾 + 改写 YAML frontmatter 的 `description`」两种动作的组合，剥离时由哨兵行定位、截断还原，从而与上游源码**物理隔离**。
+
+这种机制的好处：
+
+- 跟随上游升级时，只需 `--strip` 清空旧注入段、刷新上游快照、再重新注入，即可一键保全本地化特性，无需维护上游 fork。
+- 幂等：重复执行不会重复注入（已含哨兵则跳过）。
+
+### 2.3 为什么不用 fork、不用 git submodule
+
+- **不 fork 上游**：fork 后长期维护成本极高（每次上游变动都要手动 cherry-pick / rebase）。方案 A 用「快照 + 注入」替代 fork，升级路径轻量。
+- **不用 git submodule 承载 `devtools-frontend`**：上游以 git submodule 引入 `devtools-frontend`（GB 级），直接入库会导致巨型 `.git` 与嵌套仓库污染。方案 A 改用 **vendored 源码树**（见第 5 节），按钉版本精确填充，且被 `.gitignore` 排除、不入库。
 
 ---
 
-## 模块 0：架构总览与核心约定
+## 3. 目录结构
 
-- **服务器全局安装（符号链接模式）**：`npm install -g .` 会在 `$(npm root -g)`（npm 全局根目录，随 Node 安装位置而定）下创建名为 `chrome-devtools-mcp` 的**符号链接**，指向本文件夹；它**不拷贝、也不安装依赖**。运行时依赖与构建产物实际位于被链接的文件夹（`node_modules/` + `build/`）。调用方一律走全局 bin：`$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js`（经符号链接解析到本文件夹）。因此主副本文件夹本身保持最小化、可拷贝即走；依赖在激活后由 `deploy.cjs` 装到该文件夹。
-- **拷贝即走**：把整个 `chrome-devtools/` 文件夹复制到任意电脑、激活主 `SKILL.md`，Agent 即可自主完成「全局安装 → 构建 → 浏览器检测/启动 → 暴露工具」，无需预装。
-- **跨平台说明**：底层脚本（deploy / upstream / copyDir / verify_browser）均为跨平台实现；本地化默认面向 **Windows + 360Chromex（含登录态）**。在 macOS / Linux 上可改用本机 Chrome（去掉 360Chromex 相关步骤，`verify_browser.cjs` 会检测 Chrome 的注册表/PATH 候选），其余流程一致。
-- **复用登录态、零下载**：仅依赖 puppeteer-core，**不下载任何浏览器内核**（`PUPPETEER_SKIP_DOWNLOAD=1` 由部署脚本内置）。
-- **严禁 `npx -y <pkg>`**：一律用 `node "$(npm root -g)/..."` 运行，或用 `npm install -g .` 全局安装。各环境命令见下文「模块 4」。
-- **本地化段标记**：以哨兵 `LOCALIZED:360Chromex` 标记；`apply_localize.cjs --strip` 再注入可刷新，直接重跑则仅保全不刷新（兜底）。
-
-### 主副本目录结构（拷贝即走）
+### 3.1 父技能目录（chrome-devtools/ 根，可改）
 
 ```
-chrome-devtools/                ← 整个文件夹拷贝即走
-├── SKILL.md                    ← 顶层自描述入口（由 apply_localize 从 skills/chrome-devtools/SKILL.md 同步）
-├── README.md                   ← 本文（含本地化段）
-├── sync_and_deploy.cjs         ← 单入口部署（先 mirror_to_target 镜像，再 localization/deploy 部署，强制顺序）
-├── mirror_to_target.cjs        ← 主副本→部署副本镜像（覆盖源码/本地化，含完整性校验 verifySync）
-├── package.json                ← 含 overrides.zod 固定（compat.cjs 维护）+ config.allowScripts 声明意图
-├── package-lock.json           ├─ 上游源码镜像（self-evolution 参考 + 构建基线）
-├── server.json / tsconfig.json / .npmrc（allow-scripts[] 实际批准安装脚本）/ .nvmrc / .gitignore / LICENSE
-├── src/  skills/  scripts/     ← 上游源码镜像（随上游升级刷新）
-├── localization/               ← 自包含工具链（见模块 6）
-│   ├── deploy.cjs              ← 全局安装 + 构建 + 生成 MCP 配置
-│   ├── upstream.cjs            ← 纯网络上游升级（全局卸载/安装/构建）
-│   ├── compat.cjs              ← 固定 zod 兼容版本（避免 v4 编译失败）
-│   ├── apply_localize.cjs      ← 注入/剥离本地化段与中文 description
-│   ├── verify_browser.cjs      ← 自动检测浏览器（规避便携版）
-│   ├── start.cjs               ← 启动浏览器调试端口（复用登录态）
-│   ├── cli_run.cjs             ← CLI 模式辅助脚本（仅 CLI 模式，可被删除）
-│   └── fragments/              ← 本地化片段（README/SKILL 文本与 description）
-├── local-config.json           ← 浏览器路径/用户数据/端口（verify_browser 生成）
-├── mcp-local-config.json       ← 生成的 MCP 接入配置（全局 bin 路径）
-└──（不含 node_modules / build）← 运行时依赖与构建产物由 `deploy.cjs` 在本文件夹安装（并经 $(npm root -g) 的符号链接暴露全局 bin）；拷贝即走的恰是此最小文件夹
+chrome-devtools/
+├── SKILL.md                      # 父技能主文档（Agent 运行时指令，精简）
+├── README.md                     # 本文件（人 / 陌生 Agent 演进手册）
+├── .gitignore                    # 排除机器专属配置与 vendored 大体积资产
+├── localization/                 # 【父技能·可改】本地化层（核心）
+│   ├── UPSTREAM_REF              # 上游钉版本锚点（版本 + devtools-frontend commit）
+│   ├── apply_localize.cjs        # 哨兵幂等注入 / 剥离本地化片段（核心）
+│   ├── upstream.cjs              # 跟随上游升级：clone 新版本到 upstream/（重部署用）
+│   ├── deploy.cjs                # 全局安装 + 构建 + vendoring + 配置编排
+│   ├── vendor_frontend.cjs       # 按 UPSTREAM_REF 钉版本下载 tarball 整树 vendoring devtools-frontend
+│   ├── fix_trace_engine_dts.cjs  # 剥离 @paulirish/trace_engine 冲突全局声明（TS2717 上游 workaround）
+│   ├── compat.cjs                # 上游 package.json 依赖兼容守卫（固定 zod 版本等）
+│   ├── verify_browser.cjs        # 自动检测本机浏览器路径，写入 local-config.json
+│   ├── start.cjs                 # 以 --user-data-dir 启动浏览器（复用登录态）
+│   ├── cli_run.cjs               # CLI 模式辅助（仅 CLI 模式，可被删除）
+│   ├── fragments/                # 本地化注入片段源（_frag_*.md / *.txt / *.json）
+│   └── test/localize.test.cjs    # 本地化层单元测试（预期 8/8 PASS）
+├── local-config.json             # 机器专属（浏览器路径/端口），由脚本生成，不入库
+├── mcp-local-config.json         # 生成的 MCP 配置样例，不入库
+└── upstream/                     # 【子技能·纯快照·不改源码】见 3.2
 ```
 
----
+> 早期布局遗留脚本 `mirror_to_target.cjs` / `sync_and_deploy.cjs` 已在新布局（方案 A）下移除——其职责已由 `localization/` 下的 `apply_localize.cjs` / `upstream.cjs` / `deploy.cjs` / `vendor_frontend.cjs` 取代。演进统一走 `localization/`。
 
-## 模块 1：前置条件
+### 3.2 子技能目录（upstream/，纯上游快照）
 
-- Node.js ≥ 20.19（本机 v24.18.0 已满足；全局 bin 的 `node` 即系统 Node）。
-- 本机浏览器：360Chromex 安装目录可通过环境变量 `CHROME_DEVTOOLS_360_DIR` 覆盖（缺省 `D:\Tools\360Chrome`，仅本机有效；其它机器请设置该变量或依赖注册表/PATH 自动检测）；其它机器运行 `node localization/verify_browser.cjs` 自动检测并写入 `local-config.json`（优先已注册安装，规避便携版）。
-- 依赖与构建：**不随文件夹携带**，首次激活由 `node localization/deploy.cjs` 全局安装并构建（恒跳过浏览器下载）。
-
----
-
-## 模块 2：快速开始（一键部署 / 拷贝即走）
-
-> 推荐单入口（强制"先镜像、再部署"顺序，避免主副本改动后部署副本失同步）：
+`upstream/` 是 `ChromeDevTools/chrome-devtools-mcp @ 1.7.0` 的完整拷贝：
 
 ```
-node sync_and_deploy.cjs            # 主副本根目录执行：先 mirror_to_target 镜像，再 localization/deploy 部署
-# 如需镜像阶段严格校验（缺失即非零退出），追加 --strict：
-node sync_and_deploy.cjs --strict
+upstream/
+├── skills/                   # 上游 5 个子技能（chrome-devtools / chrome-devtools-cli / a11y-debugging / ...）
+│   └── chrome-devtools/SKILL.md   # 上游子技能文档（MCP server 内部子技能）；被注入本地化段，与根 SKILL.md 是不同文件、不同用途
+├── src/ build/               # 上游源码与构建产物（build/ 不入库）
+├── package.json              # 上游包定义（本地化层守卫校验此文件存在）
+├── README.md                 # 上游主文档（被注入本地化段）
+└── devtools-frontend/   # vendored 副本（按钉版本填充，不入库，见第 5 节；路径与上游 v1.7.0 submodule 路径一致，顶层）
 ```
 
-该单入口依次：① 镜像主副本→部署副本（同步源码/本地化，并跑 `verifySync` 完整性校验，报告源有而目标缺的项）→ ② 在部署副本自动检测浏览器（缺失则交互要求指定并写入配置）→ ③ 全局安装依赖/构建（恒跳过浏览器下载，写入 `$(npm root -g)`；依赖 .npmrc 的 `allow-scripts[]` 在安装时即批准并运行 5 个包 install scripts、消除 `allow-scripts` 噪声）→ ④ 幂等重注入本地化（**兼容 CRLF 行尾**，用 `\r?\n` 完整吃掉换行，子技能 SKILL.md 的 `description` 行不再因尾随 `\r` 误判"无 description 行"）→ ⑤ 生成 `mcp-local-config.json`（全局 bin 路径）并以**字段级合并**写入 `~/.workbuddy/mcp.json`（保留既有 `disabled` 等字段，不静默反转启用状态）。
+`upstream/` **不入库**（属可衍生资产）：由 `localization/upstream.cjs` 按 `UPSTREAM_REF` 钉版本从上游仓库克隆生成（见第 7.2 节全新引导）。主副本仅保留 `localization/` 本地化层、根 `SKILL.md`/`README.md` 与 `UPSTREAM_REF` 等锚点，保持最小化、可移植化——陌生 Agent 读 README 后即可凭 `upstream.cjs` 重建 `upstream/`。
 
-若部署副本已是最新镜像、仅需重新装依赖/构建/生成配置，可直接在部署副本运行 `node localization/deploy.cjs`。
+### 3.3 被 .gitignore 排除的资产（严禁入库）
 
-手动分步（等价于上述一键）：
+以下内容被 `chrome-devtools/.gitignore` 排除，**任何提交都不得纳入**：
 
-1. 关闭已打开的浏览器（避免 user-data-dir 锁冲突）。
-2. 启动调试端口：`node localization/start.cjs`（自动检测并复用登录态）。
-3. 在 WorkBuddy 的 MCP 配置（`~/.workbuddy/mcp.json`）加入 `mcp-local-config.json` 内容：
-   - command: `node`
-   - args: `["<全局 bin 路径>", "--browserUrl=http://127.0.0.1:9222", "--no-usage-statistics"]`
-   - env: `{ "CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS": "1" }`
-4. 在 WorkBuddy 连接器管理页"信任" chrome-devtools 服务器。
-
-> 全局 bin 路径获取：macOS/Linux/Git Bash 用 `$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js`；Windows(cmd) 用 `for /f "delims=" %i in ('npm root -g') do echo %i\chrome-devtools-mcp\build\src\bin\chrome-devtools-mcp.js`；Windows(PowerShell) 用 `(npm root -g) + '\chrome-devtools-mcp\build\src\bin\chrome-devtools-mcp.js'`。
+- `chrome-devtools_v1.6.0.zip`：历史版本备份压缩包（本地备份，不随仓库分发）。
+- `upstream/node_modules/`、`upstream/build/`：上游依赖与构建产物（按需本地生成）。
+- `upstream/devtools-frontend/`：vendored 副本（GB 级，按钉版本填充；路径与上游 v1.7.0 `.gitmodules` 的 submodule 一致，顶层）。
+- `local-config.json`、`mcp-local-config.json`：机器专属配置（模板见 `*.example.json`）。
 
 ---
 
-## 模块 3：浏览器自动检测与启动（复用登录态，规避便携版）
+## 4. 钉版本机制（UPSTREAM_REF）
 
-`verify_browser.cjs` 自动检测本地浏览器，写入 `local-config.json`：
+### 4.1 锚点字段说明
 
-- **搜索范围（Windows）**：已知安装目录（`CHROME_DEVTOOLS_360_DIR` 指定的目录（缺省 `D:\Tools\360Chrome`）、`Program Files\Google\Chrome`、`Program Files\360Chrome`）、Windows 注册表（`App Paths` 与 `Uninstall` 项）；以及 `PATH` 中的候选。
-- **规避便携版**：已注册安装（Program Files / 注册表 / 已知目录）优先采用；仅当只找到 `PATH` 中未注册/便携版时，会**提示用户确认**，不会静默误用（便携版登录态不可靠）。
-- **优先 360Chromex**（保留登录态），其次 Chrome。用户数据目录默认取 `CHROME_DEVTOOLS_360_DIR` 目录下的 `User Data`（360Chromex）或 `%LOCALAPPDATA%\Google\Chrome\User Data`（Chrome），否则取 exe 同级 `User Data`。
-
-`start.cjs` 以 `--remote-debugging-port` + `--user-data-dir` 启动（**禁用 `--isolated`**，避免丢登录态），并打印全局路径的 MCP 接入信息。
-
-> Agent 每次激活技能、调用任何浏览器能力前，应先 `curl http://127.0.0.1:9222/json/version` 检测端口；仅当无响应才运行 `verify_browser.cjs` + `start.cjs`，避免重复启动锁冲突。
-
----
-
-## 模块 4：两种使用模式（MCP 服务模式 / CLI 模式）与初始检测
-
-chrome-devtools 可二选一使用，**严禁 `npx -y`**，一律走全局路径。
-
-### 4.1 初始检测逻辑（每次使用开始时执行）
-
-1. **检测是否已配置 MCP 服务模式**：读取 `~/.workbuddy/mcp.json`（或当前 Agent 的 MCP 配置），若含名为 `chrome-devtools` 的条目（command 指向本全局包 bin），即视为"MCP 服务模式已安装"。
-   - **若已安装 MCP 服务模式**：全程使用 MCP 工具，**禁止**走 CLI 子命令。可询问用户是否删除 CLI 模式辅助脚本 `localization/cli_run.cjs`（仅 CLI 用，删除不影响 MCP）；用户拒绝则保留。
-   - **若未检测到 MCP 服务模式**：询问用户是否采用全局安装以使用 CLI 模式（`npm install -g .`）。用户明确"安装" → 执行 `node localization/deploy.cjs` 后继续 CLI 模式；用户明确"不安装" → **立即终止任务**。
-2. 若全局 bin 不存在（未安装），先 `node localization/deploy.cjs` 完成全局安装与构建。
-
-### 4.2 MCP 服务模式（推荐，WorkBuddy 原生工具）
-
-在 `~/.workbuddy/mcp.json` 加入（全局路径）：
-
-```json
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "node",
-      "args": ["<全局 bin 路径>", "--browserUrl=http://127.0.0.1:9222", "--no-usage-statistics"],
-      "env": { "CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS": "1" }
-    }
-  }
-}
-```
-
-在 WorkBuddy 连接器管理页"信任"后即可使用29 个原生工具。
-
-### 4.3 CLI 模式（不配 MCP 也可用，二选一）
-
-直接用全局 bin 运行单工具（首参数为工具名）。**各环境命令形式**（严禁 npx）：
-
-- macOS / Linux / Git Bash：
-  ```bash
-  node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js" <tool> [参数] --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
-  ```
-- Windows (cmd.exe)：
-  ```bat
-  for /f "delims=" %i in ('npm root -g') do node "%i\chrome-devtools-mcp\build\src\bin\chrome-devtools-mcp.js" <tool> [参数] --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
-  ```
-- Windows (PowerShell)：
-  ```powershell
-  $g = npm root -g; node "$g/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js" <tool> [参数] --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
-  ```
-
-或等价使用 CLI 辅助脚本（仅 CLI 模式、可被删除）：`node localization/cli_run.cjs <tool> [参数]`。
-
-例如 `node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js" take_snapshot --browserUrl=http://127.0.0.1:9222 --no-usage-statistics`。
-
----
-
-## 模块 5：常用操作速查（MCP 工具名保持英文）
-
-- **页面/导航**：`list_pages`（列出页）、`select_page`（切换）、`navigate_page --url`（导航）、`new_page`（新建）、`close_page`
-- **结构/交互**：`take_snapshot`（文本快照，获取元素 `uid`）、`click <uid>`、`fill <uid> <文本>`、`hover`、`drag <src> <dst>`、`press_key`、`type_text`、`upload_file`
-- **截图**：`take_screenshot`（可 `--fullPage`、`--filePath` 存盘）
-- **控制台/日志**：`list_console_messages`、`get_console_message`
-- **网络**：`list_network_requests`（可分页/过滤）、`get_network_request`
-- **性能/内存**：`performance_start_trace` / `performance_stop_trace`（可存盘）、`performance_analyze_insight`、`take_heapsnapshot`
-- **脚本**：`evaluate_script "() => document.title"`（页面执行 JS）
-
-**典型工作流**：导航（`navigate_page`）→ 等待（`wait_for`）→ 快照（`take_snapshot` 取 uid）→ 交互（`click`/`fill` 等）→ 必要时截图或读控制台/网络。可并行发起多个工具调用，但顺序保持 导航→等待→快照→交互。
-
----
-
-## 模块 6：上游跟进与本地化更新（自演进，纯网络，保全本地化）
-
-任一 Agent 阅读本文件后，可精准调用 `gh` / `npm` / 网络工具查询、下载、跟进 `ChromeDevTools/chrome-devtools-mcp` 上游演进/更新，**且全程不丧失本地化特性与约束**。本主副本**不含 .git**，故全部走纯网络方式。
-
-### 1) 查询上游状态
-
-- 最新版本：`npm view chrome-devtools-mcp version` 或 `gh release list -R ChromeDevTools/chrome-devtools-mcp`
-- 发布详情：`gh api repos/ChromeDevTools/chrome-devtools-mcp/releases/latest`
-- 仓库概览：`gh repo view ChromeDevTools/chrome-devtools-mcp`
-
-### 2) 一键升级（推荐，全局）
+`localization/UPSTREAM_REF` 是本地化层与上游之间的**唯一版本契约**，内容形如：
 
 ```
+UPSTREAM_VERSION=1.7.0
+UPSTREAM_SOURCE=ChromeDevTools/chrome-devtools-mcp@chrome-devtools-mcp-v1.7.0
+SNAPSHOT_DATE=2026-08-12
+DEVTOOLS_FRONTEND_REPO=https://github.com/ChromeDevTools/devtools-frontend.git
+DEVTOOLS_FRONTEND_BRANCH=main
+DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
+```
+
+- `UPSTREAM_VERSION`：跟随的上游 npm 发布版本（当前 `1.7.0`）。
+- `UPSTREAM_SOURCE`：上游仓库来源（`@chrome-devtools-mcp-v1.7.0` 表示钉版本取自该发布标签；`UPSTREAM_TAG` 决定克隆的具体标签，本方案固定 v1.7.0 而非 main 分支——main 存在 submodule 未同步的 transient 不一致，故不部署）。
+- `DEVTOOLS_FRONTEND_COMMIT`：`devtools-frontend` 的钉版本 commit（由上游标签 `chrome-devtools-mcp-v1.7.0` 的树解析得到）。**构建依赖此精确 commit**，由 `vendor_frontend.cjs` 据此 sparse-clone。
+
+### 4.2 何时及如何更新钉版本
+
+**仅当 deliberate 决定跟随上游新版本时**才更新。严禁随手 bump 版本号却不刷新快照。更新规程：
+
+1. 修改 `UPSTREAM_REF` 的 `UPSTREAM_VERSION` 与 `DEVTOOLS_FRONTEND_COMMIT` 两个版本字段（必要时同步 `SNAPSHOT_DATE`）。
+2. 直接运行 `node localization/upstream.cjs`（见 6.2），它会自动检测并 clone 新版本、刷新 `upstream/` 快照、重注入本地化、重新部署。
+   - ⚠️ 若改动了 `DEVTOOLS_FRONTEND_COMMIT`：**须先删除 `upstream/devtools-frontend/`** 再运行——`vendor_frontend.cjs` 对"已存在且非空"的目录幂等跳过，不删则不会按新 commit 重新 vendoring，导致构建用陈旧 devtools-frontend 与新源码类型不匹配。
+3. 跑回归测试（见第 8 节），确认无回归后再提交。
+
+> 注意：`DEVTOOLS_FRONTEND_COMMIT` 必须从目标上游版本的标签树中解析得到（不能凭空写），否则 vendoring 失败、构建无法完成。
+
+---
+
+## 5. devtools-frontend vendoring
+
+### 5.1 为什么要 vendoring
+
+上游以 git submodule 引入 `devtools-frontend`（GB 级）。若直接以 submodule 入库：
+
+- 会产生巨型 `.git` 与嵌套仓库，污染父仓（`git status` 异常、可能误判 gitlink）。
+- 跨机克隆成本高。
+
+方案 A 改用 **vendored 源码树**：将 devtools-frontend 的**整棵仓库**（含 `front_end/` 与 `mcp/` 等顶层目录）按钉版本精确填充到 `upstream/devtools-frontend/`（与上游 v1.7.0 `.gitmodules` 的 submodule 路径一致，顶层；上游 `tsconfig.json` 的 `include`/`files` 与 `scripts/post-build.ts` 均按该路径引用，且其源码 `src/third_party/index.ts` 相对导入 `devtools-frontend/mcp/mcp.js`，故必须整树 vendoring 而非仅 `front_end/`），且该目录被 `.gitignore` 排除、**不入库**。
+
+### 5.2 填充步骤（构建前必需）
+
+填充由 `localization/vendor_frontend.cjs` 完成（也由 `deploy.cjs` 步骤 2.5 自动触发）。行为：
+
+- 读取 `UPSTREAM_REF` 的 `DEVTOOLS_FRONTEND_COMMIT`。
+- 下载钉版本 commit 的 tarball（`https://github.com/ChromeDevTools/devtools-frontend/archive/<commit>.tar.gz`），解包后取**整棵仓库**（含 `front_end/`、`mcp/` 等顶层目录；GitHub partial clone 不支持路径级按需拉取 blob，故采用整树快照 tarball 方案）。
+- 拷贝到 `upstream/devtools-frontend/`，排除 `.git` / `node_modules` / `build`。
+- **幂等**：目标已存在且非空则跳过；支持 `--dry-run` 预检（不联网）。
+
+新机器在 `npm run build`（位于 `upstream/`）之前，**必须先跑 vendoring 填充**，否则构建失败。
+
+---
+
+## 6. 本地化层脚本接口（localization/）
+
+> 所有脚本均按脚本自身位置**相对解析路径**，跨机可用（不写死绝对路径）。调用时建议在 `chrome-devtools/` 根目录内执行，或使用脚本绝对路径；避免在错误的当前目录下用相对路径 `node localization/...` 导致找不到文件。
+
+### 6.1 apply_localize.cjs（注入 / 剥离本地化）
+
+核心本地化注入器。无参数时执行注入；支持以下模式：
+
+- **（默认，无参数）注入**：向 `upstream/` 内的合法注入点追加本地化段并改写 `description`：
+  - `upstream/skills/chrome-devtools/SKILL.md`（片段 `_frag_skill_main.md` + 描述 `_frag_skill_main_desc.txt`）
+  - `upstream/skills/chrome-devtools-cli/SKILL.md`（片段 `_frag_skill_cli.md` + 描述 `_frag_skill_cli_desc.txt`）
+  - `upstream/README.md`（片段 `_frag_readme_local.md`）
+  - 生成 `mcp-local-config.json`。（根 `SKILL.md` 是独立的"父技能运行时文档"，由维护者手工维护，**不会被本脚本覆盖**；上游 `skills/chrome-devtools/SKILL.md` 是 MCP 内部子技能文档，二者用途不同。）
+- **`--check`（无副作用自检）**：仅校验守卫（`upstream/package.json` 存在）与全部注入目标存在性，不修改任何文件。通过输出 `[CHECK] 通过`。供 CI / 测试使用，防回归。
+- **`--strip`（剥离）**：移除已注入的本地化段（哨兵行到文件末尾），用于上游更新后「刷新」重注入。剥离后需再无参重跑本脚本重新注入。
+
+注入目标清单在脚本内 `KNOWN_TARGETS` 写死；若某目标缺失，视为「主副本 → 部署副本失同步」，会**明确告警**（而非静默跳过）。
+
+### 6.2 upstream.cjs（跟随上游升级）
+
+方案 A 的上游跟进脚本。行为：
+
+1. 检测上游最新版本（优先 `npm view chrome-devtools-mcp version`，其次 `gh release list`）。
+2. clone 上游钉版本（v1.7.0 标签，由 `UPSTREAM_TAG` 决定）到临时目录（不带子模块）。
+3. `--strip` 剥离旧本地化段（还原纯上游基线）。
+4. 全树拷贝到 `upstream/`，受保护排除集 `devtools-frontend / node_modules / build / .gitmodules`（不覆盖本地产物、不引入 `.gitmodules`）。
+5. 差量剪除 `src / scripts / skills` 中「上游已删除、本地仍残留」的陈旧文件。
+6. 定向合并本地化约束（`.npmrc` / `puppeteer.config.js` / `package.json`，由 `compat.cjs` 完成）。
+7. 重新注入本地化（`apply_localize.cjs`）。
+8. 重新部署（`deploy.cjs`）。
+
+支持 `--dry-run` 预检（不联网、不安装，仅打印将执行步骤）。
+
+> 该脚本会自动检测「本地是否已是最新」：若 `upstream/package.json` 版本等于上游最新，仍会重注入并合并约束（幂等），确保不漂移。
+
+### 6.3 deploy.cjs（全局安装 + 构建 + 配置编排）
+
+自包含部署入口，按序执行：
+
+1. 核查本地浏览器（`verify_browser.cjs`）。
+2. 在 `upstream/` 内 `npm install`（强制 `PUPPETEER_SKIP_DOWNLOAD=1`，装齐 devDependencies 含 `puppeteer-core` 等运行时依赖）。
+3. 剥离 `@paulirish/trace_engine` 的冲突全局声明（`fix_trace_engine_dts.cjs`，见第 12 节 TS2717——devtools-frontend 与该依赖都向全局接口 `HTMLElementEventMap` 注入 `[ModelUpdateEvent.eventName]: ModelUpdateEvent`，类型身份不同会冲突，须于 tsc 前剥离其一，否则构建报 TS2717）。
+4. vendoring `devtools-frontend`（`vendor_frontend.cjs`）。
+5. 在 `upstream/` 内 `npm run build`（tsc → `build/`）。
+6. 全局符号链接 `$(npm root -g)/chrome-devtools-mcp` → 本文件夹（`npm install -g ./upstream`），并防御性确保全局 bin 命令可用（Windows 额外生成 `.cmd` 包装）。
+7. 重新注入本地化（`apply_localize.cjs`）。
+8. 生成 `mcp-local-config.json`，并**幂等合并进 `~/.workbuddy/mcp.json`**（含 `CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1` 环境变量）。
+
+跨机可用：拷贝本文件夹（无需 `node_modules` / `build`）到任意位置。**重新部署（`upstream/` 已存在时）**运行 `node localization/deploy.cjs` 即自动装依赖、建符号链接、构建并生成配置；**全新引导（`upstream/` 不存在，例如最小化的主副本）须先运行 `node localization/upstream.cjs`** 克隆钉版本上游并自动完成后续引导（见 §6.2 / 第 7.2 节）——`deploy.cjs` 不是引导入口，它在 `upstream/` 缺失时会报错退出。
+
+### 6.4 vendor_frontend.cjs（见第 5 节）
+
+按 `UPSTREAM_REF` 钉版本下载 commit tarball **整树**填充到 `upstream/devtools-frontend/`（与上游 v1.7.0 submodule 路径一致，顶层；含 `front_end/` 与 `mcp/` 等顶层目录）。幂等，支持 `--dry-run`。
+
+### 6.5 verify_browser.cjs / start.cjs / cli_run.cjs / compat.cjs
+
+- **verify_browser.cjs**：自动搜索本机 `360Chromex.exe` / `Chrome.exe`（优先已注册安装，规避便携版），将浏览器路径写入 `local-config.json`。
+- **start.cjs**：以 `--user-data-dir` 指向本机 User Data 启动浏览器（复用登录态），依赖 `local-config.json` 中的浏览器路径。脚本依赖 `verify_browser.cjs` 先写好路径。
+- **cli_run.cjs**：CLI 模式辅助（`cli_run.cjs <tool> [参数]` 封装「先 `start` 连接、再调工具」的两段式）。**仅 CLI 模式使用，可被删除**，删除不影响 MCP 服务模式。
+- **compat.cjs**：上游 `package.json` 依赖兼容守卫（固定 `zod` 等兼容版本，避免 npm install 浮动装 v4 导致编译失败）。被 `deploy.cjs` / `upstream.cjs` 调用。
+
+### 6.6 fragments/ 与 test/
+
+- **fragments/**：本地化注入片段源。
+  - `_frag_skill_main.md` / `_frag_skill_cli.md`：注入到上游两个子技能 SKILL.md 的本地化段。
+  - `_frag_skill_main_desc.txt` / `_frag_skill_cli_desc.txt`：中文化的 `description` 完整行。
+  - `_frag_readme_local.md`：注入到上游 `README.md` 的本地化段。
+  - `_frag_mcp_config.json`：MCP 配置模板（`__GLOBAL_BIN__` 占位符由 `apply_localize.cjs` 替换为实际全局 bin 路径）。
+- **test/localize.test.cjs**：本地化层单元测试，预期 **8/8 PASS**，含 `--check` 断言（T7 等）。是回归验证的主入口。
+
+---
+
+## 7. 陌生 Agent 自主跟进与演进步骤
+
+### 7.1 日常使用（仅调用，无需重新部署）
+
+若本机已完成部署（`upstream/` 已构建、全局 bin 可用、浏览器已启动）：
+
+1. 按 `SKILL.md` 的「步骤 0 模式检测」判断 MCP / CLI 模式。
+2. 按「步骤 1」检测端口 / 启动浏览器。
+3. 直接调用浏览器工具（MCP 工具或 CLI 子命令）。
+
+日常使用**不触碰 `upstream/` 源码、不重跑部署脚本**。
+
+### 7.2 新机器首次复现（完整部署）
+
+主副本不含 `upstream/`（可衍生、不入库）。在 `chrome-devtools/` 根目录内执行**一条命令**即可完成"引导上游快照 + 构建 + 安装 + 注入 + 生成配置"全流程：
+
+```bash
 node localization/upstream.cjs
 ```
 
-自动完成：检测新版本 → `git clone --depth 1` 拉源码 → 剥离并覆盖本地目标文件（保留 localization/、mirror_to_target.cjs、sync_and_deploy.cjs）→ 重注入本地化（保全约束，兼容 CRLF 行尾）→ 重新固定 zod（compat.cjs）→ **保全 package.json 本地增量**（整文件覆盖后回填上游没有的 `scripts` 键，如 `test:localization`，避免本地定制丢失）→ **全局卸载/安装/构建**（依赖位于 `$(npm root -g)`，`config.allowScripts` 预批准 5 个包 + deploy.cjs 显式 `npm approve-scripts --allow-scripts-pending` 提交批准，仅 `config.allowScripts` 不足以抑制警告）→ 重新部署（生成全局路径 MCP 配置；`~/.workbuddy/mcp.json` 字段级合并保留既有 `disabled`）。
+`upstream.cjs` 在 `upstream/` 缺失时自动进入全新引导（bootstrap）模式：克隆钉版本上游 → 定向合并本地化约束（`compat.cjs`）→ 注入本地化（`apply_localize.cjs`）→ vendoring `devtools-frontend` → 全局安装与构建（`deploy.cjs`）→ 生成 MCP 配置。可先加 `--dry-run` 预检。该步骤需联网（git clone 上游、npm 安装、克隆 devtools-frontend）。
 
-### 3) 手动升级（纯命令，不依赖脚本）
+随后：
 
-> 注意：上游 npm 发布包仅含 `build/` 产物与 `README.md`，**不含 `src/` 与 `skills/`**；因此同步源码与 SKILL.md 必须从 GitHub 源码仓库获取，不能仅靠 `npm pack`。
+1. **自检浏览器路径**：`node localization/verify_browser.cjs`（deploy 已触发；如未生成 `local-config.json` 可补跑）。
+2. **回归自检**：`node localization/test/localize.test.cjs`（预期 8/8 PASS）。
+3. 在 WorkBuddy 连接器管理页「信任」chrome-devtools 服务器。
 
-```sh
-git clone --depth 1 https://github.com/ChromeDevTools/chrome-devtools-mcp.git <临时目录>
-# 将 <临时目录> 的 src/ skills/ scripts/ 以及 README.md package.json server.json puppeteer.config.cjs tsconfig.json .npmrc .nvmrc .gitignore 覆盖到本仓库（保留 localization/ 与 mirror_to_target.cjs）
-node localization/apply_localize.cjs --strip   # 剥离旧本地化段（还原纯上游原文基线）
-node localization/apply_localize.cjs           # 重注入最新片段（含 description 中文化，幂等）
-PUPPETEER_SKIP_DOWNLOAD=1 npm install          # 先在本文件夹装齐依赖（devDependencies，含 puppeteer-core 等运行时；注意 npm install -g . 不会装依赖）
-PUPPETEER_SKIP_DOWNLOAD=1 npm install -g .      # 在 $(npm root -g) 建符号链接指向本文件夹（不拷贝、不装依赖）
-npm run build                                  # 在本文件夹构建（tsc -> build/；其全局符号链接即 $(npm root -g)/chrome-devtools-mcp）
-node localization/deploy.cjs                   # 重新部署（生成全局路径 MCP 配置）
-```
+### 7.3 跟随上游升级到新版本
 
-### 4) 本地化保全红线（任何 Agent 操作不得违反）
+1. 修改 `localization/UPSTREAM_REF` 的版本字段（见 4.2）。
+2. 运行 `node localization/upstream.cjs`（自动检测最新 → 刷新 `upstream/` → 重注入 → 重部署；可先加 `--dry-run` 预检）。
+3. 跑回归测试（见第 8 节）。
+4. 确认无回归后，按第 9.1 节约束**仅提交 `chrome-devtools/` 目录**（备份 zip 等严禁入库）。
 
-- 依赖安装必须 `PUPPETEER_SKIP_DOWNLOAD=1`，否则 puppeteer 会下载 Chromium。
-- 复用登录态必须 `--browserUrl` 直连已启动的浏览器；`--isolated` 默认临时 profile 会丢登录态。
-- 浏览器用 `--executablePath` 不用 `--channel`。
-- **严禁 `npx -y`**：一律 `node "$(npm root -g)/..."` 或 `npm install -g .`。
-- `package.json` 本地增量（如 `scripts.test:localization`、`config.allowScripts`）由 `upstream.cjs` 在升级时保全；新增本地定制须落在"上游无、本地有"的键上，否则整文件覆盖升级时会被上游抹掉。
-- `deploy.cjs` 向 `~/.workbuddy/mcp.json` 写入 chrome-devtools 条目采用**字段级合并**（保留用户原有 `disabled` 等字段），任何改动不得改回整条目覆盖，以免静默反转启用状态。
-- 中文路径在本机会导致 node/npm 失败；跨机移植以 ASCII 路径主副本为准，脚本均按脚本所在目录相对解析。
-- `--categoryExtensions` 仅 pipe 连接支持；`--browserUrl` 模式暂不支持（待上游 #149）。
-- 本地化段以哨兵 `LOCALIZED:360Chromex` 标记；`--strip` 再注入可刷新，直接重跑则仅保全不刷新（兜底）。
+### 7.4 仅刷新本地化片段（不升级上游）
+
+当 `fragments/` 内容调整、或需重置本地化状态时：
+
+1. `node localization/apply_localize.cjs --strip`（剥离旧段）。
+2. `node localization/apply_localize.cjs`（重新注入最新片段 + 生成配置）。
+3. `node localization/test/localize.test.cjs` 回归自检。
 
 ---
 
-## 模块 7：Agent 自主验证（全功能测试）与三大陷阱
+## 8. 测试与回归
 
-将本主副本作为 Skill 部署后，可由 Agent 编写 MCP 客户端脚本（`@modelcontextprotocol/sdk` 的 `Client` + `StdioClientTransport`）直连**全局 bin**（`$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js`），连接 360Chromex 调试实例（端口 9222），逐项验证 `list_pages` / `navigate_page` / `take_snapshot` / `take_screenshot` / `evaluate_script` / `list_console_messages` / `list_network_requests` 等工具。验证中踩坑并修正的**三处陷阱**如下，供任何 Agent 自主验证时参考：
+### 8.1 本地化层单元测试
 
-### 陷阱 1：MCP SDK 的 `Client` 没有 `EventEmitter.on`
+`node localization/test/localize.test.cjs` 是本地化层的主回归入口。预期 **8/8 PASS**，覆盖注入 / 剥离 / 描述本地化 / `--check` 守卫断言（含 T7）等。
 
-`@modelcontextprotocol/sdk`（本机 1.29.0）的 `Client` 原型链为 `Client → Protocol → Object`，**没有 `EventEmitter.on`**。若写 `client.on('error', ...)` 会报 `client.on is not a function`。
+- 可在部署前后各跑一次，确认本地化注入未漂移、守卫齐全。
+- `apply_localize.cjs --check` 可作为轻量 CI 门禁（无副作用），验证注入目标存在性。
 
-- **修正**：不要监听 `error` 事件；用 `try/catch` 包裹 `client.connect(transport)` 与各 `client.callTool(...)`，错误信息从异常对象获取。
+### 8.2 上游自带测试（可选）
 
-### 陷阱 2：写文件类工具默认被重定向到系统临时目录
+`upstream/` 内含上游 `tests/`（如 `tests/tools/input.test.ts`）。这些属于上游快照代码，**本地化层不改动、不运行**（方案 A 原则：不改上游源码）。如需验证上游功能，参照上游 `README.md` / `docs/` 单独进行。
 
-`take_snapshot` / `take_screenshot` 等写文件工具，在 MCP 客户端**未协商 roots capability** 时，会被服务器强制重定向到 OS 临时目录，且日志提示 `File-writing tools will be restricted to the OS temp directory`，即使你传了其它路径也不落盘。
-
-- **修正**：启动服务器时加 `--allow-unrestricted-paths`（mcp.json 的 args 中加入），关闭默认路径限制，文件才会落到你指定的目录。
-- **触发条件**：仅当客户端未实现/未协商 MCP roots 时出现；若你的客户端已协商 roots，则无需此 flag。
-
-### 陷阱 3：`take_snapshot` 的 `filePath` 是"保存目录"，文件名固定 `snapshot.txt`
-
-- `take_snapshot` 的 `filePath` 实为**保存目录**，文件名由工具固定为 `snapshot.txt`（会忽略你给的文件名，例如给 `snapshot.html` 也会被忽略，落为 `snapshot.txt`）。返回内容同时会回显 `Saved snapshot to <目录>/snapshot.txt`。
-- `take_screenshot` 的 `filePath` 则**正确作为完整文件路径**（含文件名与扩展名，如 `shot.png`）。
-
-- **修正**：`take_snapshot` 传 `filePath` 时只给目录（如 `D:/tmp/_cdt_out`），检查该目录下生成的 `snapshot.txt`；`take_screenshot` 传完整文件路径。
+> ⚠️ 注意：上游测试代码中可能含口令类、令牌类等敏感字面值（如 DOM 测试按元素 id 取密码输入框之类写法），会被本仓库 `scripts/smoke/tier0_secrets.py` 密钥扫描误报。方案 A 已在 `tier0_secrets.py` 中对 `chrome-devtools/upstream/` 整树加路径豁免（纯外部代码、不改源码、跳过密钥扫描）。**不要**为消除误报而修改 `upstream/` 内源码。
 
 ---
 
-## 模块 8：关键约束速查（本地化红线汇总）
+## 9. 关键约束与红线
 
-- 复用登录态必须 `--browserUrl` 直连已启动实例；`--isolated` 默认临时 profile 会丢登录态。
+### 9.1 不入库清单（严禁）
+
+以下任何内容**不得**提交到仓库（已被 `.gitignore` 排除，提交前用 `git status` / `git check-ignore` 复核）：
+
+- `chrome-devtools_v1.6.0.zip` 等历史备份压缩包。
+- `upstream/node_modules/`、`upstream/build/`、`upstream/devtools-frontend/`。
+- `local-config.json`、`mcp-local-config.json`（机器专属配置）。
+
+提交范围**仅限 `chrome-devtools/` 目录**，且不应包含上述资产。
+
+### 9.2 路径与依赖约束
+
+- **严禁 `npx -y <pkg>`**：一律用 `node "$(npm root -g)/..."` 或 `npm install -g ./upstream` 全局安装。全局根即 `$(npm root -g)`（随 Node 安装位置而定，**切勿写死绝对路径**）。
+- 依赖安装务必 `PUPPETEER_SKIP_DOWNLOAD=1`（部署脚本已内置），否则 `puppeteer` 会下载 Chromium 内核——本机已有 360Chromex，无需下载。
+- 本机中文路径会导致 node / npm 失败；跨机移植以 **ASCII 路径的主副本**为准，脚本均按脚本所在目录相对解析。
+
+### 9.3 浏览器与登录态约束
+
+- 复用登录态必须 `--browserUrl` 直连已启动实例；**切勿用 `--isolated`**（会生成临时 profile 丢登录态）。
 - 浏览器用 `--executablePath` 而非 `--channel`（360Chromex 不在受支持 channel 列表）。
-- 依赖安装务必 `PUPPETEER_SKIP_DOWNLOAD=1`，否则 puppeteer 会下载 Chromium（部署脚本已内置）。
-- **严禁 `npx -y <pkg>`**：一律用 `node "$(npm root -g)/..."` 或 `npm install -g .`；本机全局根即 `$(npm root -g)`（随 Node 安装位置而定，切勿写死绝对路径）。
-- 本机中文路径会导致 node/npm 失败；跨机移植请以 ASCII 路径的主副本为准，脚本均按脚本所在目录相对解析。
-- `--categoryExtensions` 仅 pipe 连接支持；`--browserUrl` 模式暂不支持扩展工具（待上游 #149）。
-- 本地化段以哨兵 `LOCALIZED:360Chromex` 标记；`--strip` 再注入可刷新，直接重跑则仅保全不刷新（兜底）。
+- 动用户日常浏览器需谨慎（安全红线）：自动化前确认无未保存编辑；收尾用 `close_page` 关掉临时标签页。
+
+---
+
+## 10. 工具兼容性边界（resize_page 等）
+
+### 10.1 resize_page（上游 1.7.0 新增）
+
+`resize_page <宽> <高>`（对应 `upstream/src/tools/pages.ts`）用于调整**选中页面窗口**尺寸。已知边界：
+
+- 依赖 CDP 窗口管理域；当目标窗口处于**最大化 / 全屏**状态时，需先还原窗口状态才能 resize（上游 PR #748 已处理该场景）。
+- 360Chromex 一般可用；若遇 CDP 不支持（类比扩展工具 `Extensions` 域被裁剪的情况），**降级为手动调整窗口尺寸**，切勿反复重试浪费时间。
+- 该工具调整的是**页面窗口**，不是视口 emulation；与 `emulate` 的视口模拟是两回事。
+
+### 10.2 扩展工具（Extensions 域）
+
+`install_extension` / `trigger_extension_action` / `reload_extension` 等仅在 MCP server 以 `--categoryExtensions` 启动、或 CLI `start` 模式（默认已启用扩展）下可用。若运行 `list_extensions` 返回 `Extensions.getExtensions wasn't found`，说明该浏览器（常见于 360Chromex 等**定制 Chromium 构建**）裁掉了该域——此时应降级：用 `new_page chrome://extensions/?id=<id>` 截图证明扩展已加载，并在目标站点截图证明内容脚本注入，把需交互的侧边栏操作交用户补图。**切勿反复重试 `trigger_extension_action` 浪费时间。**
+
+---
+
+## 11. SKILL.md 与 README.md 职责边界（本文件定位）
+
+| 维度 | SKILL.md | README.md（本文件） |
+| --- | --- | --- |
+| 读者 | WorkBuddy / Agent（运行时） | 人 / 陌生 Agent（演进 / 维护） |
+| 内容 | 工具调用、启动流程、本地化用法、红线 | 架构原理、目录布局、钉版本、vendoring、脚本接口、演进步骤、已知坑 |
+| 性质 | 精简指令，不含解释性 / 维护性内容 | 解释性、维护性、结构化说明 |
+| 演进时 | 根 SKILL.md 由维护者手工更新（不自动同步）；上游子技能 SKILL.md 由 `apply_localize.cjs` 注入本地化段 | 由维护者人工更新以反映设计决策 |
+
+简言之：**SKILL.md 管「怎么用」，README.md 管「为什么这样、怎么演进」**。任何 Agent 运行时不需要的内容，都从 SKILL.md 移入本文件。
+
+---
+
+## 12. 故障排查与已知坑
+
+- **构建失败报缺模块**：上游运行时依赖在 devDependencies，`npm install -g chrome-devtools-mcp` 的发布包不含运行时依赖。必须用「本地文件夹安装」（`deploy.cjs` 的 `npm install` + `npm install -g ./upstream`）装齐依赖，不可只装全局包。
+- **全局 bin 命令不可用**：npm 对「本地文件夹全局安装（符号链接）」模式可能静默跳过 bin 链接创建。`deploy.cjs` 的 `ensureGlobalBinLinks()` 已显式兜底（Windows 生成 `.cmd` 包装）；若仍不可用，检查 `$(npm root -g)/chrome-devtools-mcp/build/src/bin/` 是否存在构建产物。
+- **构建报 zod 版本不兼容**：`compat.cjs` 已固定兼容版本；若手动改过 `upstream/package.json` 导致浮动，重跑 `deploy.cjs` 或 `upstream.cjs` 重新应用约束。
+- **devtools-frontend 缺失导致构建失败**：新机器必须先跑 `vendor_frontend.cjs`（或 `deploy.cjs` 步骤 4 自动触发）填充 `upstream/devtools-frontend/`（注意是顶层 `devtools-frontend`，与上游 v1.7.0 submodule 路径一致；填错位置会导致 `tsconfig.json` 的 `files` 列表找不到 `acorn.mjs` 而构建失败），该目录被 `.gitignore` 排除、不入库。
+- **构建报 TS2717（Subsequent property declarations must have the same type，涉及 `ModelUpdateEvent` / `HTMLElementEventMap`）**：devtools-frontend 的 `front_end/models/trace/ModelImpl.ts` 与依赖 `@paulirish/trace_engine` 的 `models/trace/ModelImpl.d.ts` 都向全局接口 `HTMLElementEventMap` 注入 `[ModelUpdateEvent.eventName]: ModelUpdateEvent`，但二者 `ModelUpdateEvent` 类型身份不同 → 冲突。这是上游已知问题，上游 `scripts/prepare.ts` 在 `tsc` 前剥离 `@paulirish/trace_engine` 那份声明。`deploy.cjs` 步骤 3（`fix_trace_engine_dts.cjs`）已自动执行该剥离；若手动构建，须先 `node localization/fix_trace_engine_dts.cjs` 再 `npm run build`。注意：`npm install` 会还原该 `.d.ts`，故须在每次构建前重跑（脚本幂等，已剥离则跳过）。
+- **本地化注入静默跳过（F-01 / F-02 回归）**：注入目标缺失时不报错。用 `node localization/apply_localize.cjs --check` 自检；若报 `[CHECK-FAIL]` 说明主副本 → 部署副本失同步，先解决 `upstream/package.json` 存在性等前置，再重跑注入。
+- **pre-commit 密钥扫描误报**：见第 8.2 节，`upstream/` 整树已加路径豁免，不要为消除误报修改上游源码。
+
+### 12.1 官方深度参考（超出本手册范围时查阅）
+
+本手册聚焦本地化与部署；若需上游原生能力、UI 用法或启动期排查，直接查阅官方资料：
+
+- **Chrome DevTools 官方文档**：https://developer.chrome.com/docs/devtools
+- **DevTools AI 辅助（AI Assistance）**：https://developer.chrome.com/docs/devtools/ai-assistance
+- **chrome-devtools-mcp 启动 / 连接故障排查（上游 docs/troubleshooting.md）**：https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/troubleshooting.md
+
+> 以上外部链接原置于根 `SKILL.md` 末尾的 `## Troubleshooting`，因其属「解释说明类、Agent 运行时非必需」信息，按 SKILL.md/README.md 职责边界（第 11 节）已迁入本手册，避免污染 Agent 运行时文档。

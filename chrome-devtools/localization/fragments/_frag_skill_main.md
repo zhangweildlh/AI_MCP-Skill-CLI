@@ -99,5 +99,5 @@ node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js" t
 - 依赖安装务必 `PUPPETEER_SKIP_DOWNLOAD=1`，否则 puppeteer 会下载 Chromium（部署脚本已内置）。
 - **严禁 `npx -y <pkg>`**：一律用 `node "$(npm root -g)/..."` 或 `npm install -g .` 全局安装；本机全局根即 `$(npm root -g)`（随 Node 安装位置而定，切勿写死绝对路径）。
 - 本机中文路径会导致 node/npm 失败；跨机移植请以 ASCII 路径的主副本为准，脚本均按脚本所在目录相对解析。
-- `--categoryExtensions` 仅 pipe 连接支持；`--browserUrl` 模式暂不支持扩展工具（待上游 #149）。
+- `--categoryExtensions`（外部扩展）：MCP server 模式如需扩展工具须在 args 显式加 `--categoryExtensions`；CLI `start` 模式默认已启用扩展（历史上「browserUrl 模式不支持扩展」的限制，上游 #149，已于 1.6.0 CLI start 路径解除）。
 - 本地化段以哨兵 `LOCALIZED:360Chromex` 标记；`--strip` 再注入可刷新，直接重跑则仅保全不刷新（兜底）。

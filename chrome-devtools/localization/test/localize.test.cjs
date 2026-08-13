@@ -145,6 +145,38 @@ try {
     assert.ok(tpl.includes('CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS'));
   });
 
+  // --- T7: --check 自检模式（防 F-01/F-02 回归：守卫 + 注入目标存在性，无副作用）---
+  // 自适应：主副本刻意最小化（upstream/ 为衍生产物、不入库），此时 --check 应被正确守卫拦截
+  // （非零退出 + 守卫提示）——这本身是对守卫行为的正向验证，不应误判为测试失败；
+  // 已部署 / 已 bootstrap 副本（upstream/ 存在）则 --check 应通过（≥4 个 CHECK-OK）。
+  test('apply_localize.cjs --check 行为符合预期（守卫 + 注入目标存在性）', () => {
+    const { execFileSync } = require('node:child_process');
+    const script = path.join(REPO, 'localization', 'apply_localize.cjs');
+    const upstreamPkg = path.join(REPO, 'upstream', 'package.json'); // 方案 A：守卫查 upstream/package.json
+    if (!fs.existsSync(upstreamPkg)) {
+      // 最小化主副本：验证守卫正确拦截（非零退出 + 守卫提示），而非误报失败。
+      try {
+        execFileSync('node', [script, '--check'], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] });
+        throw new Error('--check 在 upstream/ 缺失时应非零退出（守卫未生效）');
+      } catch (e) {
+        const stderr = (e.stderr || e.stdout || '');
+        assert.ok(e.status !== 0, '--check 在 upstream/ 缺失时必须非零退出；实际退出码: ' + (e.status ?? '?'));
+        assert.ok(/未在仓库内运行|预期 upstream/.test(stderr), '--check 应打印守卫提示；实际:\n' + stderr);
+      }
+      console.log('  · 最小化主副本：--check 守卫拦截已验证（upstream/ 缺失属预期）');
+      return;
+    }
+    let stdout;
+    try {
+      stdout = execFileSync('node', [script, '--check'], { encoding: 'utf8' });
+    } catch (e) {
+      throw new Error('apply_localize.cjs --check 失败（退出码 ' + (e.status ?? '?') + '）：' + (e.stderr || e.stdout || e.message));
+    }
+    assert.ok(/\[CHECK\] 通过/.test(stdout), '--check 应输出通过标志；实际:\n' + stdout);
+    // 3 个注入目标（KNOWN_TARGETS）+ 1 个顶层 SKILL.md 同步源 = 至少 4 个 CHECK-OK
+    assert.ok((stdout.match(/\[CHECK-OK\]/g) || []).length >= 4, '--check 应校验至少 4 个目标；实际:\n' + stdout);
+  });
+
   cleanup();
   console.log('\n[通过] 本地化工具链单元测试：' + passed + ' 项全部通过');
   process.exit(0);
