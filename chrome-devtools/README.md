@@ -60,7 +60,8 @@ chrome-devtools/
 │   ├── apply_localize.cjs        # 哨兵幂等注入 / 剥离本地化片段（核心）
 │   ├── upstream.cjs              # 跟随上游升级：clone 新版本到 upstream/（重部署用）
 │   ├── deploy.cjs                # 全局安装 + 构建 + vendoring + 配置编排
-│   ├── vendor_frontend.cjs       # 按 UPSTREAM_REF 钉版本 sparse-clone devtools-frontend
+│   ├── vendor_frontend.cjs       # 按 UPSTREAM_REF 钉版本下载 tarball 整树 vendoring devtools-frontend
+│   ├── fix_trace_engine_dts.cjs  # 剥离 @paulirish/trace_engine 冲突全局声明（TS2717 上游 workaround）
 │   ├── compat.cjs                # 上游 package.json 依赖兼容守卫（固定 zod 版本等）
 │   ├── verify_browser.cjs        # 自动检测本机浏览器路径，写入 local-config.json
 │   ├── start.cjs                 # 以 --user-data-dir 启动浏览器（复用登录态）
@@ -72,7 +73,7 @@ chrome-devtools/
 └── upstream/                     # 【子技能·纯快照·不改源码】见 3.2
 ```
 
-> 根目录另存在 `mirror_to_target.cjs` 与 `sync_and_deploy.cjs` 两个**早期布局遗留脚本**。方案 A 下**请勿使用**它们——演进统一走 `localization/` 下的 `apply_localize.cjs` / `upstream.cjs` / `deploy.cjs` / `vendor_frontend.cjs`。
+> 早期布局遗留脚本 `mirror_to_target.cjs` / `sync_and_deploy.cjs` 已在新布局（方案 A）下移除——其职责已由 `localization/` 下的 `apply_localize.cjs` / `upstream.cjs` / `deploy.cjs` / `vendor_frontend.cjs` 取代。演进统一走 `localization/`。
 
 ### 3.2 子技能目录（upstream/，纯上游快照）
 
@@ -81,14 +82,14 @@ chrome-devtools/
 ```
 upstream/
 ├── skills/                   # 上游 5 个子技能（chrome-devtools / chrome-devtools-cli / a11y-debugging / ...）
-│   └── chrome-devtools/SKILL.md   # 顶层 SKILL.md 的同步源（apply_localize 会复制到根 SKILL.md）
+│   └── chrome-devtools/SKILL.md   # 上游子技能文档（MCP server 内部子技能）；被注入本地化段，与根 SKILL.md 是不同文件、不同用途
 ├── src/ build/               # 上游源码与构建产物（build/ 不入库）
 ├── package.json              # 上游包定义（本地化层守卫校验此文件存在）
 ├── README.md                 # 上游主文档（被注入本地化段）
-└── devtools-frontend/        # vendored 副本（按钉版本填充，不入库，见第 5 节）
+└── devtools-frontend/   # vendored 副本（按钉版本填充，不入库，见第 5 节；路径与上游 v1.7.0 submodule 路径一致，顶层）
 ```
 
-`upstream/` 内**除被 `.gitignore` 排除的资产外，整树入库**（这是方案 A 的权衡：快照随仓库分发，新机器无需联网即可获得纯上游基线，只需补 vendored 资产即可构建）。
+`upstream/` **不入库**（属可衍生资产）：由 `localization/upstream.cjs` 按 `UPSTREAM_REF` 钉版本从上游仓库克隆生成（见第 7.2 节全新引导）。主副本仅保留 `localization/` 本地化层、根 `SKILL.md`/`README.md` 与 `UPSTREAM_REF` 等锚点，保持最小化、可移植化——陌生 Agent 读 README 后即可凭 `upstream.cjs` 重建 `upstream/`。
 
 ### 3.3 被 .gitignore 排除的资产（严禁入库）
 
@@ -96,7 +97,7 @@ upstream/
 
 - `chrome-devtools_v1.6.0.zip`：历史版本备份压缩包（本地备份，不随仓库分发）。
 - `upstream/node_modules/`、`upstream/build/`：上游依赖与构建产物（按需本地生成）。
-- `upstream/devtools-frontend/`：vendored 副本（GB 级，按钉版本填充）。
+- `upstream/devtools-frontend/`：vendored 副本（GB 级，按钉版本填充；路径与上游 v1.7.0 `.gitmodules` 的 submodule 一致，顶层）。
 - `local-config.json`、`mcp-local-config.json`：机器专属配置（模板见 `*.example.json`）。
 
 ---
@@ -109,7 +110,7 @@ upstream/
 
 ```
 UPSTREAM_VERSION=1.7.0
-UPSTREAM_SOURCE=ChromeDevTools/chrome-devtools-mcp@main
+UPSTREAM_SOURCE=ChromeDevTools/chrome-devtools-mcp@chrome-devtools-mcp-v1.7.0
 SNAPSHOT_DATE=2026-08-12
 DEVTOOLS_FRONTEND_REPO=https://github.com/ChromeDevTools/devtools-frontend.git
 DEVTOOLS_FRONTEND_BRANCH=main
@@ -117,7 +118,7 @@ DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
 ```
 
 - `UPSTREAM_VERSION`：跟随的上游 npm 发布版本（当前 `1.7.0`）。
-- `UPSTREAM_SOURCE`：上游仓库来源（`@main` 表示基线取自 main 分支，但版本号以 npm 发布版对齐）。
+- `UPSTREAM_SOURCE`：上游仓库来源（`@chrome-devtools-mcp-v1.7.0` 表示钉版本取自该发布标签；`UPSTREAM_TAG` 决定克隆的具体标签，本方案固定 v1.7.0 而非 main 分支——main 存在 submodule 未同步的 transient 不一致，故不部署）。
 - `DEVTOOLS_FRONTEND_COMMIT`：`devtools-frontend` 的钉版本 commit（由上游标签 `chrome-devtools-mcp-v1.7.0` 的树解析得到）。**构建依赖此精确 commit**，由 `vendor_frontend.cjs` 据此 sparse-clone。
 
 ### 4.2 何时及如何更新钉版本
@@ -126,6 +127,7 @@ DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
 
 1. 修改 `UPSTREAM_REF` 的 `UPSTREAM_VERSION` 与 `DEVTOOLS_FRONTEND_COMMIT` 两个版本字段（必要时同步 `SNAPSHOT_DATE`）。
 2. 直接运行 `node localization/upstream.cjs`（见 6.2），它会自动检测并 clone 新版本、刷新 `upstream/` 快照、重注入本地化、重新部署。
+   - ⚠️ 若改动了 `DEVTOOLS_FRONTEND_COMMIT`：**须先删除 `upstream/devtools-frontend/`** 再运行——`vendor_frontend.cjs` 对"已存在且非空"的目录幂等跳过，不删则不会按新 commit 重新 vendoring，导致构建用陈旧 devtools-frontend 与新源码类型不匹配。
 3. 跑回归测试（见第 8 节），确认无回归后再提交。
 
 > 注意：`DEVTOOLS_FRONTEND_COMMIT` 必须从目标上游版本的标签树中解析得到（不能凭空写），否则 vendoring 失败、构建无法完成。
@@ -141,14 +143,14 @@ DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
 - 会产生巨型 `.git` 与嵌套仓库，污染父仓（`git status` 异常、可能误判 gitlink）。
 - 跨机克隆成本高。
 
-方案 A 改用 **vendored 源码树**：仅 `front_end/` 源码树按钉版本精确填充到 `upstream/devtools-frontend/`，且该目录被 `.gitignore` 排除、**不入库**。
+方案 A 改用 **vendored 源码树**：将 devtools-frontend 的**整棵仓库**（含 `front_end/` 与 `mcp/` 等顶层目录）按钉版本精确填充到 `upstream/devtools-frontend/`（与上游 v1.7.0 `.gitmodules` 的 submodule 路径一致，顶层；上游 `tsconfig.json` 的 `include`/`files` 与 `scripts/post-build.ts` 均按该路径引用，且其源码 `src/third_party/index.ts` 相对导入 `devtools-frontend/mcp/mcp.js`，故必须整树 vendoring 而非仅 `front_end/`），且该目录被 `.gitignore` 排除、**不入库**。
 
 ### 5.2 填充步骤（构建前必需）
 
 填充由 `localization/vendor_frontend.cjs` 完成（也由 `deploy.cjs` 步骤 2.5 自动触发）。行为：
 
 - 读取 `UPSTREAM_REF` 的 `DEVTOOLS_FRONTEND_COMMIT`。
-- `git clone --filter=blob:none --sparse` 仅拉取 `front_end/` 树，检出钉版本 commit。
+- 下载钉版本 commit 的 tarball（`https://github.com/ChromeDevTools/devtools-frontend/archive/<commit>.tar.gz`），解包后取**整棵仓库**（含 `front_end/`、`mcp/` 等顶层目录；GitHub partial clone 不支持路径级按需拉取 blob，故采用整树快照 tarball 方案）。
 - 拷贝到 `upstream/devtools-frontend/`，排除 `.git` / `node_modules` / `build`。
 - **幂等**：目标已存在且非空则跳过；支持 `--dry-run` 预检（不联网）。
 
@@ -168,7 +170,7 @@ DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
   - `upstream/skills/chrome-devtools/SKILL.md`（片段 `_frag_skill_main.md` + 描述 `_frag_skill_main_desc.txt`）
   - `upstream/skills/chrome-devtools-cli/SKILL.md`（片段 `_frag_skill_cli.md` + 描述 `_frag_skill_cli_desc.txt`）
   - `upstream/README.md`（片段 `_frag_readme_local.md`）
-  - 生成 `mcp-local-config.json`；并**同步顶层 `SKILL.md`**（把上游 `skills/chrome-devtools/SKILL.md` 复制为根 `SKILL.md`，使本文件夹自描述、拷贝即走）。
+  - 生成 `mcp-local-config.json`。（根 `SKILL.md` 是独立的"父技能运行时文档"，由维护者手工维护，**不会被本脚本覆盖**；上游 `skills/chrome-devtools/SKILL.md` 是 MCP 内部子技能文档，二者用途不同。）
 - **`--check`（无副作用自检）**：仅校验守卫（`upstream/package.json` 存在）与全部注入目标存在性，不修改任何文件。通过输出 `[CHECK] 通过`。供 CI / 测试使用，防回归。
 - **`--strip`（剥离）**：移除已注入的本地化段（哨兵行到文件末尾），用于上游更新后「刷新」重注入。剥离后需再无参重跑本脚本重新注入。
 
@@ -179,7 +181,7 @@ DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
 方案 A 的上游跟进脚本。行为：
 
 1. 检测上游最新版本（优先 `npm view chrome-devtools-mcp version`，其次 `gh release list`）。
-2. clone 上游 main 到临时目录（不带子模块）。
+2. clone 上游钉版本（v1.7.0 标签，由 `UPSTREAM_TAG` 决定）到临时目录（不带子模块）。
 3. `--strip` 剥离旧本地化段（还原纯上游基线）。
 4. 全树拷贝到 `upstream/`，受保护排除集 `devtools-frontend / node_modules / build / .gitmodules`（不覆盖本地产物、不引入 `.gitmodules`）。
 5. 差量剪除 `src / scripts / skills` 中「上游已删除、本地仍残留」的陈旧文件。
@@ -197,17 +199,18 @@ DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
 
 1. 核查本地浏览器（`verify_browser.cjs`）。
 2. 在 `upstream/` 内 `npm install`（强制 `PUPPETEER_SKIP_DOWNLOAD=1`，装齐 devDependencies 含 `puppeteer-core` 等运行时依赖）。
-3. vendoring `devtools-frontend`（`vendor_frontend.cjs`）。
-4. 在 `upstream/` 内 `npm run build`（tsc → `build/`）。
-5. 全局符号链接 `$(npm root -g)/chrome-devtools-mcp` → 本文件夹（`npm install -g ./upstream`），并防御性确保全局 bin 命令可用（Windows 额外生成 `.cmd` 包装）。
-6. 重新注入本地化（`apply_localize.cjs`）。
-7. 生成 `mcp-local-config.json`，并**幂等合并进 `~/.workbuddy/mcp.json`**（含 `CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1` 环境变量）。
+3. 剥离 `@paulirish/trace_engine` 的冲突全局声明（`fix_trace_engine_dts.cjs`，见第 12 节 TS2717——devtools-frontend 与该依赖都向全局接口 `HTMLElementEventMap` 注入 `[ModelUpdateEvent.eventName]: ModelUpdateEvent`，类型身份不同会冲突，须于 tsc 前剥离其一，否则构建报 TS2717）。
+4. vendoring `devtools-frontend`（`vendor_frontend.cjs`）。
+5. 在 `upstream/` 内 `npm run build`（tsc → `build/`）。
+6. 全局符号链接 `$(npm root -g)/chrome-devtools-mcp` → 本文件夹（`npm install -g ./upstream`），并防御性确保全局 bin 命令可用（Windows 额外生成 `.cmd` 包装）。
+7. 重新注入本地化（`apply_localize.cjs`）。
+8. 生成 `mcp-local-config.json`，并**幂等合并进 `~/.workbuddy/mcp.json`**（含 `CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1` 环境变量）。
 
 跨机可用：拷贝本文件夹（无需 `node_modules` / `build`）到任意位置，运行 `node localization/deploy.cjs` 即自动装依赖、建符号链接、构建并生成配置。
 
 ### 6.4 vendor_frontend.cjs（见第 5 节）
 
-按 `UPSTREAM_REF` 钉版本 sparse-clone `front_end` 树到 `upstream/devtools-frontend/`。幂等，支持 `--dry-run`。
+按 `UPSTREAM_REF` 钉版本下载 commit tarball **整树**填充到 `upstream/devtools-frontend/`（与上游 v1.7.0 submodule 路径一致，顶层；含 `front_end/` 与 `mcp/` 等顶层目录）。幂等，支持 `--dry-run`。
 
 ### 6.5 verify_browser.cjs / start.cjs / cli_run.cjs / compat.cjs
 
@@ -241,14 +244,19 @@ DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
 
 ### 7.2 新机器首次复现（完整部署）
 
-在 `chrome-devtools/` 根目录内按序执行：
+主副本不含 `upstream/`（可衍生、不入库）。在 `chrome-devtools/` 根目录内执行**一条命令**即可完成"引导上游快照 + 构建 + 安装 + 注入 + 生成配置"全流程：
 
-1. **核验钉版本**：读 `localization/UPSTREAM_REF`，确认 `UPSTREAM_VERSION` 与 `DEVTOOLS_FRONTEND_COMMIT`。
-2. **构建前 vendoring（必须）**：`node localization/vendor_frontend.cjs`（填充 `upstream/devtools-frontend/`，否则构建失败）。
-3. **全局安装与构建（必须）**：`node localization/deploy.cjs`（装依赖 + 构建 + 全局链接 + 注入本地化 + 生成 MCP 配置 + 合并 `~/.workbuddy/mcp.json`）。
-4. **自检浏览器路径**：`node localization/verify_browser.cjs`（如未生成 `local-config.json`，deploy 已触发）。
-5. **回归自检**：`node localization/test/localize.test.cjs`（预期 8/8 PASS）。
-6. 在 WorkBuddy 连接器管理页「信任」chrome-devtools 服务器。
+```bash
+node localization/upstream.cjs
+```
+
+`upstream.cjs` 在 `upstream/` 缺失时自动进入全新引导（bootstrap）模式：克隆钉版本上游 → 定向合并本地化约束（`compat.cjs`）→ 注入本地化（`apply_localize.cjs`）→ vendoring `devtools-frontend` → 全局安装与构建（`deploy.cjs`）→ 生成 MCP 配置。可先加 `--dry-run` 预检。该步骤需联网（git clone 上游、npm 安装、克隆 devtools-frontend）。
+
+随后：
+
+1. **自检浏览器路径**：`node localization/verify_browser.cjs`（deploy 已触发；如未生成 `local-config.json` 可补跑）。
+2. **回归自检**：`node localization/test/localize.test.cjs`（预期 8/8 PASS）。
+3. 在 WorkBuddy 连接器管理页「信任」chrome-devtools 服务器。
 
 ### 7.3 跟随上游升级到新版本
 
@@ -262,7 +270,7 @@ DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
 当 `fragments/` 内容调整、或需重置本地化状态时：
 
 1. `node localization/apply_localize.cjs --strip`（剥离旧段）。
-2. `node localization/apply_localize.cjs`（重新注入最新片段 + 同步顶层 SKILL.md + 生成配置）。
+2. `node localization/apply_localize.cjs`（重新注入最新片段 + 生成配置）。
 3. `node localization/test/localize.test.cjs` 回归自检。
 
 ---
@@ -333,7 +341,7 @@ DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
 | 读者 | WorkBuddy / Agent（运行时） | 人 / 陌生 Agent（演进 / 维护） |
 | 内容 | 工具调用、启动流程、本地化用法、红线 | 架构原理、目录布局、钉版本、vendoring、脚本接口、演进步骤、已知坑 |
 | 性质 | 精简指令，不含解释性 / 维护性内容 | 解释性、维护性、结构化说明 |
-| 演进时 | 跟随上游由 `apply_localize.cjs` 自动同步 | 由维护者人工更新以反映设计决策 |
+| 演进时 | 根 SKILL.md 由维护者手工更新（不自动同步）；上游子技能 SKILL.md 由 `apply_localize.cjs` 注入本地化段 | 由维护者人工更新以反映设计决策 |
 
 简言之：**SKILL.md 管「怎么用」，README.md 管「为什么这样、怎么演进」**。任何 Agent 运行时不需要的内容，都从 SKILL.md 移入本文件。
 
@@ -344,6 +352,17 @@ DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
 - **构建失败报缺模块**：上游运行时依赖在 devDependencies，`npm install -g chrome-devtools-mcp` 的发布包不含运行时依赖。必须用「本地文件夹安装」（`deploy.cjs` 的 `npm install` + `npm install -g ./upstream`）装齐依赖，不可只装全局包。
 - **全局 bin 命令不可用**：npm 对「本地文件夹全局安装（符号链接）」模式可能静默跳过 bin 链接创建。`deploy.cjs` 的 `ensureGlobalBinLinks()` 已显式兜底（Windows 生成 `.cmd` 包装）；若仍不可用，检查 `$(npm root -g)/chrome-devtools-mcp/build/src/bin/` 是否存在构建产物。
 - **构建报 zod 版本不兼容**：`compat.cjs` 已固定兼容版本；若手动改过 `upstream/package.json` 导致浮动，重跑 `deploy.cjs` 或 `upstream.cjs` 重新应用约束。
-- **devtools-frontend 缺失导致构建失败**：新机器必须先跑 `vendor_frontend.cjs`（或 `deploy.cjs` 步骤 2.5 自动触发）填充 `upstream/devtools-frontend/`，该目录被 `.gitignore` 排除、不入库。
+- **devtools-frontend 缺失导致构建失败**：新机器必须先跑 `vendor_frontend.cjs`（或 `deploy.cjs` 步骤 4 自动触发）填充 `upstream/devtools-frontend/`（注意是顶层 `devtools-frontend`，与上游 v1.7.0 submodule 路径一致；填错位置会导致 `tsconfig.json` 的 `files` 列表找不到 `acorn.mjs` 而构建失败），该目录被 `.gitignore` 排除、不入库。
+- **构建报 TS2717（Subsequent property declarations must have the same type，涉及 `ModelUpdateEvent` / `HTMLElementEventMap`）**：devtools-frontend 的 `front_end/models/trace/ModelImpl.ts` 与依赖 `@paulirish/trace_engine` 的 `models/trace/ModelImpl.d.ts` 都向全局接口 `HTMLElementEventMap` 注入 `[ModelUpdateEvent.eventName]: ModelUpdateEvent`，但二者 `ModelUpdateEvent` 类型身份不同 → 冲突。这是上游已知问题，上游 `scripts/prepare.ts` 在 `tsc` 前剥离 `@paulirish/trace_engine` 那份声明。`deploy.cjs` 步骤 3（`fix_trace_engine_dts.cjs`）已自动执行该剥离；若手动构建，须先 `node localization/fix_trace_engine_dts.cjs` 再 `npm run build`。注意：`npm install` 会还原该 `.d.ts`，故须在每次构建前重跑（脚本幂等，已剥离则跳过）。
 - **本地化注入静默跳过（F-01 / F-02 回归）**：注入目标缺失时不报错。用 `node localization/apply_localize.cjs --check` 自检；若报 `[CHECK-FAIL]` 说明主副本 → 部署副本失同步，先解决 `upstream/package.json` 存在性等前置，再重跑注入。
 - **pre-commit 密钥扫描误报**：见第 8.2 节，`upstream/` 整树已加路径豁免，不要为消除误报修改上游源码。
+
+### 12.1 官方深度参考（超出本手册范围时查阅）
+
+本手册聚焦本地化与部署；若需上游原生能力、UI 用法或启动期排查，直接查阅官方资料：
+
+- **Chrome DevTools 官方文档**：https://developer.chrome.com/docs/devtools
+- **DevTools AI 辅助（AI Assistance）**：https://developer.chrome.com/docs/devtools/ai-assistance
+- **chrome-devtools-mcp 启动 / 连接故障排查（上游 docs/troubleshooting.md）**：https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/troubleshooting.md
+
+> 以上外部链接原置于根 `SKILL.md` 末尾的 `## Troubleshooting`，因其属「解释说明类、Agent 运行时非必需」信息，按 SKILL.md/README.md 职责边界（第 11 节）已迁入本手册，避免污染 Agent 运行时文档。

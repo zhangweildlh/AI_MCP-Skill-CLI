@@ -12,7 +12,7 @@ const SENTINEL = '<!-- LOCALIZED:360Chromex -->';
 const UPSTREAM = path.join(REPO, 'upstream');
 
 // 已知注入目标清单（写死，A2）：这些目标是本地化设计的合法注入点；若缺失，
-// 视为"主副本→部署副本失同步"（如主副本新增子技能后漏跑 mirror_to_target.cjs），
+// 视为 upstream/ 上游快照缺失或钉版本不匹配（请先运行 node localization/upstream.cjs 刷新 upstream/ 快照），
 // 必须明确告警（而非与普通缺失一样静默跳过）。如需新增注入目标，在此扩展。
 const KNOWN_TARGETS = new Set([
   'upstream/skills/chrome-devtools/SKILL.md',
@@ -32,7 +32,7 @@ function inject(targetRel, fragFile) {
   const target = path.join(REPO, targetRel);
   const frag = path.join(FRAG, fragFile);
   if (!fs.existsSync(target)) {
-    if (KNOWN_TARGETS.has(targetRel)) console.warn('[警告] 已知注入目标缺失（可能主副本→部署副本失同步，请先运行 node mirror_to_target.cjs）: ' + targetRel);
+    if (KNOWN_TARGETS.has(targetRel)) console.warn('[警告] 已知注入目标缺失（upstream/ 上游快照缺失或钉版本不匹配，请先运行 node localization/upstream.cjs 刷新 upstream/ 快照）: ' + targetRel);
     else console.log('[跳过] 目标不存在: ' + targetRel);
     return;
   }
@@ -49,7 +49,7 @@ function inject(targetRel, fragFile) {
 function strip(targetRel) {
   const target = path.join(REPO, targetRel);
   if (!fs.existsSync(target)) {
-    if (KNOWN_TARGETS.has(targetRel)) console.warn('[警告] 已知注入目标缺失（可能主副本→部署副本失同步，请先运行 node mirror_to_target.cjs）: ' + targetRel);
+    if (KNOWN_TARGETS.has(targetRel)) console.warn('[警告] 已知注入目标缺失（upstream/ 上游快照缺失或钉版本不匹配，请先运行 node localization/upstream.cjs 刷新 upstream/ 快照）: ' + targetRel);
     else console.log('[跳过] 目标不存在: ' + targetRel);
     return;
   }
@@ -67,7 +67,7 @@ function localizeDescription(targetRel, descFile) {
   const target = path.join(REPO, targetRel);
   const frag = path.join(FRAG, descFile);
   if (!fs.existsSync(target)) {
-    if (KNOWN_TARGETS.has(targetRel)) console.warn('[警告] 已知注入目标缺失（可能主副本→部署副本失同步，请先运行 node mirror_to_target.cjs）: ' + targetRel);
+    if (KNOWN_TARGETS.has(targetRel)) console.warn('[警告] 已知注入目标缺失（upstream/ 上游快照缺失或钉版本不匹配，请先运行 node localization/upstream.cjs 刷新 upstream/ 快照）: ' + targetRel);
     else console.log('[跳过] 目标不存在: ' + targetRel);
     return;
   }
@@ -165,10 +165,10 @@ function main() {
   localizeDescription('upstream/skills/chrome-devtools-cli/SKILL.md', '_frag_skill_cli_desc.txt');
   genMcpConfig();
 
-  // 同步顶层 SKILL.md：使本文件夹自描述、拷贝即走（无需先跑 mirror_to_target.cjs）
-  const mainSkill = path.join(UPSTREAM, 'skills', 'chrome-devtools', 'SKILL.md');
-  const topSkill = path.join(REPO, 'SKILL.md');
-  if (fs.existsSync(mainSkill)) { fs.copyFileSync(mainSkill, topSkill); console.log('[已同步] 顶层 SKILL.md（自描述入口）'); }
+  // 注意：根 SKILL.md 是本技能的"父技能运行时文档"（WorkBuddy 加载技能时读取的入口），
+  // 与上游 skills/chrome-devtools/SKILL.md（MCP 内部子技能文档，注入本地化段后由 MCP server 提供）
+  // 是两个不同文件、两种用途，切勿互相覆盖。根 SKILL.md 由维护者手工维护（见 README 第 11 节），
+  // apply_localize 仅向上游快照内的注入点追加本地化段，不触碰根 SKILL.md。
 
   const cfg = readConfig();
   // 不在源码写死机器路径（RC-B）：
