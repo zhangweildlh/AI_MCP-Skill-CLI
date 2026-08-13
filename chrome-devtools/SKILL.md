@@ -85,15 +85,6 @@ You can send multiple tool calls in parallel, but maintain correct order: naviga
 
 > **验证已构建扩展禁 `file://`**：验证已构建/打包的扩展必须用 `chrome-extension://<id>/...`，**严禁 `file://`** 直接打开 dist 里的 html（vite 等产物用绝对 `/assets/` 引用脚本，在 `file://` 下解析失败导致 JS 不加载、按钮全部点不动的假阳性）。
 
-## Troubleshooting
-
-If `chrome-devtools-mcp` is insufficient, guide users to use Chrome DevTools UI:
-
-- https://developer.chrome.com/docs/devtools
-- https://developer.chrome.com/docs/devtools/ai-assistance
-
-If there are errors launching `chrome-devtools-mcp` or Chrome, refer to https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/troubleshooting.md.
-
 ---
 
 <!-- LOCALIZED:360Chromex -->
@@ -208,7 +199,7 @@ node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" take_
 
 ### 核心操作速查（MCP 工具名保持英文）
 
-- **页面/导航**：`list_pages`、`select_page`、`navigate_page --url`、`new_page`、`close_page`
+- **页面/导航**：`list_pages`、`select_page`、`navigate_page --url`、`new_page`、`close_page`、`resize_page <宽> <高>`（调整选中页面窗口尺寸）
 - **结构/交互**：`take_snapshot`（文本快照，获取元素 `uid`）、`click <uid>`、`fill <uid> <文本>`、`hover`、`drag <src> <dst>`、`press_key`、`type_text`、`upload_file`
 - **截图**：`take_screenshot`（可 `--fullPage`、`--filePath` 存盘）
 - **控制台/日志**：`list_console_messages`、`get_console_message`
