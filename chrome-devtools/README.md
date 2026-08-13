@@ -206,7 +206,7 @@ DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
 7. 重新注入本地化（`apply_localize.cjs`）。
 8. 生成 `mcp-local-config.json`，并**幂等合并进 `~/.workbuddy/mcp.json`**（含 `CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1` 环境变量）。
 
-跨机可用：拷贝本文件夹（无需 `node_modules` / `build`）到任意位置，运行 `node localization/deploy.cjs` 即自动装依赖、建符号链接、构建并生成配置。
+跨机可用：拷贝本文件夹（无需 `node_modules` / `build`）到任意位置。**重新部署（`upstream/` 已存在时）**运行 `node localization/deploy.cjs` 即自动装依赖、建符号链接、构建并生成配置；**全新引导（`upstream/` 不存在，例如最小化的主副本）须先运行 `node localization/upstream.cjs`** 克隆钉版本上游并自动完成后续引导（见 §6.2 / 第 7.2 节）——`deploy.cjs` 不是引导入口，它在 `upstream/` 缺失时会报错退出。
 
 ### 6.4 vendor_frontend.cjs（见第 5 节）
 

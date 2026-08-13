@@ -96,7 +96,8 @@ function pinZodAndScripts() {
 
 function ensure() {
   if (!fs.existsSync(UPSTREAM)) {
-    console.error('[兼容] 未找到 upstream/ 子目录，请先完成脚手架迁移（G1a）。');
+    console.error('[兼容] 未找到 upstream/ 子目录。本方案 upstream/ 由 localization/upstream.cjs 按 UPSTREAM_REF 钉版本克隆生成（全新引导/bootstrap），不是手工预先放置的。');
+    console.error('       请先运行 node localization/upstream.cjs 完成上游引导（克隆 v1.7.0 → 合并本地化约束 → 注入 → vendoring → 构建 → 生成配置），再视需要运行 deploy.cjs 重新部署。');
     process.exit(1);
   }
   pinZodAndScripts();
