@@ -1,0 +1,23 @@
+# 上游钉版本锚点（由 localization/upstream.cjs 与 compat.cjs 读取）
+# 来源：ChromeDevTools/chrome-devtools-mcp 发布版本 v1.7.0（自洽稳定版，非 main 分支——
+#       main 分支存在 submodule 未同步的 transient 不一致，tsc 构建会报 DebuggerLanguagePlugin 类型错误）
+UPSTREAM_VERSION=1.7.0
+UPSTREAM_SOURCE=ChromeDevTools/chrome-devtools-mcp@chrome-devtools-mcp-v1.7.0
+UPSTREAM_TAG=chrome-devtools-mcp-v1.7.0
+SNAPSHOT_DATE=2026-08-12
+
+# devtools-frontend 子模块（上游以 git submodule 引入，本地以 vendored 副本承载）
+# 构建前由 localization/vendor_frontend.cjs 按下方钉版本下载 commit tarball 整树填充（见 .gitmodules 原始定义）。
+# 说明：GitHub partial clone 不支持路径级按需 fetch，故用 commit tarball 整树快照（不含 .git）。
+DEVTOOLS_FRONTEND_REPO=https://github.com/ChromeDevTools/devtools-frontend.git
+DEVTOOLS_FRONTEND_BRANCH=main
+# 钉版本 commit：取 chrome-devtools-mcp@v1.7.0 的 devtools-frontend 子模块 gitlink（已确认 = b0a8253）。
+# 该 commit 与 v1.7.0 代码类型严格匹配（上游发布版自洽）。
+DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
+# 注：本机以 vendored 源码树承载（非 git submodule，避免 GB 级 .git 入库）。
+# v1.7.0 子模块路径为 devtools-frontend/（顶层），故 vendored 到 upstream/devtools-frontend/，
+# 而非 third_party/devtools-frontend/（那是 main 分支的路径）。
+# 关键：必须 vendoring 整棵仓库（front_end/ + mcp/ + 其他顶层目录），不是仅 front_end/ 子树——
+# 上游 src/third_party/index.ts 相对导入 devtools-frontend/mcp/mcp.js（提供 LanguageExtensionPlugin 等类型），
+# 仅取 front_end/ 会导致 "Cannot find module '../../devtools-frontend/mcp/mcp.js'" 及下游级联类型错误。
+# 这些资产被 .gitignore 排除（upstream/devtools-frontend/），不入库。
