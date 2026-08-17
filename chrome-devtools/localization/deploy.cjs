@@ -17,6 +17,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { mergeIntoMcpJson } = require('./merge_mcp_json.cjs'); // F2 修复：抽出为独立可测模块（深度合并嵌套 env）
 
 const REPO = path.resolve(__dirname, '..');
 const PKG_NAME = 'chrome-devtools-mcp';
@@ -82,21 +83,8 @@ function ensureGlobalBinLinks() {
 }
 
 // 幂等将 chrome-devtools 合并进 WorkBuddy 的 ~/.workbuddy/mcp.json（仅覆盖本服务器条目，保留其它条目）。
+// 实现见 localization/merge_mcp_json.cjs（F2 修复：深度合并嵌套 env，保留用户既有环境变量）。
 // 根治“手工漏配导致 mcp.json 缺 CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS env”的跨机复发。
-function mergeIntoMcpJson(mcp) {
-  const home = process.env.USERPROFILE || process.env.HOME || '';
-  const mcpJsonPath = path.join(home, '.workbuddy', 'mcp.json');
-  if (!home || !fs.existsSync(path.dirname(mcpJsonPath))) { console.log('[mcp] 未找到 ~/.workbuddy，跳过自动合并（请手动合并 mcp-local-config.json）。'); return; }
-  let doc;
-  try { doc = fs.existsSync(mcpJsonPath) ? JSON.parse(fs.readFileSync(mcpJsonPath, 'utf8')) : {}; } catch (e) { console.log('[mcp] 解析现有 mcp.json 失败，跳过自动合并: ' + e.message); return; }
-  doc.mcpServers = doc.mcpServers || {};
-  // 字段级合并：保留既有条目未被覆盖的字段（至少 disabled），仅叠加新 command/args/env；
-  // 避免整条目覆盖抹掉用户原有 disabled 等字段、造成启用状态静默反转（BUG-2 修复）。
-  const existingEntry = doc.mcpServers['chrome-devtools'] || {};
-  doc.mcpServers['chrome-devtools'] = Object.assign({}, existingEntry, mcp.mcpServers['chrome-devtools']);
-  fs.writeFileSync(mcpJsonPath, JSON.stringify(doc, null, 2), 'utf8');
-  console.log('[mcp] 已自动合并 chrome-devtools 到 ' + mcpJsonPath);
-}
 
 console.log('=== 1) 核查本地浏览器 ===');
 sh('node "' + path.join(__dirname, 'verify_browser.cjs') + '"'); // F2: 经 sh() 统一捕获子进程非零退出，避免未处理异常崩溃

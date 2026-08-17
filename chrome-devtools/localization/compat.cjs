@@ -23,12 +23,20 @@ const ALLOW_SCRIPTS = [
 ];
 
 // —— 合并 .npmrc：上游 ∪ 本地 allow-scripts[]（幂等）——
-function mergeNpmrc() {
-  const p = path.join(UPSTREAM, '.npmrc');
+function mergeNpmrc(targetPath) {
+  const p = targetPath || path.join(UPSTREAM, '.npmrc');
   if (!fs.existsSync(p)) { console.log('[兼容] 上游无 .npmrc，跳过'); return; }
   let lines = fs.readFileSync(p, 'utf8').split(/\r?\n/);
-  // 移除上游可能误带的 allow-scripts 行（由本脚本统一管理，避免重复/漂移）
+  // 并集合并（F1 修复）：先保留上游既有 allow-scripts 条目中「非本脚本管理的包」，再确保本地 5 包白名单齐备；
+  // 避免原实现整体替换、丢弃上游其他 allow-scripts 条目（原注释宣称「并集」实为「替换」）。
+  const upstreamAllow = lines
+    .filter(l => l.trim().startsWith('allow-scripts'))
+    .map(l => l.trim());
   lines = lines.filter(l => !l.trim().startsWith('allow-scripts'));
+  for (const u of upstreamAllow) {
+    const pkg = u.replace(/^allow-scripts\[\]=/, '');
+    if (!ALLOW_SCRIPTS.includes(pkg)) lines.push(u); // 保留上游独有条目
+  }
   let changed = false;
   for (const pkg of ALLOW_SCRIPTS) {
     const needle = 'allow-scripts[]=' + pkg;
@@ -106,6 +114,8 @@ function ensure() {
   console.log('[兼容] 定向合并完成（upstream/ 已注入本地化约束）。');
 }
 
+// 导出供单元测试（F3）：保持 ensure 可直接调用（兼容 require('./compat.cjs')()），并暴露 mergeNpmrc 以验证并集合并行为。
+ensure.mergeNpmrc = mergeNpmrc;
 module.exports = ensure;
 
 // 支持直接运行：node localization/compat.cjs（独立验证/手动注入）
