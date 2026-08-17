@@ -12,7 +12,8 @@ const REPO = path.resolve(__dirname, '..');
 const cfgPath = path.join(REPO, 'local-config.json');
 const isWin = process.platform === 'win32';
 // 本机 360Chromex 常见安装根（可用环境变量覆盖，避免源码写死机器路径）。
-const LOCAL_360_DIR = process.env['CHROME_DEVTOOLS_360_DIR'] || 'D:\\Tools\\360Chrome';
+// 惰性读取（F3 修复：便于测试经环境变量覆盖，且保持运行时可被环境覆盖的一致性），而非模块加载时定死。
+function local360Dir() { return process.env['CHROME_DEVTOOLS_360_DIR'] || 'D:\\Tools\\360Chrome'; }
 
 function load() { return fs.existsSync(cfgPath) ? JSON.parse(fs.readFileSync(cfgPath, 'utf8')) : {}; }
 function save(c) { fs.writeFileSync(cfgPath, JSON.stringify(c, null, 2), 'utf8'); }
@@ -43,7 +44,7 @@ function collect() {
     const PF = process.env.ProgramFiles || 'C:\\Program Files';
     const PF86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
     // 已知安装位置（视为已注册）
-    add(path.join(LOCAL_360_DIR, '360chromex.exe'), true, '360Chromex');
+    add(path.join(local360Dir(), '360chromex.exe'), true, '360Chromex');
     add(path.join(PF, 'Google', 'Chrome', 'Application', 'chrome.exe'), true, 'Chrome');
     add(path.join(PF86, 'Google', 'Chrome', 'Application', 'chrome.exe'), true, 'Chrome');
     add(path.join(PF, '360Chrome', '360chromex.exe'), true, '360Chromex');
@@ -89,7 +90,7 @@ function userDataFor(exe, name) {
   const dir = path.dirname(exe);
   const lower = exe.toLowerCase();
   if (lower.includes('360') || name.toLowerCase().includes('360')) {
-    const std = path.join(LOCAL_360_DIR, 'User Data');
+    const std = path.join(local360Dir(), 'User Data');
     if (fs.existsSync(std)) return std;
   } else if (lower.includes('chrome')) {
     const la = process.env.LOCALAPPDATA;
@@ -170,6 +171,9 @@ let pick = null;
   if (!cfg.browserUserDataDir) cfg.browserUserDataDir = userDataFor(input, path.basename(input));
   if (!cfg.debugPort) cfg.debugPort = 9222;
   save(cfg);
-  console.log('[已写入] local-config.json -> browserPath: ' + input);
-})();
+    console.log('[已写入] local-config.json -> browserPath: ' + input);
+  })();
 }
+
+// 导出供单元测试（F3）：保持直接运行行为不变（require.main 守卫），并暴露 userDataFor 以验证用户数据目录解析。
+module.exports = { userDataFor };

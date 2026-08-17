@@ -13,6 +13,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto'); // F4 修复：用于 tarball SHA256 完整性校验（钉版本哈希）
 
 const REPO = path.resolve(__dirname, '..');
 const UPSTREAM = path.join(REPO, 'upstream');
@@ -25,6 +26,12 @@ function sh(c, cwd) {
 }
 function shOut(c, cwd) {
   return execSync(c, { cwd: cwd || REPO, encoding: 'utf8' }).trim();
+}
+// F4 修复：计算文件 SHA256（用于 tarball 完整性校验，依赖 Node 内置 crypto，无外部依赖）。
+function sha256File(p) {
+  const h = crypto.createHash('sha256');
+  h.update(fs.readFileSync(p));
+  return h.digest('hex');
 }
 
 // 读取 UPSTREAM_REF 钉版本锚点
@@ -83,7 +90,26 @@ try {
   // 注意：Git Bash 的 tar/curl 会把 Windows 绝对路径（含 D:）误判为远程主机，故统一用相对名 + cwd=tmp。
   const tarUrl = repoBase + '/archive/' + commit + '.tar.gz';
   console.log('[vendor] 下载钉版本 tarball: ' + tarUrl);
-  sh('curl -fsSL "' + tarUrl + '" -o dtf.tar.gz', tmp);
+  // B1 修复（2026-08-17）：bootstrap 曾因 curl 无超时在单连接停滞时无限挂死（实测得 18–25 分钟 0 字节）。
+  // 加 --connect-timeout 建连超时、--max-time 总时限、--retry 重试，杜绝挂死。
+  sh('curl -fsSL --connect-timeout 30 --max-time 900 --retry 5 --retry-delay 3 "' + tarUrl + '" -o dtf.tar.gz', tmp);
+  // B1 修复：解包前校验 tarball 已落地且非空，避免空文件导致后续 tar 静默空转。
+  const _st = fs.statSync(path.join(tmp, 'dtf.tar.gz'));
+  if (!_st.size) { console.error('[错误] devtools-frontend tarball 下载为空，已中止，未解包。'); process.exit(1); }
+  // F4 修复：解包前校验 tarball SHA256（钉版本哈希，防御传输损坏 / 供应链篡改）。
+  // 仅当 UPSTREAM_REF 配置 DEVTOOLS_FRONTEND_SHA256 时强制校验；未配置则告警跳过，保持跨机可用性
+  // （GitHub archive 按 commit 生成的 tarball 内容可重现，建议 deliberate 跟版时钉定哈希）。
+  const expected = ref.DEVTOOLS_FRONTEND_SHA256;
+  const actual = sha256File(path.join(tmp, 'dtf.tar.gz'));
+  if (expected) {
+    if (actual.toLowerCase() !== expected.toLowerCase()) {
+      console.error('[错误] tarball SHA256 不匹配（期望 ' + expected + '，实际 ' + actual + '）—— 传输损坏或供应链被篡改，已中止，未解包。');
+      process.exit(1);
+    }
+    console.log('[vendor] tarball SHA256 校验通过');
+  } else {
+    console.log('[vendor] 未配置 DEVTOOLS_FRONTEND_SHA256，跳过完整性校验（建议 deliberate 跟版时钉定哈希以防御传输损坏/篡改）');
+  }
   console.log('[vendor] 解包 tarball...');
   sh('tar -xzf dtf.tar.gz', tmp); // 解包到 tmp（生成 devtools-frontend-<commit>/）
   const baseName = path.basename(repoBase) + '-' + commit; // 如 devtools-frontend-b0a8253...
