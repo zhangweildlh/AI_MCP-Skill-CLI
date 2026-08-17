@@ -5,8 +5,13 @@
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 
 const { inject, strip, localizeDescription, SENTINEL } = require('../apply_localize.cjs');
+const { mergeNpmrc } = require('../compat.cjs');                       // F3：并集合并测试
+const { mergeIntoMcpJson } = require('../merge_mcp_json.cjs');         // F3：深度合并 env 测试
+const { probePort, profileLocked } = require('../start_helpers.cjs');  // F3：profileLocked/probePort 测试
+const { userDataFor } = require('../verify_browser.cjs');              // F3：userDataFor 测试
 
 const REPO = path.resolve(__dirname, '..', '..');
 const FRAG = path.join(REPO, 'localization', 'fragments');
@@ -24,26 +29,35 @@ const scratchPaths = [
   path.join(FRAG, scratchDesc),
 ];
 
+// 新增测试使用的临时目录（需递归删除）
+const extraCleanup = [];
+
 function cleanup() {
   for (const p of scratchPaths) {
     try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch { /* noop */ }
   }
-}
-
-let passed = 0;
-function test(name, fn) {
-  try {
-    fn();
-    passed++;
-    console.log('  ✓ ' + name);
-  } catch (e) {
-    console.error('  ✗ ' + name);
-    console.error('    ' + (e && e.message));
-    throw e;
+  for (const d of extraCleanup) {
+    try { if (fs.existsSync(d)) fs.rmSync(d, { recursive: true, force: true }); } catch { /* noop */ }
   }
 }
 
-try {
+// 收集式运行器：支持 async 用例（如 probePort 真实端口探针），任一失败即中止并清理。
+let passed = 0;
+const tests = [];
+function test(name, fn) {
+  tests.push(async () => {
+    try {
+      await fn();
+      passed++;
+      console.log('  ✓ ' + name);
+    } catch (e) {
+      console.error('  ✗ ' + name);
+      console.error('    ' + (e && e.message));
+      throw e;
+    }
+  });
+}
+
   // --- T1: SENTINEL 哨兵常量 ---
   test('SENTINEL 是非空字符串', () => {
     assert.strictEqual(typeof SENTINEL, 'string');
@@ -177,11 +191,150 @@ try {
     assert.ok((stdout.match(/\[CHECK-OK\]/g) || []).length >= 4, '--check 应校验至少 4 个目标；实际:\n' + stdout);
   });
 
-  cleanup();
-  console.log('\n[通过] 本地化工具链单元测试：' + passed + ' 项全部通过');
-  process.exit(0);
-} catch (e) {
-  cleanup();
-  console.error('\n[失败] 测试未通过，已清理 scratch 文件。');
-  process.exit(1);
-}
+  // --- T8: mergeNpmrc 并集合并（F1 回归 + F3 单测）---
+  test('mergeNpmrc 并集合并：保留上游独有条目并补齐本地 5 包白名单，不重复', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdt-npmrc-'));
+    extraCleanup.push(dir);
+    const p = path.join(dir, '.npmrc');
+    fs.writeFileSync(p, [
+      'min-release-age=600',
+      'allow-scripts[]=some-upstream-only-pkg',
+      '',
+    ].join('\n'), 'utf8');
+    mergeNpmrc(p);
+    let out = fs.readFileSync(p, 'utf8');
+    // 上游独有条目应保留
+    assert.ok(out.includes('allow-scripts[]=some-upstream-only-pkg'), '上游独有 allow-scripts 条目应保留');
+    // 本地 5 包白名单应齐备
+    const local = ['@google/genai', 'core-js', 'protobufjs', 'puppeteer', 'unrs-resolver'];
+    for (const pkg of local) {
+      assert.ok(out.includes('allow-scripts[]=' + pkg), '应补齐本地白名单: ' + pkg);
+    }
+    // 每个本地包恰好出现一次（不重复）
+    for (const pkg of local) {
+      const needle = 'allow-scripts[]=' + pkg;
+      assert.strictEqual(out.split(needle).length - 1, 1, '本地白名单不应重复: ' + pkg);
+    }
+    // 幂等：二次运行不重复
+    mergeNpmrc(p);
+    out = fs.readFileSync(p, 'utf8');
+    for (const pkg of local) {
+      const needle = 'allow-scripts[]=' + pkg;
+      assert.strictEqual(out.split(needle).length - 1, 1, '幂等：二次运行不应重复: ' + pkg);
+    }
+    assert.strictEqual(out.split('allow-scripts[]=some-upstream-only-pkg').length - 1, 1, '幂等：上游独有条目不应重复');
+  });
+
+  // --- T9: mergeIntoMcpJson 深度合并嵌套 env（F2 回归 + F3 单测）---
+  test('mergeIntoMcpJson 深度合并 env：保留用户既有环境变量与字段', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdt-mcp-'));
+    extraCleanup.push(dir);
+    const wb = path.join(dir, '.workbuddy');
+    fs.mkdirSync(wb, { recursive: true });
+    const existing = {
+      mcpServers: {
+        'chrome-devtools': {
+          disabled: true,
+          command: 'node',
+          args: ['OLD'],
+          env: { HTTPS_PROXY: 'http://proxy:8080', PATH: '/old' },
+        },
+      },
+    };
+    fs.writeFileSync(path.join(wb, 'mcp.json'), JSON.stringify(existing), 'utf8');
+    const mcp = {
+      mcpServers: {
+        'chrome-devtools': {
+          command: 'node',
+          args: ['NEW'],
+          env: { CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS: '1' },
+        },
+      },
+    };
+    mergeIntoMcpJson(mcp, { home: dir });
+    const out = JSON.parse(fs.readFileSync(path.join(wb, 'mcp.json'), 'utf8'));
+    const entry = out.mcpServers['chrome-devtools'];
+    // 保留用户既有字段（disabled 不应被 incoming 抹掉）
+    assert.strictEqual(entry.disabled, true, '应保留用户既有 disabled 字段');
+    // 深度合并 env：用户代理与本地化 env 并存（F2 修复验证）
+    assert.strictEqual(entry.env.HTTPS_PROXY, 'http://proxy:8080', '应保留用户既有 env（代理）');
+    assert.strictEqual(entry.env.PATH, '/old', '应保留用户既有 env（PATH）');
+    assert.strictEqual(entry.env.CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS, '1', '应叠加本地化 env');
+    // 顶层字段：inc→incoming 覆盖
+    assert.deepStrictEqual(entry.args, ['NEW'], 'args 应取 incoming 值');
+  });
+
+  // --- T10: profileLocked（F3 单测）---
+  test('profileLocked：SingletonLock/SingletonCookie 存在即判定占用', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdt-prof-'));
+    extraCleanup.push(dir);
+    assert.strictEqual(profileLocked(dir), false, '无锁文件时应返回 false');
+    fs.writeFileSync(path.join(dir, 'SingletonLock'), '');
+    assert.strictEqual(profileLocked(dir), true, 'SingletonLock 存在应返回 true');
+    fs.rmSync(path.join(dir, 'SingletonLock'));
+    assert.strictEqual(profileLocked(dir), false, '移除后应返回 false');
+    fs.writeFileSync(path.join(dir, 'SingletonCookie'), '');
+    assert.strictEqual(profileLocked(dir), true, 'SingletonCookie 存在应返回 true');
+  });
+
+  // --- T11: probePort（F3 单测，真实端口探针）---
+  test('probePort：未占用端口返回 false', async () => {
+    const free = 65432; // 期望未被占用；ECONNREFUSED → false（真实探针）
+    const r = await probePort(free);
+    assert.strictEqual(r, false, '未占用端口应返回 false');
+  });
+
+  // --- T12: userDataFor（F3 单测）---
+  test('userDataFor：360/Chrome 标准位置优先，否则回退 exe 同级 User Data', () => {
+    const saved360 = process.env['CHROME_DEVTOOLS_360_DIR'];
+    const savedLa = process.env['LOCALAPPDATA'];
+    try {
+      // 360：CHROME_DEVTOOLS_360_DIR 下存在 User Data → 返回该标准位置
+      const d360 = fs.mkdtempSync(path.join(os.tmpdir(), 'cdt-360-'));
+      extraCleanup.push(d360);
+      fs.mkdirSync(path.join(d360, 'User Data'), { recursive: true });
+      process.env['CHROME_DEVTOOLS_360_DIR'] = d360;
+      const exe360 = path.join(d360, '360chromex.exe');
+      assert.strictEqual(userDataFor(exe360, '360Chromex'), path.join(d360, 'User Data'), '360 应返回标准 User Data');
+
+      // 360 但标准位置不存在 → 回退 exe 同级 User Data
+      const d360b = fs.mkdtempSync(path.join(os.tmpdir(), 'cdt-360b-'));
+      extraCleanup.push(d360b);
+      process.env['CHROME_DEVTOOLS_360_DIR'] = d360b; // 该目录下无 User Data
+      const exe360b = path.join(d360b, '360chromex.exe');
+      assert.strictEqual(userDataFor(exe360b, '360Chromex'), path.join(d360b, 'User Data'), '360 标准位置缺失应回退 exe 同级 User Data');
+
+      // Chrome：LOCALAPPDATA 下存在 Google/Chrome/User Data → 返回该标准位置
+      const dla = fs.mkdtempSync(path.join(os.tmpdir(), 'cdt-la-'));
+      extraCleanup.push(dla);
+      fs.mkdirSync(path.join(dla, 'Google', 'Chrome', 'User Data'), { recursive: true });
+      process.env['LOCALAPPDATA'] = dla;
+      const exeChrome = path.join(dla, 'chrome.exe');
+      assert.strictEqual(userDataFor(exeChrome, 'Chrome'), path.join(dla, 'Google', 'Chrome', 'User Data'), 'Chrome 应返回 LOCALAPPDATA 标准 User Data');
+
+      // Chrome 但 LOCALAPPDATA 标准位置缺失 → 回退 exe 同级 User Data
+      const dlab = fs.mkdtempSync(path.join(os.tmpdir(), 'cdt-lab-'));
+      extraCleanup.push(dlab);
+      process.env['LOCALAPPDATA'] = dlab; // 无 Google/Chrome/User Data
+      const exeChromeb = path.join(dlab, 'chrome.exe');
+      assert.strictEqual(userDataFor(exeChromeb, 'Chrome'), path.join(dlab, 'User Data'), 'Chrome 标准位置缺失应回退 exe 同级 User Data');
+    } finally {
+      if (saved360 === undefined) delete process.env['CHROME_DEVTOOLS_360_DIR']; else process.env['CHROME_DEVTOOLS_360_DIR'] = saved360;
+      if (savedLa === undefined) delete process.env['LOCALAPPDATA']; else process.env['LOCALAPPDATA'] = savedLa;
+    }
+  });
+
+  // 顺序执行全部收集到的测试（支持 async，如 probePort 真实端口探针），任一失败即中止并清理。
+  (async () => {
+    for (const t of tests) {
+      try { await t(); }
+      catch (e) {
+        cleanup();
+        console.error('\n[失败] 测试未通过，已清理 scratch 文件。');
+        process.exit(1);
+      }
+    }
+    cleanup();
+    console.log('\n[通过] 本地化工具链单元测试：' + passed + ' 项全部通过');
+    process.exit(0);
+  })();

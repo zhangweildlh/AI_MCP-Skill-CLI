@@ -21,8 +21,14 @@ if (!fs.existsSync(DTS)) {
 }
 
 const content = fs.readFileSync(DTS, 'utf-8');
-// 与 upstream/scripts/prepare.ts 同款正则：匹配 declare global { interface HTMLElementEventMap { [ModelUpdateEvent.eventName]: ModelUpdateEvent; } }
-const RE = /declare global\s*\{\s*interface HTMLElementEventMap\s*\{[^}]*\[ModelUpdateEvent\.eventName\]:\s*ModelUpdateEvent;\s*\}\s*\}/s;
+// F5 修复：与 upstream/scripts/prepare.ts 同款意图，但放宽锚定——
+//   原正则要求 interface 声明后「全局块闭合 } 必须紧随其自身的闭合 }」，
+//   一旦 declare global 内 HTMLElementEventMap 之后还有其它成员（非末位），整体即不匹配、剥离失败 → tsc 报 TS2717 复发。
+//   改为仅锚定 interface 声明本身：其 [^}]* 不能跨 }，必停于该 interface 自身的闭合 }，
+//   无论它在 declare global 内处于首位/中位/末位均可稳健剥离（且不会误吞后续成员）。
+const RE = /interface HTMLElementEventMap\s*\{[^}]*\[ModelUpdateEvent\.eventName\]:\s*ModelUpdateEvent;\s*\}/s;
+// 预检是否落在 declare global 上下文（仅作信息提示，不影响匹配稳健性）
+const inGlobal = /declare global\s*\{[\s\S]*interface HTMLElementEventMap/.test(content);
 if (!RE.test(content)) {
   console.log('[fix-dts] 未检测到冲突声明（已处理或上游变更），跳过。');
   process.exit(0);
