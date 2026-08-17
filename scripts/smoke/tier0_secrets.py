@@ -43,6 +43,13 @@ ALLOW_PATTERNS = [
     re.compile(r"[<>\[]"),                          # 占位符包裹的伪值
 ]
 
+# ---- 路径级扫描豁免 ----
+# 私人仓库（zhangweildlh/AI_MCP-Skill-CLI 为私有）场景下，用户于 2026-08-17 明确授权：
+# mimo_mcp.py 中的真实 OpenAI 密钥不参与密钥扫描阻断（泄露风险由私有可见性兜底）。
+# 与 ref-material-writing/.env 的 #10 授权同属「用户显式决策豁免」，故加入路径豁免而非
+# ALLOW_PATTERNS——避免把真实密钥伪装成「占位符误判」，保持值级语义干净。
+EXEMPT_SCAN_PATHS = {"mimo_mcp.py"}
+
 # ---- .gitignore 策略 ----
 # 必须被忽略（保护私有数据）
 MUST_IGNORE = [
@@ -101,6 +108,9 @@ def run(files=None, rep: Report = None) -> Report:
         # 按方案 A「不改上游源码」原则跳过密钥扫描，避免上游测试/示例中
         # 口令类、令牌类等敏感字面值被误报（chrome-devtools 方案A落地 G6）。
         if rel.startswith("chrome-devtools/upstream/"):
+            continue
+        # 路径级豁免：私人仓库授权跳过的文件（见 EXEMPT_SCAN_PATHS），不参与密钥扫描
+        if rel in EXEMPT_SCAN_PATHS:
             continue
         p = REPO_ROOT / rel
         if not p.is_file():
