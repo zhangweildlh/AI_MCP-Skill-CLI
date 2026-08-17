@@ -25,10 +25,11 @@
 
 ### 2.1 父技能 + 子技能解耦
 
-采用「方案 A」解耦架构，把「可自由改动的本地化层」与「纯上游代码快照」彻底分开：
+采用「方案 A」解耦架构，把「可自由改动的本地化层」与「vendored 上游快照」彻底分开：
 
 - **父技能（本目录根，可改）**：承载本地化逻辑与运行时说明，包括 `SKILL.md`、`.gitignore`、`localization/`。
-- **子技能（`upstream/`，纯上游快照，不改源码）**：原样存放 `ChromeDevTools/chrome-devtools-mcp` 的源码 / 构建 / 文档。任何本地化改造都**不修改 `upstream/` 内的源码**，而是通过注入片段叠加。
+- **子技能（`upstream/`，vendored 快照 + 流水线就地注入，非手工编辑区）**：垂直存放 `ChromeDevTools/chrome-devtools-mcp` 的源码 / 构建 / 文档基线；本地化约束（zod 钉版本、allow-scripts 白名单、puppeteer 跳过下载，由 `compat.cjs` 注入）与本地化片段（`SKILL.md` / `README.md` 注入段、`description` 中文改写，由 `apply_localize.cjs` 注入）**均由流水线在克隆后就地注入到 `upstream/` 文件内**，而非手工预先编辑。
+  - ⚠️ 虽然 `upstream/` 会被流水线就地修改（这与其「vendored 快照」身份不冲突，恰是方案 A 的注入机制），但**严禁人工直接改 `upstream/` 内文件**——任何本地化改动都应改 `localization/` 与 `fragments/` 后由流水线注入，否则会在下次 `upstream.cjs` 刷新时丢失或冲突。
 
 ### 2.2 本地化注入机制（哨兵幂等）
 
@@ -67,17 +68,17 @@ chrome-devtools/
 │   ├── start.cjs                 # 以 --user-data-dir 启动浏览器（复用登录态）
 │   ├── cli_run.cjs               # CLI 模式辅助（仅 CLI 模式，可被删除）
 │   ├── fragments/                # 本地化注入片段源（_frag_*.md / *.txt / *.json）
-│   └── test/localize.test.cjs    # 本地化层单元测试（预期 8/8 PASS）
+│   └── test/localize.test.cjs    # 本地化层单元测试（预期 全部 PASS（项数以 test 文件为准））
 ├── local-config.json             # 机器专属（浏览器路径/端口），由脚本生成，不入库
 ├── mcp-local-config.json         # 生成的 MCP 配置样例，不入库
-└── upstream/                     # 【子技能·纯快照·不改源码】见 3.2
+└── upstream/                     # 【子技能·vendored 快照 + 流水线就地注入·非手工编辑区】见 3.2
 ```
 
 > 早期布局遗留脚本 `mirror_to_target.cjs` / `sync_and_deploy.cjs` 已在新布局（方案 A）下移除——其职责已由 `localization/` 下的 `apply_localize.cjs` / `upstream.cjs` / `deploy.cjs` / `vendor_frontend.cjs` 取代。演进统一走 `localization/`。
 
-### 3.2 子技能目录（upstream/，纯上游快照）
+### 3.2 子技能目录（upstream/，vendored 快照 + 流水线就地注入）
 
-`upstream/` 是 `ChromeDevTools/chrome-devtools-mcp @ 1.7.0` 的完整拷贝：
+`upstream/` 是 `ChromeDevTools/chrome-devtools-mcp @ 1.7.0` 的 vendored 拷贝（由流水线在克隆后就地注入本地化约束与片段，**非手工编辑区**）：
 
 ```
 upstream/
@@ -90,6 +91,8 @@ upstream/
 ```
 
 `upstream/` **不入库**（属可衍生资产）：由 `localization/upstream.cjs` 按 `UPSTREAM_REF` 钉版本从上游仓库克隆生成（见第 7.2 节全新引导）。主副本仅保留 `localization/` 本地化层、根 `SKILL.md`/`README.md` 与 `UPSTREAM_REF` 等锚点，保持最小化、可移植化——陌生 Agent 读 README 后即可凭 `upstream.cjs` 重建 `upstream/`。
+
+> 注意：`upstream/` 虽由流水线就地注入约束与片段（并非字面意义的「纯手工未改快照」），但**人工仍不得直接改其内文件**；本地化改动一律走 `localization/` + `fragments/` 经流水线注入，避免刷新时丢失或冲突。
 
 ### 3.3 被 .gitignore 排除的资产（严禁入库）
 
@@ -115,6 +118,7 @@ SNAPSHOT_DATE=2026-08-12
 DEVTOOLS_FRONTEND_REPO=https://github.com/ChromeDevTools/devtools-frontend.git
 DEVTOOLS_FRONTEND_BRANCH=main
 DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
+DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 vendor_frontend.cjs 解包前强制校验（防御传输损坏/供应链篡改）
 ```
 
 - `UPSTREAM_VERSION`：跟随的上游 npm 发布版本（当前 `1.7.0`）。
@@ -226,7 +230,7 @@ DEVTOOLS_FRONTEND_COMMIT=b0a8253f0ac8aba5ec3451130f7f8b3319da1d67
   - `_frag_skill_main_desc.txt` / `_frag_skill_cli_desc.txt`：中文化的 `description` 完整行。
   - `_frag_readme_local.md`：注入到上游 `README.md` 的本地化段。
   - `_frag_mcp_config.json`：MCP 配置模板（`__GLOBAL_BIN__` 占位符由 `apply_localize.cjs` 替换为实际全局 bin 路径）。
-- **test/localize.test.cjs**：本地化层单元测试，预期 **8/8 PASS**，含 `--check` 断言（T7 等）。是回归验证的主入口。
+- **test/localize.test.cjs**：本地化层单元测试，预期 **全部 PASS（项数以 test 文件为准）**，含 `--check` 断言（T7 等）。是回归验证的主入口。
 
 ---
 
@@ -255,7 +259,7 @@ node localization/upstream.cjs
 随后：
 
 1. **自检浏览器路径**：`node localization/verify_browser.cjs`（deploy 已触发；如未生成 `local-config.json` 可补跑）。
-2. **回归自检**：`node localization/test/localize.test.cjs`（预期 8/8 PASS）。
+2. **回归自检**：`node localization/test/localize.test.cjs`（预期 全部 PASS（项数以 test 文件为准））。
 3. 在 WorkBuddy 连接器管理页「信任」chrome-devtools 服务器。
 
 ### 7.3 跟随上游升级到新版本
@@ -279,7 +283,7 @@ node localization/upstream.cjs
 
 ### 8.1 本地化层单元测试
 
-`node localization/test/localize.test.cjs` 是本地化层的主回归入口。预期 **8/8 PASS**，覆盖注入 / 剥离 / 描述本地化 / `--check` 守卫断言（含 T7）等。
+`node localization/test/localize.test.cjs` 是本地化层的主回归入口。预期 **全部 PASS（项数以 test 文件为准）**，覆盖注入 / 剥离 / 描述本地化 / `--check` 守卫断言（含 T7）等。
 
 - 可在部署前后各跑一次，确认本地化注入未漂移、守卫齐全。
 - `apply_localize.cjs --check` 可作为轻量 CI 门禁（无副作用），验证注入目标存在性。
@@ -331,6 +335,39 @@ node localization/upstream.cjs
 ### 10.2 扩展工具（Extensions 域）
 
 `install_extension` / `trigger_extension_action` / `reload_extension` 等仅在 MCP server 以 `--categoryExtensions` 启动、或 CLI `start` 模式（默认已启用扩展）下可用。若运行 `list_extensions` 返回 `Extensions.getExtensions wasn't found`，说明该浏览器（常见于 360Chromex 等**定制 Chromium 构建**）裁掉了该域——此时应降级：用 `new_page chrome://extensions/?id=<id>` 截图证明扩展已加载，并在目标站点截图证明内容脚本注入，把需交互的侧边栏操作交用户补图。**切勿反复重试 `trigger_extension_action` 浪费时间。**
+
+### 10.3 底层真机点检（CDP 直连补充模式）
+
+> 本小节为「补充能力」：前文（第 2 节「步骤 1」、第 7 节）均以 chrome-devtools-mcp 的 MCP 工具 / CLI 子命令驱动浏览器；当这些工具不足以完成**更底层的真机诊断**时（如 headless 加载扩展验证、诊断页面卡死、扩展页面 DOM 断言），可在浏览器已以 9222 调试端口运行的前提下，用 Node 内置 `WebSocket` **直连 CDP**（不依赖 puppeteer/playwright 封装）。该模式与技能「`--browserUrl` 直连已运行的 360Chromex」底层路径一致，属兼容补充。
+>
+> 适用前提：Chrome / Chromium 系内核（含 360Chromex 等定制内核）+ 用 Node 内置 WebSocket 直连 CDP。
+
+**直连模式要点（避开 flatten 坑）**
+
+- 从 `http://127.0.0.1:9222/json/list` 取目标（按 `type==="page"` + url 片段匹配），直接 `new WebSocket(t.webSocketDebuggerUrl)`；连上后**立即** `Page.enable` + `Runtime.enable`。
+- **勿用 `Target.attachToTarget({flatten:true})`**：flatten 模式 `sessionId` 必须放在 CDP 消息**顶层**（`{id, sessionId, method, params}`）；若误塞进 `params`（写成 `{id, method, params:{sessionId}}`），命令会被路由到**浏览器级会话**（无 `Runtime.evaluate`）→ 报 `-32601 'Runtime.evaluate' wasn't found`，所有命令全失败。
+- 命令响应为两层嵌套：`r.result.result.value`（Runtime.evaluate + returnByValue）。
+
+**启动 360Chromex 的端口与路径陷阱**
+
+- **PowerShell `Start-Process` + 单引号字面量**启动（避开 Git Bash 双引号吞反斜杠：`\T`→`T`、`\C`→`C`，路径反斜杠被吃光 → 命令行参数损坏 → 9222 无监听、扩展未加载）。
+- 端口就绪判定：浏览器启动后 `curl http://127.0.0.1:9222/json/version` 返回含 `Browser` 字段的 JSON 即成功。
+- **多个 CDP 客户端不要并行驱动同一浏览器**（并发争用 → `send timeout` 伪失败），须串行。
+
+**360Chromex headless 特殊行为（完善第 10.2 节扩展降级）**
+
+- 360Chromex 等**定制版浏览器**在无窗口 / 无交互会话中 GUI 进程可能自行退出（端口 `ECONNREFUSED`）；headless 真机点检须用 `--headless=new` + `Start-Process` 保证独立常驻。
+- `--load-extension` **仅 headless 生效**（GUI 模式该参数被忽略；headless=new 下生效，扩展以临时方式加载，不落盘到 Extensions 目录）——在与第 10.2 节 `Extensions` 域被裁剪而降级时，提供 headless 下的替代验证路径。
+
+**页面 / 扩展初始化死锁判别（完善「动用户浏览器需谨慎」红线）**
+
+- 初始化期 `window.confirm` / `window.alert` 会**阻塞渲染进程主线程**，在 headless/CDP 下与对话框处理互相死锁，被误判为「renderer 崩溃」（CDP 永久无回包、标题黑屏、控制台无异常）。
+- **判别崩溃类型**：浏览器级 `Inspector.enable` 后监听 `Inspector.targetCrashed`；若 `targetCrashed` 未触发且目标仍在 `/json/list` → **同步死循环 / 主线程锁死（非原生崩溃）**。据此可区分「页面自身死锁」与「环境 / 浏览器崩溃」，避免误判。
+- 根则：初始化路径（模块求值即执行 / `init()` 同步段）**绝不调用阻塞式对话框**；须改用页内 DOM 弹窗 + `Promise` 的非阻塞确认（自动化测试台不会自动点击 DOM 弹窗，需在单测验证 Promise 解析逻辑）。
+
+**红线衔接（与第 9.3 节一致）**
+
+- 真机点检结束，关闭过程中开出的临时标签页；若动用户日常浏览器，先确认无未保存编辑（读 `.cm-content` 等字符数）。
 
 ---
 
