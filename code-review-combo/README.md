@@ -83,6 +83,19 @@
 | open-code-review-delegate | `https://github.com/alibaba/open-code-review` | `code-review-combo/open-code-review-delegate/`（**仅含 SKILL.md**；ocr CLI 由 SKILL.md 内置逻辑自安装，无需本地 `references/`/`scripts/`） |
 | review-spd | 真上游 `zhu1090093659/spec_driven_develop`（路径 `plugins/spec-driven-develop/skills/review-spd`），**冻结于 `d5d3477` (2026-07-26)，无更新**；combo 内嵌副本实际来自 fork `zhangweildlh/spec_driven_develop` 的 `feat/review-spd-json-output` 分支 commit `35cc1e8`（含 JSON 输出改造），属**有益分叉（领先上游）** | `code-review-combo/review-spd/`（含 SKILL.md + references/ + scripts/review-context.py） |
 
+#### 6.1.1 融合范式来源（方法论复用，非子技能镜像）
+
+除两个子技能镜像外，combo 还从同一上游仓库 `zhu1090093659/spec_driven_develop` 融合了**三份方法论 / 脚本**（均 MIT License），作为 combo 本地增强，不构成新的子技能或第 4 路审查：
+
+| 融合项 | 上游文件（路径 / blob SHA） | combo 落点 | 用途 |
+|--------|------------------------------|------------|------|
+| S.U.P.E.R 架构质量镜 | `plugins/spec-driven-develop/skills/spec-driven-develop/references/super-philosophy.md` @ `3eb0550f11598af388717deb29e2e07cbf359949`（随 `spec-driven-develop` v1.15.0） | `code-review-combo/local/super-philosophy.md` | 10 项评审核查，作为跨切面架构质量维度（产出 `category: other` 发现），补「仅缺陷维度」缺口 |
+| 裁决契约（writer model） | `plugins/spec-driven-develop/agents/code-reviewer.md` @ `37e2c6c24e2b00451140f3d9b7d01b92e18b981b` | 父 `SKILL.md`「Stage3 裁决契约」段 + `local/report-narrative.md` | 显式立「单一写者 / APPROVED·FIXED·ESCALATE 裁决」契约 |
+| 仓库一致性守卫 | `zhu1090093659/spec_driven_develop/scripts/validate.sh` @ `ca48847ebcbceac3ddf9826572d7288000f817b3` | `code-review-combo/tests/guard.sh` | 改造其 (a)(c)(d)(f) 四项为 combo 离线卫生守卫 |
+
+> **许可与署名（MIT）**：上述三份上游文件均为 MIT License（Copyright (c) 2026 spec-driven-develop contributors）。combo 仅复用其方法论 / 脚本逻辑，已在落点文件头部保留 MIT 署名与上游 blob SHA；融合项属 combo 本地增强，上游演进时按 §6.3 的检查命令重新取 blob SHA 比对并据实更新。
+> **重要**：融合项**不**进入 `open-code-review-delegate/` 或 `review-spd/` 两个子技能目录，全部落在 `local/`、`scripts/`、`tests/`、`SKILL.md`，**不破坏 §7 的解耦架构**；也不引入任何外部 LLM Key 依赖。
+
 > 注意：
 > - **open-code-review-delegate 上游** = `alibaba/open-code-review`（combo 内仅含 `open-code-review-delegate/SKILL.md` 文档副本，ocr CLI 由 SKILL.md 内置逻辑自安装，不内嵌 CLI 本体）。
 > - review-spd 的真上游路径在 `spec_driven_develop` 仓库的 `plugins/spec-driven-develop/skills/review-spd` 子目录下，不是独立仓库；且自 `d5d3477` (2026-07-26) 起**冻结无任何更新**。combo 内嵌的 review-spd 是**有益分叉**——来自 fork `zhangweildlh/spec_driven_develop` @ `35cc1e8`，已含 JSON 输出改造，功能领先真上游，**不应以"跟随真上游"之名覆盖式回退**。
@@ -111,6 +124,11 @@
 - `gh api repos/zhu1090093659/spec_driven_develop/commits?path=plugins/spec-driven-develop/skills/review-spd&per_page=1` —— 取该路径最近一次提交的 SHA 与日期，与 6.6 记录对比。
 - 或 `gh api repos/zhu1090093659/spec_driven_develop/contents/plugins/spec-driven-develop/skills/review-spd/SKILL.md --jq .sha` 取当前文件 blob SHA 对比。
 - 列出目录所有文件：`gh api repos/zhu1090093659/spec_driven_develop/contents/plugins/spec-driven-develop/skills/review-spd` 看是否有新增/删除的资源文件。
+
+**检查融合范式上游（§6.1.1 三项）：**
+- S.U.P.E.R：`gh api repos/zhu1090093659/spec_driven_develop/contents/plugins/spec-driven-develop/skills/spec-driven-develop/references/super-philosophy.md --jq .sha` → 应等于 `3eb0550f11598af388717deb29e2e07cbf359949`；变化说明上游范式演进，重新取内容比对 `local/super-philosophy.md`。
+- 裁决契约：`gh api repos/zhu1090093659/spec_driven_develop/contents/plugins/spec-driven-develop/agents/code-reviewer.md --jq .sha` → 应等于 `37e2c6c24e2b00451140f3d9b7d01b92e18b981b`。
+- 守卫：`gh api repos/zhu1090093659/spec_driven_develop/contents/scripts/validate.sh --jq .sha` → 应等于 `ca48847ebcbceac3ddf9826572d7288000f817b3`；若上游守卫新增检查项，可据实并入 `tests/guard.sh`。
 
 > 若 `gh` 未登录或无权限，退化为 WebFetch 上游原始文件 URL（如 `https://raw.githubusercontent.com/zhu1090093659/spec_driven_develop/main/plugins/spec-driven-develop/skills/review-spd/SKILL.md`）人工比对。
 
@@ -207,6 +225,9 @@ combo 相对上游存在以下**本地偏离点**。每次 6.4 跟进必须据�
 | ① | 委托 `SKILL.md` 为上游 **v1.9.5 纯镜像**（仅顶部 6 行镜像声明为本地、可整文件覆盖；**无中文 1.1.0 分叉**，中文编排在父 `SKILL.md`） | 上游 `alibaba/open-code-review` @ `v1.9.5`（纯镜像，无本地增强） | 随上游新发布版整文件覆盖 `open-code-review-delegate/SKILL.md` 并补回顶部 6 行镜像声明；无需 3-way 合并 | combo 维护者 |
 | ② | review-spd JSON 输出改造（Dual output 文本↔JSON、`references/output-format.md` Structured JSON、统一 severity、branch 模式 `from=base`/`to=head`） | fork `zhangweildlh/spec_driven_develop` @ `35cc1e8`（领先真上游 `d5d3477`） | 保留 fork；定期 `gh api` 比对真上游 `d5d3477` 内容差异，仅吸收有益新增；**绝不**覆盖式回退 JSON 输出 | combo 维护者 |
 | ③ | C-1 `--path` 补丁（`review-context.py` 子目录范围收敛 + 顶层 / 子技能 `SKILL.md` 范围说明与 `--path` 示例） | 本地（combo 前瞻改进） | 合并时 cherry-pick 此增强；若上游未来加同名参数，以本增强为参考合并 | combo 维护者 |
+| ④ | S.U.P.E.R 架构质量镜（`local/super-philosophy.md`，融合自上游 `super-philosophy.md` @ `3eb0550`，含 MIT 署名） | 上游 `zhu1090093659/spec_driven_develop` @ `3eb0550`（随 v1.15.0） | 保留文件头部 MIT 署名与「combo 融合约定」段；上游 blob SHA 变化时按 §6.3 重新比对并据实更新 | combo 维护者 |
+| ⑤ | 裁决契约（writer model）：父 `SKILL.md`「Stage3 裁决契约」段 + `local/report-narrative.md` Verdict 段，融合自上游 `code-reviewer.md` @ `37e2c6c`，含 MIT 署名 | 上游 `zhu1090093659/spec_driven_develop` @ `37e2c6c` | 保留「单一写者 / APPROVED·FIXED·ESCALATE」契约；上游 blob SHA 变化时按 §6.3 比对 | combo 维护者 |
+| ⑥ | 仓库一致性守卫 `tests/guard.sh`（融合自上游 `validate.sh` @ `ca48847`，含 MIT 署名） | 上游 `zhu1090093659/spec_driven_develop` @ `ca48847` | 保留 MIT 署名；上游守卫新增检查项时据实并入 guard.sh 的 (a)(c)(d)(f) | combo 维护者 |
 
 **保全纪律**：
 - 任一 Agent 读 6.4 跟进前，先读本清单，确认 ① / ② / ③ 在 3-way 合并后仍存在。
@@ -237,9 +258,14 @@ code-review-combo/
 │   ├── setup.md                     【本地化】ocr CLI 自动安装 + Win11 PATH + ocr llm test + 两种配置
 │   ├── coverage.md                  【本地化】全面功能覆盖表
 │   ├── delegate-json-schema.md      【本地化】委托模式宿主 JSON Schema 包装（字段统一 content）
-│   └── report-narrative.md          【本地化】人类报告 prompt 模板（只叙事不裁决）
+│   ├── super-philosophy.md          【融合·S.U.P.E.R 架构质量镜】10 项评审核查（跨切面维度，MIT 署名，来源 super-philosophy.md @ 3eb0550）
+│   └── report-narrative.md          【本地化】人类报告 prompt 模板（只叙事不裁决；含 Verdict 段）
 ├── open-code-review-delegate/       【上游纯镜像】alibaba/open-code-review @ v1.9.5，仅 SKILL.md
 │   └── SKILL.md                     （顶部 6 行中文头部注释声明镜像；跟进即覆盖此文件）
+├── tests/                           【combo 本地·离线回归与卫生】
+│   ├── test_merge_reports.sh        【combo 增强】Stage3 合并确定性回归（11/11）
+│   ├── verify_combo.sh              【combo 增强】Phase5 验收（含 guard.sh 离线门禁）
+│   └── guard.sh                     【融合·仓库一致性守卫】引用存在性/版本一致/JSON合法/py_compile（MIT 署名，来源 validate.sh @ ca48847）
 └── review-spd/                      【fork 覆盖层】zhangweildlh/spec_driven_develop @ 35cc1e8（领先真上游 d5d3477）
     ├── SKILL.md                     （非纯镜像：含 Dual output 指令层 + combo 自加 --path 特性）
     ├── references/
@@ -279,6 +305,9 @@ code-review-combo/
 | 7 | 多 Key 轮询 probe | 跨厂商多 Key，跑通即用，全失效降级委托 | Stage0 选 Key | `scripts/select-provider` 新增 `probe` 子命令（默认 `config/providers.json`，`-c` 优先；串行探测；exit 0 命中 / exit 2 全失败） | 脚本新增 `cmd_probe` | 改动 `scripts/select-provider` | Stage0 调用 |
 | 8 | merge_reports 增强 | 两子技能载体不同（.md / .json）需归一化、去重、定级 | Stage3 确定性合并出唯一报告 | `.json`+`.md` 双输出；category 8↔5 映射（maintainability/documentation→other，style→丢弃）；≥2 份输入；content↔comment 双字段兼容；确定性 | 重写 `scripts/merge_reports` | 改动 `scripts/merge_reports` | Stage3 调用；输出被 `local/report-narrative.md` 消费 |
 | 9 | review-spd `--path` 子目录审查 | combo 前瞻改进：目标为 Git 子目录时 `review-context.py` 切 git 根会扩大范围（C-1） | 子目录范围收敛 | `review-spd/SKILL.md` Phase 1 加 `--path` 示例 + `review-context.py` 加 `--path` 参数（PATH_FILTER） | 改 `review-spd/SKILL.md` 与 `review-context.py` | 改动 `review-spd/SKILL.md`、`review-spd/scripts/review-context.py` | 与 JSON 镜像无关，单独保留 |
+| 10 | S.U.P.E.R 架构质量镜 | 上游仅给缺陷维度，缺架构质量维度 | 跨切面架构质量审查（单一职责/单向流/端口/环境无关/可替换） | 新增 `local/super-philosophy.md`（融合 `super-philosophy.md` @ `3eb0550`，MIT 署名）；父 `SKILL.md` 核心原则加「架构质量镜」段 | 新增 `local/super-philosophy.md`；改 `SKILL.md` | 各路 + 宿主 Stage3 套用 10 项核查，架构问题以 `category: other` 产出；不改 `merge_reports` | 补「仅缺陷维度」缺口，零外部依赖 |
+| 11 | 裁决契约（writer model） | combo 已有单一写者设计但未显式立约 | 显式「子技能只出报告 / 宿主唯一写者 / APPROVED·FIXED·ESCALATE 裁决」契约 | 父 `SKILL.md` 加「Stage3 裁决契约」段（融合 `code-reviewer.md` @ `37e2c6c`，MIT 署名）；`local/report-narrative.md` 加 Verdict 段 | 改 `SKILL.md`、`local/report-narrative.md` | 不改三路流水线与 `merge_reports` | 把隐式设计显式化，便于维护与陌生 Agent 跟进 |
+| 12 | 仓库一致性守卫 | combo 有测试但缺引用/版本/JSON 卫生守卫 | 离线 repo 卫生（引用存在性/版本一致/JSON合法/py_compile） | 新增 `tests/guard.sh`（融合 `validate.sh` @ `ca48847`，MIT 署名）；`verify_combo.sh` 调 `guard.sh` | 新增 `tests/guard.sh`；改 `tests/verify_combo.sh` | 与三路流水线正交，无运行时依赖 | 补齐仓库健壮性，机制上可 drop-in |
 
 ### 7.4 无法解耦项及原因
 
@@ -357,6 +386,7 @@ bash ./tests/test_merge_reports.sh   # 退出码 0 = 合并逻辑未破
 
 ## 八、维护验证清单（每次跟进后必跑）
 
+0. `bash ./tests/guard.sh` 离线卫生守卫通过（引用存在性 / 版本一致 / JSON 合法 / py_compile）—— 无需 ocr / LLM Key，随时可跑。
 1. `ocr delegate preview` 能在目标 Git 仓库跑通（委托模式前置检查通过）。
 2. `review-spd` 的 `scripts/review-context.py` 能收集 git 上下文（branch / commit-range / uncommitted 三种模式）。
 3. combo 三阶段能产出唯一审计报告（人类可读文本 + 结构化 JSON，Schema 与两子技能兼容）。

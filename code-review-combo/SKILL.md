@@ -58,6 +58,8 @@ Stage1 并行跑三路：`ocr review`（外部 Key，广覆盖 + 规则分组）
 
 `ocr delegate` 已升为与 `ocr review` **平等的「主审」**（不再是全 Key 失效才兜底的从属路径），与 OCR 原生审查互补；三者统一在 Stage3 由 `merge_reports` 确定性合并去重，既保留「多引擎交叉验证」价值，又避免纯重复劳动与结论打架。
 
+**架构质量镜（S.U.P.E.R，跨切面）**：三路审查同时套用 `./local/super-philosophy.md` 的「S.U.P.E.R 10 项评审核查」作为架构质量维度（单一职责 / 单向流 / 端口优于实现 / 环境无关 / 可替换），补足 combo 此前「仅缺陷维度」的缺口。架构质量问题（如硬编码密钥、循环依赖、不可序列化 I/O、隐式全局依赖）以 `category: other` 的发现产出（severity 由宿主在 Stage3 据实判定；安全类密钥泄漏升 `security`）。**不新增第 4 条审查路、不改 `merge_reports` 的确定性合并逻辑**——S.U.P.E.R 只是各路与宿主共享的检查清单，产出走既有 `findings[]` 通道。
+
 ## 工作流（Stage0 选择器 probe 探测 Key 活/死 → Stage1 OCR 原生审查 + delegate 平等主审 + review-spd 三路并行 → Stage2 review-spd 交叉验证 → Stage3 merge_reports 合并去重）
 
 ### Stage0：select-provider 选择器（先 `probe` 判定 Key 活/死）
@@ -197,6 +199,16 @@ ocr review --provider <P> --format json --audience agent -b "$CTX" ...
 > - **`.md`（人类可读，确定性）**：机器生成的表格化报告（总览 / Top 风险 / 按文件分组 / 修复建议），不调用 LLM，结果可复现。
 >
 > **可选：host LLM 叙事增强**：如需更连贯的人类报告，宿主 LLM 可读取 `.json` 后按 `./local/report-narrative.md` 的 prompt 生成更流畅的 `.md` 叙事——**只叙事、不裁决**（severity / 误报 / 去重已由 `merge_reports` 决定，宿主不得推翻或重判）。
+
+### Stage3 裁决契约（writer model · 融合自上游范式）
+
+> 来源：上游 `zhu1090093659/spec_driven_develop` 的 `plugins/spec-driven-develop/agents/code-reviewer.md`（blob `37e2c6c24e2b00451140f3d9b7d01b92e18b981b`，MIT License）。combo 已有相同设计，此处将其**显式立为契约**。
+
+combo 的编排遵循「单一写者」模型（writer model），与上游执行环路的评审员契约一致：
+
+- **子技能 / 各路审查只产出报告**：`ocr review` / `ocr delegate` / `review-spd` 各自产出 `comments[]` / `findings[]`，**绝不写共享状态**（不创建/修改 Issue、PR、进度文件、治理面、记忆面）。
+- **宿主（编排者）是唯一写者与验收权威**：最终裁决、唯一审计报告的写入、对外状态均由宿主完成；`merge_reports` 做确定性合并去重（机器可复现），宿主 LLM 仅按 `./local/report-narrative.md` **叙事、不裁决**。
+- **最终裁决词汇**：对齐上游评审员契约，宿主对合并结果给出 `APPROVED`（全部交叉验证通过、无保留项） / `FIXED`（单源或 disputed 项经宿主实读代码核实后已确认有效或已修复） / `ESCALATE`（存在需 redesign 或需用户决策的高风险项）三态结论；`ESCALATE` 项须在报告中显式列出并说明下一步。
 
 由本技能（宿主）执行最终裁决，必须结合实际代码，不得凭空采信任一份报告。
 
