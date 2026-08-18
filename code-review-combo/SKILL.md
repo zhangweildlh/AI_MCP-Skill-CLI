@@ -207,7 +207,7 @@ ocr review --provider <P> --format json --audience agent -b "$CTX" ...
 combo 的编排遵循「单一写者」模型（writer model），与上游执行环路的评审员契约一致：
 
 - **子技能 / 各路审查只产出报告**：`ocr review` / `ocr delegate` / `review-spd` 各自产出 `comments[]` / `findings[]`，**绝不写共享状态**（不创建/修改 Issue、PR、进度文件、治理面、记忆面）。
-- **宿主（编排者）是唯一写者与验收权威**：最终裁决、唯一审计报告的写入、对外状态均由宿主完成；`merge_reports` 做确定性合并去重（机器可复现），宿主 LLM 仅按 `./local/report-narrative.md` **叙事、不裁决**。
+- **宿主（编排者）是验收权威**：`merge_reports` 做确定性合并去重并产出审计报告文件（`.json`+`.md`，机器可复现）；宿主 LLM 仅按 `./local/report-narrative.md` **叙事、不重判**——对合并结果给出 `APPROVED` / `FIXED` / `ESCALATE` 三态 Verdict 标签并写入叙事，但**绝不重判单条 finding 的 severity / 误报 / 去重**（这些由 `merge_reports` 决定性决定），对外 status 也仅基于该合并结果标注。
 - **最终裁决词汇**：对齐上游评审员契约，宿主对合并结果给出 `APPROVED`（全部交叉验证通过、无保留项） / `FIXED`（单源或 disputed 项经宿主实读代码核实后已确认有效或已修复） / `ESCALATE`（存在需 redesign 或需用户决策的高风险项）三态结论；`ESCALATE` 项须在报告中显式列出并说明下一步。
 
 由本技能（宿主）执行最终裁决，必须结合实际代码，不得凭空采信任一份报告。
