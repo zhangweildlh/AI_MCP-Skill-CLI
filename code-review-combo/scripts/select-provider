@@ -3,9 +3,10 @@
 #
 # 设计（详见实施计划 §3.1）：
 #   * 读取 ocr 配置中已配置的「自定义 provider」列表（config.json 的 custom_providers 键名）。
-#   * 采用「执行即探测」：本脚本不单独跑 `ocr llm test`（其不支持 --provider 且有 budget 护栏），
-#     而是过滤掉死 Key 后，把「可用 provider 候选列表」输出给 Stage1，由 Stage1 用
-#     `ocr review/scan --provider <P>` 实跑；实跑失败的 provider 由 Stage1 写回死 Key 缓存。
+#   * `probe` 子命令**串行跑 `ocr llm test` 逐个探测**（首个成功即停，exit 0；全失败 exit 2），
+#     命中即把该 provider 设为 ocr 全局激活 provider 供 Stage1 直接复用；探测失败的 provider
+#     由 `probe` 阶段按 401/403→hard、429/超时→soft 写回两级 TTL 死 Key 缓存（不依赖 Stage1 回写）。
+#     （`list` 子命令才是「仅按缓存过滤、不跑 ocr llm test、输出可用候选」的轻量查询。）
 #   * 两级 TTL 死 Key 缓存（落盘于 combo 目录内 .ocr-provider-cache.json）：
 #       - 硬失效（HTTP 401/403，Key 无效/被吊销）→ 长 TTL 拉黑 24h；
 #       - 软不可用（HTTP 429 / 单日额度耗尽）→ 按次日 00:00 本地时间解禁。

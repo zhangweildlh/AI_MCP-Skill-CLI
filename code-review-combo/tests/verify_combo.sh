@@ -47,10 +47,12 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # code-review-combo 的上两级 = AI_MCP-Skill-CLI（git 靶子仓库）
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-WORK_TMP="D:/Documents/AI_Work_Temp/2026-08-17-14-54-31"
+# 产物临时目录：优先用 mktemp 可移植临时目录，回退到技能内 .verify_tmp（避免硬编码绝对路径）
+WORK_TMP="$(mktemp -d 2>/dev/null || echo "$SCRIPT_DIR/../.verify_tmp")"
 SCAN_TARGET="$WORK_TMP/scan-nongit-target"
-# 含代码的小目录（非 git 副本）：github-personal-manager 的脚本目录
-SCAN_SRC="$REPO_DIR/github-personal-manager/scripts"
+# 非 git 靶子的源码来源：默认用 combo 自身的 scripts 目录（含真实 .sh 文件，可移植），
+# 若缺失则由下方 (L170-175) 回退到占位文件，不依赖特定 sister skill 布局
+SCAN_SRC="$SCRIPT_DIR/../scripts"
 
 REVIEW_OUT="$WORK_TMP/verify_review_${PROVIDER}.json"
 SCAN_OUT="$WORK_TMP/verify_scan_${PROVIDER}.json"
