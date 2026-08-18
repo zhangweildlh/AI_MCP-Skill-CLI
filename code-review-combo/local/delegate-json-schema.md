@@ -66,6 +66,8 @@
 }
 ```
 
+> **⚠️ 此 `summary` 是宿主报告 A'（委托模式）的收敛规范**：含 delegate 特有的 `coverage_rate` / `reviewed_files` / `skipped_files`，用于证明「每个 preview 文件均已 reviewed/skipped」。**最终合并产物的 `summary` 以 `scripts/merge_reports` 的真实输出为准**（嵌套 `severity_dist{critical,high,medium,low}` + `total_findings` / `files_reviewed` / `by_source` / `verified_by` / `confirmed` / `disputed` / `new` / `ocr_only` / `review_spd_only` / `category_dist` / `dropped_style`，**不含** `coverage_rate`）。两者描述对象不同（A' 收敛 vs 合并产物），请勿混为一谈。
+
 ## comments[] 字段细则
 
 宿主产出的 `comments[]` 每条评论包含以下字段：
