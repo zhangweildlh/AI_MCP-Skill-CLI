@@ -13,7 +13,7 @@
 ## 输入
 
 - `merge_reports` 产出的 `.json`（已确定去重、定级、汇总）。
-- 结构参考 `local/delegate-json-schema.md` 的 `comments[]` 与 `summary`。
+- 结构以 SKILL.md「输出：唯一审计报告格式」的 `findings[]`（字段 `path`/`start_line`/`end_line`/`category`/`severity`/`content`↔`comment`/`suggestion`/`verified_by`/`cross_check`）与 `summary`（`total_findings`/`files_reviewed`/`by_source`/`verified_by`/`confirmed`/`disputed`/`new`/`severity_dist`/`category_dist`/`dropped_style` 等）为准；`content` 与 `comment` 双字段兼容，任选其一即可。
 
 ## 输出 .md 结构建议
 
@@ -26,9 +26,9 @@
 - 若为 `ESCALATE`，必须显式列出高风险项并说明下一步动作。
 
 ### 1. 总览（Overview）
-- 仓库 / 分支 / 提交范围（来自 `target`）。
-- 总体结论一句话：如「共审查 N 个文件，发现 X critical / Y high / Z medium / W low」。
-- 覆盖率：`coverage_rate` 与 `reviewed_files / skipped_files / total_files`，若含 skipped 须列出理由。
+- 仓库 / 分支 / 提交范围：来自宿主调用 `code-review-combo` 时的 `target_repo` / `from_ref` / `to_ref` / `commit_hash` 上下文（**注意**：合并产物 JSON **不输出** `target` 字段，范围信息由宿主自行带入，勿从 JSON 读取）。
+- 总体结论一句话：如「共审查 N 个文件（取自 `summary.files_reviewed`），发现 X critical / Y high / Z medium / W low（取自 `summary.severity_dist` 或其扁平别名）」。
+- 覆盖率：`coverage_rate` 与 `reviewed_files / skipped_files / total_files` 来自委托报告 A' 的 `summary`（非合并产物），若含 skipped 须列出理由。
 
 ### 2. 按文件（By File）
 - 以 `path` 为小标题，逐文件列出其 findings（引用 `content`、`start_line`–`end_line`、`category`、`severity`）。
@@ -36,7 +36,7 @@
 - 无 findings 的文件可归并为一句「无问题」。
 
 ### 3. 严重度统计（Severity Breakdown）
-- 表格化呈现 `critical / high / medium / low` 各自数量与文件分布。
+- 表格化呈现 `summary.severity_dist` 中 `critical / high / medium / low` 各自数量（或 `summary` 顶层扁平别名）；`both` / `ocr-only` / `review-spd-only` 与 `confirmed` / `disputed` / `new` 可另表呈现 `verified_by` / `cross_check` 分布。
 - 与 `summary` 中的计数保持一致（不得自行改数）。
 
 ### 4. Top 风险（Top Risks）
