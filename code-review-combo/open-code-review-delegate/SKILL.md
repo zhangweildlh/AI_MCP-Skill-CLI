@@ -21,7 +21,7 @@ compatibility: >
 metadata:
   author: alibaba
   homepage: https://github.com/alibaba/open-code-review
-  version: "1.0.0"
+  version: "1.0.0"   # 此 version 为 SKILL 文档「元数据版本」，与 ocr CLI 版本（实测 v1.9.5，以本地 `ocr --version` 为准）无关，请勿混淆
 ---
 
 # Open Code Review — Delegation Mode
