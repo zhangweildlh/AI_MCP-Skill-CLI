@@ -179,4 +179,5 @@ S + U + P + E 的自然结果，也是架构质量的终极目标。
 
 - 上游在「每任务完成后」跑此清单；combo 将其提升为**跨切面审查镜**：三路审查的任一发现若属架构质量类（硬编码密钥、循环依赖、不可序列化 I/O、隐式全局依赖等），以 `category: other` 进入 `findings[]`，severity 由宿主在 Stage3 据实判定（通常 medium/low，除非是安全类密钥泄漏则升 security）。
 - 不因此新增第 4 条审查「路」，也不改动 `merge_reports` 的确定性合并逻辑——S.U.P.E.R 只是各路与宿主共享的**检查清单**，其产出走既有 `findings[]` 通道。
+- 「评分规则：3 项及以上失败 → 停下重构」是上游 spec-driven 开发闭环纪律；在 combo 中**不中断三路既有审查流**——S.U.P.E.R 仅作各路 / 宿主共享的检查清单，其发现走既有 `findings[]` 通道，绝不因某项未过而中止 OCR / delegate / review-spd 的并行审查或 `merge_reports` 合并。
 - 上游范式若演进（blob SHA 变化），按 README §6.3 的检查命令重新取 `super-philosophy.md` 的 blob SHA 比对；本文件与上游偏差属「本地融合增强」，更新时保留本文件头部 MIT 署名与「combo 融合约定」段。
