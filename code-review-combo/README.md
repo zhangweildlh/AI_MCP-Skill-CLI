@@ -102,6 +102,51 @@
 > - **OCR CLI 能力同步**：`ocr`（open-code-review）CLI 本体由你本地自装，随上游独立更新（当前实测 `v1.9.5`）；combo 目录内**仅维护 `open-code-review-delegate/SKILL.md` 文档副本**，既不分叉也不内嵌 CLI 本体。因此判断 CLI 能力请以本地 `ocr --version` 为准——不要因文档副本滞后而误判"CLI 不能做某件事"。文档副本中的 `ocr` 命令示例若与本地 CLI 行为不一致，以本地 CLI 为准，并将偏差登记到 6.7 保全清单作为待回放项。
 > - **LLM Key 本地配置**：provider 凭证统一存放于本技能目录 `config/providers.json`（相对路径加载，模板见 `config/providers.example.json`，已被 `.gitignore` 忽略，绝不入库）。上游跟随**不涉及**此文件；ocr 运行时配置由 `select-provider` 启动时自动合并同步，Agent 无需手动改全局配置。
 
+#### 6.1.2 combo 字段 ↔ 上游 L1/L2/L3 / Pre-flight 映射（可选说明）
+
+本节说明：combo 为何**不**字面引入上游 `spec_driven_develop` 的 `L1 / L2 / L3` 分级词汇与 `github Pre-flight` 检查接口，而是用自有字段表达等价语义。结论先行：**Tier B（B1 术语、B3 接口）整体不融合；Tier A（A1 S.U.P.E.R / A2 裁决契约 / A3 guard.sh）已融合。**
+
+**① 上游 `L1 / L2 / L3` 的「校验强度」语义已被 combo 字段表达 → B1 不引入新词汇**
+
+上游用 `L1 / L2 / L3` 表达分级校验强度（L1 = 机器/自动化校验 always、L2/L3 = 分级人工/专家评审）。combo 的三路交叉验证以**自有字段**承载同一「校验强度」语义，无需套用上游字面词汇：
+
+| combo 字段组合 | 含义 | 对应的上游「校验强度」意图 |
+|---------------|------|---------------------------|
+| `verified_by=both` + `cross_check=confirmed` | 两引擎（open-code-review-delegate / review-spd）独立发现且 severity 一致，**机器交叉确认** | 最高置信，≈ L1（always 机器校验）+ L2 强共识 |
+| `verified_by=ocr-only` / `review-spd-only` + `cross_check=new` | 仅单源发现、尚待核实 | ≈ L2 / L3 分级人工评审（需宿主实读代码核实，见 Stage3 步骤 2） |
+| `cross_check=disputed` | 双源 severity 冲突，保守升级取较高者 + 宿主裁决 | ≈ 需 escalate 的高风险 tier |
+
+即：`verified_by`（both / ocr-only / review-spd-only）表达「**谁确认**」，`cross_check`（confirmed / new / disputed）表达「**确认强度**」——二者组合已完整覆盖上游 L1/L2/L3 想区分的「校验强度梯度」。故 B1 评估结论为**不融合**（不引入上游字面词汇，避免术语错位）。
+
+**② 上游 `github Pre-flight` 的「门禁」意图由 combo `Stage0 probe` 承担，但实现不同 → B3 不融合**
+
+上游 `github Pre-flight` 是**基于 `gh` 的 PR / 合并前门禁检查**（仓库、分支、PR 状态等）。combo 运行时的「预检」是 **Stage0 `scripts/select-provider probe`**——探测 LLM provider Key 的**活 / 死**（串行跑 `ocr llm test`，复用两级 TTL 死 Key 缓存，见 SKILL.md Stage0）。二者的「门禁意图」相似，但**职责与实现错位**：
+
+- combo 运行时**仅依赖 `git` + `ocr`**（见 `review-spd/scripts/review-context.py` L39 `["git", *args]`，全程无 `gh` 调用），不引入 `gh` 依赖；
+- 上游 Pre-flight 的核心（`gh` 仓库/PR 门禁）在 combo 的「交叉验证审查」场景里**无对应职责**——combo 不操作 PR / 不依赖 GitHub API，故 B3 评估结论为**不融合**（职责错位，非简单映射）。
+
+> 换言之：combo 的「Pre-flight 等价物」是 **Key 活/死预检（Stage0 probe）**，解决的是「LLM 能否调用」而非「PR 能否合并」，与上游 Pre-flight 关注点不同，不应强行对齐。
+
+**③ A2 裁决契约（writer model）已内化 → 对应上游 behavioral-rules 9/18/19**
+
+上游 `code-reviewer.md` 的 behavioral-rules（规则 9 / 18 / 19 等）确立「单一写者 / 不写共享状态 / 显式 verdict」。combo 已将其显式立约为 Stage3 裁决契约（SKILL.md「Stage3 裁决契约」段 + `local/report-narrative.md` Verdict 段）：
+
+- 子技能 / 各路审查**只产出报告**，绝不写共享状态（Issue / PR / 进度文件 / 记忆面）——对应上游「不创建治理/记忆面」；
+- 宿主是**唯一写者 / 验收权威**，`merge_reports` 确定性合并去重产出审计报告，宿主仅叙事 + 给 `APPROVED` / `FIXED` / `ESCALATE` 三态 Verdict——对应上游「显式 verdict」；
+- 宿主**绝不重判**单条 finding 的 severity / 误报 / 去重（由 `merge_reports` 决定）——对应上游 writer model 的「单一写者」纪律。
+
+故 A2 已融合为 combo 自有契约，不再需要单独引入上游 behavioral-rules 接口。
+
+**④ Tier 结论汇总**
+
+| 上游项 | combo 对应表达 | 融合判定 | 理由 |
+|--------|---------------|----------|------|
+| L1 / L2 / L3（校验强度） | `verified_by` + `cross_check` | **不融合（B1）** | 自有字段已等价表达，套用字面词汇反而术语错位 |
+| github Pre-flight（gh 门禁） | Stage0 `select-provider probe`（Key 活/死，仅 git+ocr） | **不融合（B3）** | 实现与职责错位（combo 无 gh 依赖、不操作 PR） |
+| S.U.P.E.R 架构镜（A1） | `local/super-philosophy.md` | 已融合 | 见 6.1.1 ① |
+| 裁决契约 writer model（A2） | Stage3 裁决契约 + report-narrative.md | 已融合 | 见本节 ③ |
+| 仓库一致性守卫（A3） | `tests/guard.sh` | 已融合 | 见 6.1.1 ⑥ |
+
 ### 6.2 何时需要跟进
 
 当上游发生以下任一变化时，应跟进更新 combo 副本：
@@ -272,7 +317,7 @@ code-review-combo/
     │   ├── output-format.md         （非纯镜像：含 "Structured JSON" 一节）
     │   └── reviewer-template.md
     └── scripts/
-        └── review-context.py        （与上游逐字节相同，可独立纯镜像）
+        └── review-context.py        （含 combo 自加 --path 子目录收敛补丁 C-1，非逐字节相同；其余 git 上下文收集逻辑与上游一致）
 ```
 
 **设计哲学（一句话）**：子技能目录尽量保持「纯上游」（delegate 已做到），combo 的所有增强集中在 `local/`、`scripts/`、`config/`、`SKILL.md`；这样跟进上游时，纯镜像目录可直接覆盖、零 3-way 合并成本，本地增强零丢失。
@@ -315,12 +360,12 @@ code-review-combo/
 
 - 真上游 `zhu1090093659/spec_driven_develop` 的 `review-spd` 冻结于 `d5d3477` (2026-07-26)，其 `output-format.md` 仅人类可读散文、**不原生输出 ```` ```json findings ```` 块**。
 - combo 的 Stage3 `merge_reports` 依赖该结构化 JSON 才能解析去重。因此「JSON 输出」能力必须保留。
-- 经验证：`scripts/review-context.py` 与真上游**逐字节相同**（零代码改动）；"JSON 输出改造"纯在**指令层**——即 `review-spd/SKILL.md` 的 Phase 6 "Dual output" 一节 + `references/output-format.md` 的 "Structured JSON" 一节。
+- 注意：`scripts/review-context.py` 含 combo 自加的 `--path` 子目录收敛补丁（C-1，见 6.7 ③ / 7.3 ⑨），**非逐字节相同**；"JSON 输出改造"纯在**指令层**——即 `review-spd/SKILL.md` 的 Phase 6 "Dual output" 一节 + `references/output-format.md` 的 "Structured JSON" 一节。
 - 故 combo 内嵌的 review-spd 实际来自 **fork `zhangweildlh/spec_driven_develop` @ `35cc1e8`**（= 真上游 `d5d3477` + JSON 输出改造），属**有益分叉（领先上游）**，不可覆盖式回退。
 
 **可直接抄写的结论段**：
 
-> review-spd 不是真上游 `zhu1090093659/spec_driven_develop` 的纯镜像，而是其 fork `zhangweildlh/spec_driven_develop` @ `35cc1e8` 的副本（含 JSON 输出覆盖层）。代码 `review-context.py` 与上游逐字节相同、可独立纯镜像；JSON 能力纯在指令层（SKILL.md "Dual output" + output-format.md "Structured JSON"），必须保留。本地自加的 `--path` 子目录审查特性与 JSON 镜像无关，单独保留。跟进时只更新正文、绝不丢弃 Dual output 与 Structured JSON 两节。
+> review-spd 不是真上游 `zhu1090093659/spec_driven_develop` 的纯镜像，而是其 fork `zhangweildlh/spec_driven_develop` @ `35cc1e8` 的副本（含 JSON 输出覆盖层）。代码 `review-context.py` 含 combo 自加 `--path` 补丁（C-1，非逐字节相同），其余逻辑与上游一致；JSON 能力纯在指令层（SKILL.md "Dual output" + output-format.md "Structured JSON"），必须保留。本地自加的 `--path` 子目录审查特性与 JSON 镜像无关，单独保留。跟进时只更新正文、绝不丢弃 Dual output 与 Structured JSON 两节。
 
 **对照**：`open-code-review-delegate/` 已完全解耦——它是上游 v1.9.5 的**纯镜像**，全部 combo 增强已抽到 `local/`，可整文件覆盖、零合并成本。
 
@@ -356,7 +401,7 @@ gh api repos/zhu1090093659/spec_driven_develop/contents/plugins/spec-driven-deve
 
 # ② 在其 Phase 6 位置重新套用 fork 的 "Dual output" 一节（结构化 ```json findings 块指令）
 # ③ references/output-format.md 同步补回 "## Structured JSON" 一节
-# ④ review-context.py 可直接用上游最新（逐字节相同，无改动）
+# ④ review-context.py 含 combo 自加 `--path` 补丁（C-1，非逐字节相同），跟进时须保留该补丁；其余 git 上下文收集逻辑可直接对齐上游最新
 # ⑤ 保留本仓库自加的 --path 特性（SKILL.md Phase 1 --path 示例 + review-context.py --path 参数）
 ```
 
@@ -394,4 +439,4 @@ bash ./tests/test_merge_reports.sh   # 退出码 0 = 合并逻辑未破
 5. 用 review-spd 交叉验证 `code-review-combo` → 无 BUG。
 6. 用 Skill 校验器 11 维校验 `code-review-combo` → 通过。
 
-> 注：第 4–5 条审计 `code-review-combo` 自身时，因本技能目录不在 Git 仓库内、且主体为 `.md` 文件，走**宿主直接读取文件的静态审查**；这属于维护者主动选择的独立路径，与 SKILL.md 异常处理中「目标非 Git 仓库 → 停止」互不冲突——该拒绝规则仅针对**被审查目标**，而自审是维护动作，不触发拒绝。`review-context.py` 在该场景下不适用（其 `require_git_repo()` 会返回 `not inside a git repository`），故阶段二对 combo 自身不调用该脚本，改由宿主直读文件后按 review-spd 五焦点审查。
+> 注：第 4–5 条审计 `code-review-combo` 自身时，走**宿主直接读取文件的静态审查**；这属于维护者主动选择的独立路径，与 SKILL.md 异常处理中「目标非 Git 仓库 → 停止」互不冲突——该拒绝规则仅针对**被审查目标**，而自审是维护动作，不触发拒绝。注意：本技能目录本身是 Git 仓库（`AI_MCP-Skill-CLI`）的**子目录**，`review-context.py` 的 `require_git_repo()` 不会报错，反而会 `os.chdir` 到 monorepo 根并收集**整个父仓库**上下文，远超 combo 自身范围；加之 combo 主体为 `.md` 文件（review-spd 五焦点偏代码语义），故阶段二对 combo 自身不调用该脚本，改由宿主直读 `.md` 文件按五焦点审查。

@@ -210,7 +210,7 @@ combo 的编排遵循「单一写者」模型（writer model），与上游执�
 - **宿主（编排者）是验收权威**：`merge_reports` 做确定性合并去重并产出审计报告文件（`.json`+`.md`，机器可复现）；宿主 LLM 仅按 `./local/report-narrative.md` **叙事、不重判**——对合并结果给出 `APPROVED` / `FIXED` / `ESCALATE` 三态 Verdict 标签并写入叙事，但**绝不重判单条 finding 的 severity / 误报 / 去重**（这些由 `merge_reports` 决定性决定），对外 status 也仅基于该合并结果标注。
 - **最终裁决词汇**：对齐上游评审员契约，宿主对合并结果给出 `APPROVED`（全部交叉验证通过、无保留项） / `FIXED`（单源或 disputed 项经宿主实读代码核实后已确认有效或已修复） / `ESCALATE`（存在需 redesign 或需用户决策的高风险项）三态结论；`ESCALATE` 项须在报告中显式列出并说明下一步。
 
-由本技能（宿主）执行最终裁决，必须结合实际代码，不得凭空采信任一份报告。
+由本技能（宿主）执行最终裁决——即基于合并结果给出 `APPROVED` / `FIXED` / `ESCALATE` 三态 Verdict，**必须结合实际代码**（尤其对 `ocr-only` / `review-spd-only` 单源项与 `disputed` 项实读代码核实，见步骤 2），但**绝不重判单条 finding 的 severity / 误报 / 去重**（这些由 `merge_reports` 决定性决定，见上方「宿主是验收权威」段）。
 
 > **合并基准（关键）**：合并去重**仅基于 `comments[]` / `findings[]` 的发现数组**，按每条发现的 `path` + `start_line` + `end_line` + `category` 去重；**绝不依赖 `manifest`**——`ocr review` 的 `manifest` 仅含 operation/coverage 元数据、`ocr scan` 输出**无 `manifest`**，二者都无法承载 findings，合并逻辑不得读取 `manifest`。Stage1 的 OCR / delegate 报告以 `comments[]` 为载体（字段用 `content`），review-spd 报告以 `findings[]` 为载体（字段用 `comment`），Stage3 统一归一化后去重。
 
@@ -223,23 +223,17 @@ combo 的编排遵循「单一写者」模型（writer model），与上游执�
 3. **去重合并与字段赋值**：按 `path` + `start_line` + `end_line` + `category` 去重（与「合并基准」一致），合成一份 findings 列表，按 severity 排序（Critical / High / Medium / Low）。若同一代码位置被多源以不同 `category` 报告，视为同一缺陷合并，`category` 取更具体者（优先 bug / security / performance，其次 test，再次 other），并据来源标记 `verified_by`。对每条去重后的 finding **显式赋值** `verified_by`（both / ocr-only / review-spd-only）与 `cross_check`（confirmed / new / disputed）；并据 `verified_by` 统计 `summary.ocr_only` / `summary.review_spd_only`。
 4. **唯一审计报告**：同时给出
    - 人类可读文本（findings-first，按严重度分组，含 `Residual Risks` / `Testing Gaps` / `Verification`）；
-   - 结构化 JSON（复用 open-code-review-delegate Schema，便于下游 / Agent 消费）。
+   - 结构化 JSON（combo 自有 Schema，见下文「输出：唯一审计报告格式」，字段稳定便于下游 / Agent 消费）。
 
 ## 输出：唯一审计报告格式（结构化 JSON）
+
+> 以下 Schema 与 `scripts/merge_reports` 的**真实输出**逐字对应（见 `merge_reports` 的 `report` 对象与 `summary` 对象）。`merge_reports` 仅输出 `tool` / `mode` / `sources` / `findings` / `summary` 五个顶层键——**不输出** `repository` / `target` / `files` / `rules`（这些字段由调用方按需从输入报告或 git 上下文另行拼装，不在合并产物中）。
 
 ```json
 {
   "tool": "code-review-combo",
   "mode": "dual-cross-validation",
-  "repository": "<target_repo>",
-  "target": { "type": "workspace | range | commit", "from": "<from_ref>", "to": "<to_ref>", "commit": "<commit_hash>" },
   "sources": [ "open-code-review-delegate", "review-spd" ],
-  "files": [
-    { "path": "src/foo.go", "status": "modified", "insertions": 2, "deletions": 0 }
-  ],
-  "rules": [
-    { "rule": "combined: ocr rule-engine + review-spd focus-driven" }
-  ],
   "findings": [
     {
       "path": "src/foo.go",
@@ -247,24 +241,44 @@ combo 的编排遵循「单一写者」模型（writer model），与上游执�
       "end_line": 12,
       "category": "bug | security | performance | test | other   # merge 后 8→5 归一：maintainability/documentation→other，style 已丢弃",
       "severity": "critical | high | medium | low",
-      "comment": "问题描述",
+      "comment": "问题描述（与 content 双字段兼容，见下）",
+      "content": "问题描述（ocr/delegate 用 content，review-spd 用 comment，脚本已归一）",
       "suggestion": "修复建议（可选）",
+      "existing_code": "相关代码片段（可选）",
       "verified_by": "both | ocr-only | review-spd-only",
       "cross_check": "confirmed | new | disputed"
     }
   ],
-  "summary": { "files_reviewed": 1, "critical": 0, "high": 0, "medium": 0, "low": 0, "ocr_only": 0, "review_spd_only": 0 }
+  "summary": {
+    "total_findings": 1,
+    "files_reviewed": 1,
+    "by_source": { "ocr": 0, "review-spd": 0 },
+    "verified_by": { "both": 0, "ocr-only": 0, "review-spd-only": 0 },
+    "confirmed": 0,
+    "disputed": 0,
+    "new": 0,
+    "ocr_only": 0,
+    "review_spd_only": 0,
+    "severity_dist": { "critical": 0, "high": 0, "medium": 0, "low": 0 },
+    "category_dist": {},
+    "dropped_style": 0
+  }
 }
 ```
 
 - `verified_by`：该项由两者共同确认（both）/ 仅 open-code-review-delegate 发现（ocr-only）/ 仅 review-spd 发现（review-spd-only）。
 - `cross_check`：交叉验证结论（确认 confirmed / 新发现 new / 有争议 disputed）。下游可据此判断置信度。
 - `summary.ocr_only` / `summary.review_spd_only`：仅由单一引擎发现、经 Stage3 核实后保留的项数，用于量化交叉覆盖效果。
+- `summary.severity_dist`：按 `critical / high / medium / low` 嵌套的 severity 分布（**权威字段**）；为兼容旧消费方，`summary` 顶层**同时**存在扁平的 `critical / high / medium / low` 别名（由 `merge_reports` 同值回填），下游应优先读取 `severity_dist`。
+- `summary.by_source` / `verified_by` / `confirmed` / `disputed` / `new` / `category_dist` / `dropped_style` / `total_findings` / `files_reviewed`：交叉覆盖与分类统计，详见 `merge_reports` 实现。
+- `content` 与 `comment` 双字段兼容：ocr/delegate 报告用 `content`，review-spd 报告用 `comment`，`merge_reports` 归一后**两者都保留**在输出中（下游任选其一即可）。
+
+> 注意：上文 Schema 即 `merge_reports` 的真实产物；若上游 OCR / review-spd JSON 字段增减，须同步更新 `merge_reports` 的 `cleanFindings` 白名单与 `summary` 统计，并据实更新本节。
 
 ## 异常处理
 
 - **目标非 Git 文件夹**：不再拒绝。默认走 Stage1 `ocr scan`（整库/目录扫描，`requireGit=false` 已实测）；若 Stage0 `probe` exit 2（全部 provider 死 Key）或 ① `ocr review` 实跑全失败 → 走「通用非 Git 委托分支」兜底（宿主直读文件审查，与 git 无关），不报错退出。
-  - 注：维护期「审计 combo 自身」（见 README）属于维护者主动选择的静态直读路径——此时不调用 `review-context.py`（其 `require_git_repo()` 会报错），改由宿主直读 `.md` 文件按五焦点审查。
+  - 注：维护期「审计 combo 自身」（见 README）属于维护者主动选择的静态直读路径——此时不调用 `review-context.py`（combo 是 Git 仓库子目录，`require_git_repo()` 不会报错，但会切到 monorepo 根收集整个父仓库上下文，超出 combo 范围），改由宿主直读 `.md` 文件按五焦点审查。
 - **全部 LLM Key 失效（全 Key 失效降级）**：Stage0 `select-provider probe` exit 2（全部 provider 不可用）或 ① `ocr review` 所有候选 provider 实跑失败 → **降级 delegate**：Git 目标走 `open-code-review-delegate` 委托模式（无需 Key，产出报告 A'），非 Git 目标走通用非 Git 委托分支；均产出报告 A' 后继续 Stage3，不中断。
 - **目标为 Git 仓库的子目录且未指定 `path_filter`**：combo 无法自动识别子目录边界，审查范围将扩大到整个父仓库。应在输入参数补充 `path_filter`，并按「Stage1 范围收敛」说明用 `git diff HEAD -- <path_filter>` 收敛；否则继续执行（不阻断）并明确告知：「⚠️ 检测到 `<path>` 不是 Git 仓库根（其 git 根在 `<toplevel>`）；若仅审查该子目录请指定 `path_filter`，否则将审查整个仓库。」
 - **无可审查内容**（工作区干净且无分支 / 提交差异，或 preview 全 `excluded`，或 scan 命中 0 文件）：输出「No findings（无可审查改动）」并附 `Residual Risks`。
