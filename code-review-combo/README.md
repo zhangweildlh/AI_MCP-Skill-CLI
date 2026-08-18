@@ -230,6 +230,7 @@ combo 内每个子技能副本均含**本地增强**（委托 `SKILL.md` 中文 
 6. **资源文件增删处理**：每次同步后执行 `ls -R code-review-combo/open-code-review-delegate code-review-combo/review-spd`，确认结构与上游一致；上游新增的文件必须拉取，上游删除的文件必须从 combo 删除（避免悬空引用）。
 7. **用 open-code-review-delegate 审计 combo 自身**：运行 `/open-code-review-delegate` 审查 `code-review-combo` 目录（注意：ocr 对 `.md` 会 `excluded: unsupported_ext`，需宿主直接审查 .md 文件并按其 JSON Schema 收敛），确认无 BUG。
 8. **用 review-spd 交叉验证 combo**：读取 `code-review-combo/review-spd/SKILL.md` 按其 Phase 1–6 审查 `code-review-combo` 目录，确认无 BUG。
+   > 注（自审路径修正，见 §八 L397）：combo 主体是 `.md` 文件且本身是 Git 仓库子目录，`review-context.py` 会切到 monorepo 根收集整个父仓库上下文（超出 combo 范围）。故「审计 combo 自身」应走**宿主静态直读 `.md`** 路径（步骤 7–8 中的 `.md` 文件部分由宿主直读按五焦点/JSON Schema 审查），而非对 .md 强跑子技能文件筛选；仅当审查 combo 内 `.py` / `.sh` 等非 .md 资源时，才实跑对应子技能。
 9. **循环修复**：若步骤 7–8 发现 BUG，修复后回到 7–8 重新审计，直到无 BUG。
 10. **Skill 校验**：用 `Skill-元技能，Skill校验器.md` 对 combo 做 11 维校验（frontmatter 结构、name-目录对应、渐进式加载、参数体系、可执行无歧义等），确认结构无误。
 
