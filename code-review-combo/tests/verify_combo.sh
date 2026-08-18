@@ -21,6 +21,21 @@
 
 set -uo pipefail
 
+# ---- 0. 离线卫生守卫（无需 provider / ocr） ----
+SCRIPT_DIR_G="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR_G/guard.sh" ]; then
+  echo "----------------------------------------------"
+  echo " [0/3] 仓库一致性守卫 guard.sh（离线）"
+  echo "----------------------------------------------"
+  if bash "$SCRIPT_DIR_G/guard.sh"; then
+    echo "  RESULT guard: PASS"
+  else
+    echo "  RESULT guard: FAIL"
+    overall=1
+  fi
+  echo ""
+fi
+
 PROVIDER="${1:-}"
 if [ -z "$PROVIDER" ]; then
   echo "用法: bash tests/verify_combo.sh <provider>" >&2

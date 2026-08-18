@@ -19,6 +19,12 @@
 
 生成 `<review>.md`，建议包含以下章节（顺序与标题可按需微调，但须覆盖要点）：
 
+### 0. 裁决结论（Verdict）
+
+- 依据 SKILL.md「Stage3 裁决契约」，在报告开头给出最终裁决：**`APPROVED`**（全部交叉验证通过、无保留项） / **`FIXED`**（单源或 disputed 项经宿主实读代码核实后已确认有效或已修复） / **`ESCALATE`**（存在需 redesign 或需用户决策的高风险项）。
+- 此裁决由宿主（编排者）作出，是合并结果的结论性总结；叙事**不得推翻** `merge_reports` 的 severity / 去重 / 误报判定，仅如实呈现。
+- 若为 `ESCALATE`，必须显式列出高风险项并说明下一步动作。
+
 ### 1. 总览（Overview）
 - 仓库 / 分支 / 提交范围（来自 `target`）。
 - 总体结论一句话：如「共审查 N 个文件，发现 X critical / Y high / Z medium / W low」。
