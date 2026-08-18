@@ -37,17 +37,17 @@ npx @alibaba-group/open-code-review --version
 
 Windows 11 下，npm 全局安装后 `ocr` 位于 Node 全局 bin 目录，但**当前 shell 的 PATH 往往未包含该目录**，导致 `ocr` 命令找不到。处理方式：
 
-1. 用 `npm root -g` 取得 Node 全局安装根目录（记为 `<NODE_GLOBAL_DIR>`，例如 `D:\Tools\Assembly\nodejs\node_global`）。
+1. 用 `npm root -g` 取得 Node 全局安装根目录（例如 `D:\Tools\Assembly\nodejs\node_global`）。
 2. 全局 bin 目录通常是其同级的 `node_global` 或 `node_global\node_modules\.bin`；常见完整路径形如：
-   - `<NODE_GLOBAL_DIR>`（Node 全局模块根）
-   - `<NODE_HOME>`（Node 本体所在目录，如 `D:\Tools\Assembly\nodejs`，也应一并加入）
-3. 在调用 `ocr` 之前，把上述目录临时追加到 PATH（将 `<NODE_GLOBAL_DIR>` / `<NODE_HOME>` 替换为本机实际路径）：
+   - `D:\Tools\Assembly\nodejs\node_global`
+   - `D:\Tools\Assembly\nodejs`（Node 本体所在目录，也应一并加入）
+3. 在调用 `ocr` 之前，把上述目录临时追加到 PATH：
 
 ```bash
-export PATH="$PATH:<NODE_GLOBAL_DIR>:<NODE_HOME>"
+export PATH="$PATH:/d/Tools/Assembly/nodejs/node_global:/d/Tools/Assembly/nodejs"
 ```
 
-> 注：上述 `<NODE_GLOBAL_DIR>` / `<NODE_HOME>` 为**占位符**，实际以本机 `npm root -g` 输出为准（典型值如示例中的 `D:\Tools\Assembly\nodejs\...` 路径）。建议在 shell 配置（如 `.bashrc` / `$PROFILE`）中持久加入，避免每次手动 export。
+> 注：上述路径为示例，实际以本机 `npm root -g` 输出为准。建议在 shell 配置（如 `.bashrc` / `$PROFILE`）中持久加入，避免每次手动 export。
 
 ## 4. LLM 连通性（仅当使用 review / scan 时才需要）
 
