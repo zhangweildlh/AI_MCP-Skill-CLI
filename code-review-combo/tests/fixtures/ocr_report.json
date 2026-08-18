@@ -1,0 +1,14 @@
+{
+  "status": "complete",
+  "llm": { "provider": "fixture", "model": "fixture" },
+  "summary": { "files_reviewed": 5, "comments": 6 },
+  "comments": [
+    { "path": "a.sh", "content": "ocr-1 independent", "existing_code": "x", "start_line": 10, "end_line": 12, "category": "bug", "severity": "medium" },
+    { "path": "b.sh", "content": "ocr-2 overlap-confirmed", "existing_code": "x", "start_line": 20, "end_line": 20, "category": "bug", "severity": "high" },
+    { "path": "c.sh", "content": "ocr-3 overlap-disputed(critical)", "existing_code": "x", "start_line": 30, "end_line": 30, "category": "bug", "severity": "critical" },
+    { "path": "d.sh", "content": "ocr-4a same-source-collision-A", "existing_code": "x", "start_line": 40, "end_line": 40, "category": "bug", "severity": "high" },
+    { "path": "d.sh", "content": "ocr-4b same-source-collision-B", "existing_code": "x", "start_line": 40, "end_line": 40, "category": "bug", "severity": "medium" },
+    { "path": "e.sh", "content": "ocr-6 file-level", "existing_code": "x", "start_line": 0, "end_line": 0, "category": "other", "severity": "low" }
+  ],
+  "session_id": "fixture-ocr"
+}

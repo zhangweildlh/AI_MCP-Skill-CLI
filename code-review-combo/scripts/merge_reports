@@ -1,0 +1,405 @@
+#!/usr/bin/env bash
+# merge_reports: 将多份上游报告（open-code-review-delegate / review-spd / delegate 委托报告）
+# 归一化合并为唯一审计报告。
+#
+# 设计依据：code-review-combo SKILL.md Stage3（多源载体不同，需归一化去重）。
+#
+# 用法：
+#   bash scripts/merge_reports <report1> <report2> [<report3> ...] [output]
+#   - 位置参数均为输入报告（≥2 份）；最后一段若以 .json / .md 结尾且参数总数 ≥3，
+#     则视为输出名，其余皆为输入报告。
+#   - 报告载体自动识别：
+#       * .md 文件               -> 从 ```json 块抽取 findings[]（review-spd 载体）
+#       * .json 含 comments[]    -> ocr / delegate 载体（content→comment 双字段兼容）
+#       * .json 含 findings[]    -> review-spd 载体
+#   - 字段映射（输入归一化，双字段兼容，逻辑保持）：
+#       content     -> comment（ocr / delegate 用 content；review-spd 用 comment）
+#       suggestion_code -> suggestion（ocr / delegate 用 suggestion_code；review-spd 用 suggestion）
+#   - 合并去重键：path + start_line + end_line + category（映射后口径）
+#   - category 8↔5 映射：ocr/delegate 支持 8 类
+#       (bug/security/performance/maintainability/style/documentation/test/other)；
+#       review-spd 收窄为 5 类 (bug/security/performance/test/other)。
+#       归一化时 maintainability/documentation -> other；style 视为噪音整体丢弃
+#       （计数计入 summary.dropped_style），确保跨源 both 判定在映射后口径一致。
+#   - 输出：<output>.json（机器可操作）+ <output>.md（人类可读，确定性结构化，不调 LLM）
+#       * outPath 以 .json 结尾 -> json 与 md 正确分离（.md 同名替换后缀）
+#       * outPath 以 .md   结尾 -> md 与 json 正确分离
+#       * outPath 不带后缀     -> 补 .json 与 .md（两者分离，互不覆盖）
+# 禁止裸 python；用 node 解析 JSON（环境已装 node）。
+#
+# 硬约束：不写真实 Key；不改动 config/providers.json；不 git commit。
+
+set -euo pipefail
+
+if [ "$#" -lt 2 ]; then
+  echo "用法: bash scripts/merge_reports <report1> <report2> [<report3> ...] [output]" >&2
+  exit 2
+fi
+
+# 输出名识别：最后一段以 .json / .md 结尾且参数总数 ≥3 -> 视为输出名
+OUT_PATH=""
+if [ "$#" -ge 3 ]; then
+  last_arg="${!#}"
+  case "$last_arg" in
+    *.json|*.md) OUT_PATH="$last_arg"; ;;
+  esac
+fi
+
+if [ -n "$OUT_PATH" ]; then
+  # 除去最后一个（输出名），其余皆为输入报告
+  REPORTS=("${@:1:$(($# - 1))}")
+else
+  REPORTS=("$@")
+  # 默认输出名：取第一份报告的 stem + ".merged"
+  first_stem="${REPORTS[0]%.*}"
+  OUT_PATH="${first_stem}.merged"
+fi
+
+node -e "$(cat <<'NODE'
+const fs = require("fs");
+
+const argv = process.argv.slice(1);
+const outPath = argv[argv.length - 1];
+const reportPaths = argv.slice(0, argv.length - 1);
+
+// ---- category 8↔5 映射 ----------------------------------------------------
+// ocr/delegate 8 类：bug/security/performance/maintainability/style/documentation/test/other
+// review-spd 5 类：bug/security/performance/test/other
+// 映射：maintainability/documentation -> other；style -> 丢弃（返回 null）
+function mapCategory(cat) {
+  switch ((cat || "other").toLowerCase()) {
+    case "style": return null;                       // 噪音，整体丢弃
+    case "maintainability":
+    case "documentation": return "other";            // 归入 review-spd 的 other
+    default: return (cat || "other").toLowerCase();  // bug/security/performance/test/other
+  }
+}
+
+let droppedStyle = 0;
+
+// 通用字段归一化（保留 content<->comment、suggestion_code<->suggestion 双字段兼容）
+function normalizeItems(items, source, filePath) {
+  const out = [];
+  for (const c of (items || [])) {
+    const mapped = mapCategory(c.category);
+    if (mapped === null) { droppedStyle += 1; continue; } // style 丢弃
+    const text = (c.content != null && c.content !== "") ? c.content
+               : (c.comment != null ? c.comment : "");
+    const sugg = (c.suggestion_code != null && c.suggestion_code !== "") ? c.suggestion_code
+               : (c.suggestion != null ? c.suggestion : "");
+    out.push({
+      path: c.path || "",
+      start_line: c.start_line || 0,
+      end_line: c.end_line || 0,
+      category: mapped,
+      severity: c.severity || "medium",
+      comment: text,                       // 规范化后的文本（双字段兼容）
+      content: text,                       // 兼容别名，便于下游任取其一
+      suggestion: sugg,
+      existing_code: c.existing_code || "",
+      source: source,
+      verified_by: (source === "ocr") ? "ocr-only" : "review-spd-only",
+      cross_check: "new",
+      _file: filePath
+    });
+  }
+  return out;
+}
+
+// 从 review-spd 的 markdown 抽取 ```json 块中的 findings[]（或纯 JSON findings[]）
+function normReviewSpd(raw, filePath) {
+  let findings = [];
+  const m = raw.match(/```json\s*([\s\S]*?)```/);
+  if (m) {
+    try {
+      const bj = JSON.parse(m[1]);
+      findings = bj.findings || [];
+    } catch (e) {
+      process.stderr.write("警告: " + filePath + " json 块解析失败: " + e.message + "\n");
+    }
+  } else {
+    try {
+      const bj = JSON.parse(raw);
+      findings = bj.findings || bj.comments || [];
+    } catch (e) {
+      process.stderr.write("警告: " + filePath + " 既无 json 块也非纯 JSON，跳过: " + e.message + "\n");
+    }
+  }
+  return normalizeItems(findings, "review-spd", filePath);
+}
+
+// 读取一份报告并归一化；缺失/解析失败则告警并跳过（对缺失报告健壮）
+function readReport(p) {
+  let raw;
+  try {
+    raw = fs.readFileSync(p, "utf8");
+  } catch (e) {
+    process.stderr.write("警告: 跳过无法读取的报告: " + p + " (" + e.message + ")\n");
+    return [];
+  }
+  if (p.toLowerCase().endsWith(".md")) {
+    return normReviewSpd(raw, p);
+  }
+  // .json（ocr / delegate / review-spd 纯 JSON）
+  let obj;
+  try {
+    obj = JSON.parse(raw);
+  } catch (e) {
+    process.stderr.write("警告: 跳过无法解析的 JSON 报告: " + p + " (" + e.message + ")\n");
+    return [];
+  }
+  if (Array.isArray(obj)) {
+    // 裸数组：按 comments 语义处理（ocr 源）
+    return normalizeItems(obj, "ocr", p);
+  }
+  if (obj.comments) {
+    return normalizeItems(obj.comments, "ocr", p);
+  }
+  if (obj.findings) {
+    return normalizeItems(obj.findings, "review-spd", p);
+  }
+  process.stderr.write("警告: 报告无 comments/findings，跳过: " + p + "\n");
+  return [];
+}
+
+// ---- 循环读取所有报告并合并 ----------------------------------------------
+const all = [];
+for (const p of reportPaths) {
+  all.push.apply(all, readReport(p));
+}
+
+const SEV_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
+function higherSev(a, b) {
+  const va = SEV_ORDER[a] != null ? SEV_ORDER[a] : 9;
+  const vb = SEV_ORDER[b] != null ? SEV_ORDER[b] : 9;
+  return va <= vb ? a : b;
+}
+
+const map = new Map();
+const dupCount = {};                       // 同源键碰撞计数，用于拆歧义
+function keyOf(f) {
+  return [f.path, f.start_line, f.end_line, f.category].join("|");
+}
+
+for (const f of all) {
+  const k = keyOf(f);
+  if (map.has(k)) {
+    const ex = map.get(k);
+    if (ex.source !== f.source) {
+      // 跨源命中：交叉验证
+      ex.verified_by = "both";
+      if (ex.severity === f.severity) {
+        ex.cross_check = "confirmed";
+      } else {
+        // severity 冲突：取较高者（保守），并标记 disputed 待人工核实
+        ex.cross_check = "disputed";
+        ex.severity = higherSev(ex.severity, f.severity);
+      }
+      if (!ex.comment && f.comment) ex.comment = f.comment;
+      if (!ex.content && f.content) ex.content = f.content;
+      if (!ex.suggestion && f.suggestion) ex.suggestion = f.suggestion;
+      if (!ex.existing_code && f.existing_code) ex.existing_code = f.existing_code;
+    } else {
+      // 同源键碰撞（如 OCR 同位置两条不同 bug）：拆歧义，保留为独立项
+      dupCount[k] = (dupCount[k] || 1) + 1;
+      const k2 = k + "#" + dupCount[k];
+      map.set(k2, f);
+    }
+  } else {
+    map.set(k, f);
+  }
+}
+
+const findings = Array.from(map.values());
+findings.sort(function (x, y) {
+  const d = (SEV_ORDER[x.severity] != null ? SEV_ORDER[x.severity] : 9) -
+            (SEV_ORDER[y.severity] != null ? SEV_ORDER[y.severity] : 9);
+  if (d !== 0) return d;
+  if (x.path !== y.path) return x.path < y.path ? -1 : 1;
+  return (x.start_line - y.start_line) || (x.end_line - y.end_line);
+});
+
+// ---- summary --------------------------------------------------------------
+const summary = {
+  total_findings: findings.length,
+  files_reviewed: new Set(findings.map(function (f) { return f.path; })).size,
+  by_source: {},
+  verified_by: { both: 0, "ocr-only": 0, "review-spd-only": 0 },
+  confirmed: 0, disputed: 0, new: 0,
+  ocr_only: 0, review_spd_only: 0,
+  severity_dist: { critical: 0, high: 0, medium: 0, low: 0 },
+  category_dist: {},
+  dropped_style: droppedStyle
+};
+findings.forEach(function (f) {
+  // 各 source 计数：both 同时计入 ocr 与 review-spd，单源仅计入自身
+  if (f.verified_by === "both") {
+    summary.by_source["ocr"] = (summary.by_source["ocr"] || 0) + 1;
+    summary.by_source["review-spd"] = (summary.by_source["review-spd"] || 0) + 1;
+  } else if (f.verified_by === "ocr-only") {
+    summary.by_source["ocr"] = (summary.by_source["ocr"] || 0) + 1;
+  } else if (f.verified_by === "review-spd-only") {
+    summary.by_source["review-spd"] = (summary.by_source["review-spd"] || 0) + 1;
+  }
+  if (summary[f.severity] != null) summary[f.severity] += 1;   // 兼容旧字段
+  if (summary.severity_dist[f.severity] != null) summary.severity_dist[f.severity] += 1;
+  summary.category_dist[f.category] = (summary.category_dist[f.category] || 0) + 1;
+  summary.verified_by[f.verified_by] = (summary.verified_by[f.verified_by] || 0) + 1;
+  if (f.cross_check === "confirmed") summary.confirmed += 1;
+  else if (f.cross_check === "disputed") summary.disputed += 1;
+  else if (f.cross_check === "new") summary.new += 1;
+  if (f.verified_by === "ocr-only") summary.ocr_only += 1;
+  else if (f.verified_by === "review-spd-only") summary.review_spd_only += 1;
+});
+
+// ---- 输出路径解析（.json + .md 分离） ------------------------------------
+let jsonPath, mdPath;
+if (outPath.endsWith(".json")) {
+  jsonPath = outPath;
+  mdPath = outPath.replace(/\.json$/, ".md");
+} else if (outPath.endsWith(".md")) {
+  mdPath = outPath;
+  jsonPath = outPath.replace(/\.md$/, ".json");
+} else {
+  jsonPath = outPath + ".json";
+  mdPath = outPath + ".md";
+}
+
+// ---- .json 输出 -----------------------------------------------------------
+// 去除内部辅助字段 _file，对外仅暴露稳定字段
+const cleanFindings = findings.map(function (f) {
+  const o = {
+    path: f.path,
+    start_line: f.start_line,
+    end_line: f.end_line,
+    category: f.category,
+    severity: f.severity,
+    comment: f.comment,
+    content: f.content,
+    suggestion: f.suggestion,
+    existing_code: f.existing_code,
+    verified_by: f.verified_by,
+    cross_check: f.cross_check
+  };
+  return o;
+});
+
+const report = {
+  tool: "code-review-combo",
+  mode: "dual-cross-validation",
+  sources: ["open-code-review-delegate", "review-spd"],
+  findings: cleanFindings,
+  summary: summary
+};
+fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2));
+
+// ---- .md 输出（确定性结构化，不调 LLM） ----------------------------------
+function esc(s) {
+  return String(s == null ? "" : s).replace(/\|/g, "\\|").replace(/\n+/g, " ");
+}
+function linesOf(f) {
+  if (f.start_line === 0 && f.end_line === 0) return "文件级";
+  return f.start_line + "-" + f.end_line;
+}
+function table(headers, rows) {
+  let t = "| " + headers.join(" | ") + " |\n";
+  t += "| " + headers.map(function () { return "---"; }).join(" | ") + " |\n";
+  for (const r of rows) {
+    t += "| " + r.map(esc).join(" | ") + " |\n";
+  }
+  return t + "\n";
+}
+
+let md = "";
+md += "# 代码合并审计报告 (code-review-combo)\n\n";
+md += "> 模式: `dual-cross-validation`　|　生成器: `scripts/merge_reports`（确定性，未调用 LLM）\n\n";
+
+md += "## 总览 (Overview)\n\n";
+md += "- **总 findings**: " + summary.total_findings + "\n";
+md += "- **文件数**: " + summary.files_reviewed + "\n";
+md += "- **跨源验证**: confirmed=" + summary.confirmed + " / disputed=" + summary.disputed + "\n";
+md += "- **单源覆盖**: ocr-only=" + summary.ocr_only + " / review-spd-only=" + summary.review_spd_only + "\n";
+md += "- **丢弃的 style 噪音**: " + summary.dropped_style + " 条（视为噪音，未计入 findings）\n";
+md += "- **severity 分布**: critical=" + summary.severity_dist.critical +
+      " / high=" + summary.severity_dist.high +
+      " / medium=" + summary.severity_dist.medium +
+      " / low=" + summary.severity_dist.low + "\n";
+const catEntries = Object.keys(summary.category_dist).sort();
+md += "- **category 分布**: " + (catEntries.length
+      ? catEntries.map(function (k) { return k + "=" + summary.category_dist[k]; }).join(" / ")
+      : "无") + "\n\n";
+
+md += "## 数据源计数 (by source)\n\n";
+{
+  const sHeaders = ["source", "findings"];
+  const sRows = Object.keys(summary.by_source).sort().map(function (k) {
+    return [k, summary.by_source[k]];
+  });
+  md += table(sHeaders, sRows);
+}
+
+md += "## Top 风险 (Critical / High)\n\n";
+{
+  const top = cleanFindings.filter(function (f) {
+    return f.severity === "critical" || f.severity === "high";
+  });
+  if (top.length) {
+    const headers = ["文件", "行", "category", "severity", "验证", "描述", "修复建议"];
+    const rows = top.map(function (f) {
+      return [f.path, linesOf(f), f.category, f.severity,
+              f.verified_by + " / " + f.cross_check, f.comment, f.suggestion || "-"];
+    });
+    md += table(headers, rows);
+  } else {
+    md += "_无 critical / high 风险。_\n\n";
+  }
+}
+
+md += "## 按文件分组 (Findings by File)\n\n";
+{
+  const byFile = {};
+  for (const f of cleanFindings) {
+    (byFile[f.path] = byFile[f.path] || []).push(f);
+  }
+  const files = Object.keys(byFile).sort();
+  if (!files.length) {
+    md += "_无 findings。_\n\n";
+  } else {
+    for (const fp of files) {
+      md += "### 文件: `" + fp + "`\n\n";
+      const headers = ["行", "category", "severity", "验证", "cross", "描述", "修复建议"];
+      const rows = byFile[fp].map(function (f) {
+        return [linesOf(f), f.category, f.severity, f.verified_by,
+                f.cross_check, f.comment, f.suggestion || "-"];
+      });
+      md += table(headers, rows);
+    }
+  }
+}
+
+md += "## 修复建议汇总 (Suggestions)\n\n";
+{
+  const withSugg = cleanFindings.filter(function (f) { return f.suggestion && f.suggestion !== "-"; });
+  if (withSugg.length) {
+    for (const f of withSugg) {
+      md += "- `" + f.path + ":" + linesOf(f) + "` (" + f.category + "/" + f.severity + "): " +
+            esc(f.suggestion) + "\n";
+    }
+    md += "\n";
+  } else {
+    md += "_无修复建议。_\n\n";
+  }
+}
+
+md += "## 备注 (Notes)\n\n";
+md += "- category 8↔5 映射：ocr/delegate 的 `maintainability`/`documentation` 统一归入 `other`；" +
+      "`style` 视为噪音已丢弃（共 " + summary.dropped_style + " 条）。\n";
+md += "- 跨源 `both` 判定在映射后口径一致：同一 (path,start_line,end_line,category) 被两源报告即交叉验证。\n";
+md += "- disputed 项已取两源中更高 severity。\n";
+
+fs.writeFileSync(mdPath, md);
+
+console.log("合并完成: " + findings.length + " findings（输入 " + all.length +
+            " 条，含 " + droppedStyle + " 条 style 丢弃）-> " + jsonPath + " + " + mdPath);
+NODE
+)" "${REPORTS[@]}" "$OUT_PATH"

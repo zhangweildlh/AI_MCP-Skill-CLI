@@ -1,6 +1,6 @@
 ---
 name: code-review-combo
-description: "功能：将两种互补的代码审查子技能（open-code-review 委托模式确定性审查 + review-spd 五焦点语义深度审查）交叉验证，产出唯一合并审计报告（人类可读文本 + 结构化 JSON），为同一代码改动提供高置信度的单一审查结论。关键词：代码审查、代码审计、代码检查、协同审查、BUG审查、查找BUG、审查提交、审查分支、审查PR。当用户要求审查代码改动、提交、分支或工作区时触发；当用户提及上述关键词时触发。适用于任意 Git 仓库的代码改动审查（工作区未提交改动、单提交、分支对比、PR 式 diff）。不适用于非 Git 仓库/纯文件夹的代码审查；不适用于非代码审查类任务（如文档润色、需求分析）。"
+description: "功能：将两种互补的代码审查子技能（open-code-review 委托模式确定性审查 + delegate 升平等主审 + review-spd 五焦点语义深度审查）三路交叉验证，产出唯一合并审计报告（人类可读文本 + 结构化 JSON），为同一代码改动提供高置信度的单一审查结论。关键词：代码审查、代码审计、代码检查、协同审查、BUG审查、查找BUG、审查提交、审查分支、审查PR、多 Key 轮询（probe 探测 Key 活/死）、delegate 平等主审、非 Git 审查。当用户要求审查代码改动、提交、分支或工作区时触发；当用户提及上述关键词时触发。适用于 Git 仓库的代码改动审查（工作区未提交改动、单提交、分支对比、PR 式 diff），也支持非 Git 文件夹（走 scan 整库扫描或全 Key 失效时的通用非 Git 委托分支兜底）。不适用于非代码审查类任务（如文档润色、需求分析）。"
 metadata:
   version: "1.0.1"
 ---
@@ -16,10 +16,26 @@ metadata:
 
 > **调用约定**：本技能不通过 Skill 工具单独激活任一子技能，而是**直接读取子目录的 SKILL.md 并按其指令执行**（子技能未单独安装）。请勿在本技能运行时再单独触发 open-code-review-delegate 或 review-spd，避免重复与结论冲突。
 
+> **一句话地图（本地化与定制）**：本技能的本地化增强（自动安装、功能覆盖表、委托宿主 JSON Schema 包装、人类报告 prompt）统一集中在 `./local/` 目录；内嵌的两个子技能中，`./open-code-review-delegate/` 是上游 alibaba/open-code-review @ v1.9.5 的**纯镜像**，`./review-spd/` 是其 fork `zhangweildlh/spec_driven_develop` @ `35cc1e8` 的 **JSON 输出覆盖层**（非纯镜像，原因见该文件头部注释）。本地化与定制全貌详见 README「本地化与定制地图」章节。
+
+## 自动激活关键词
+
+本技能的中文场景触发词（原置于 delegate 子技能、现已上移至父 SKILL.md 统一管控）。当用户输入命中以下任一关键词或意图时，应激活 `code-review-combo`：
+
+- 代码审查 / 代码审计 / 代码检查 / 协同审查
+- 审查提交 / 审查分支 / 审查 PR / 审查工作区 / 审查改动 / 审查 diff
+- 查找 BUG / 找 bug / 查 bug / BUG 审查
+- 多 Key 轮询审查 / 多模型交叉验证审查 / 全 Key 失效兜底审查
+- 非 Git 审查 / 整库扫描审查 / 委托模式审查 / delegate 审查 / host LLM 主审
+
+> 注：`open-code-review-delegate` 与 `review-spd` 作为纯镜像 / 覆盖层内嵌于本技能，**不要单独激活**；全部编排由本技能（父 SKILL.md）统一驱动。
+
 ## 前置条件
 
-- 目标**必须是 Git 仓库**（两个子技能均基于 git diff 工作；非 git 仓库无法运行，纯文件夹需先 `git init` 或手工喂 diff）。
-- `open-code-review-delegate` 子技能会在首次运行时自动安装并自检 `ocr` CLI（委托模式无需 LLM Key）；仅当要使用其原生 `review` / `scan` 时才需另行配置 LLM。
+- 目标**可以是 Git 仓库（优先）或非 Git 文件夹**：
+  - **Git 仓库** → Stage1 用 `ocr review` 基于 diff 审查（默认路径）。
+  - **非 Git 文件夹** → Stage1 用 `ocr scan` 整库/目录扫描（`requireGit=false`，已实测支持）；若所有 LLM Key 均失效，则降级为「通用非 Git 委托分支」（宿主直读文件审查，与 git 无关，复用既有委托能力），不报错退出。
+- `open-code-review-delegate` 子技能会在首次运行时自动安装并自检 `ocr` CLI（委托模式无需 LLM Key）；使用 Stage1 的 `ocr review` / `ocr scan` 原生能力时需按**方案 β**配置**至少一个 LLM provider**：在 ocr 配置的 `custom_providers` 中注册多个跨厂商 provider（如 `nvidia`、`sensenova`），由 **Stage0 `probe`** 探测 Key 活/死、跑通即用。配置与轮询细节见 Stage0，Key 一律用占位符、绝不落明文。
 - 本技能自身不引入任何额外外部依赖。
 
 ## 输入参数
@@ -33,61 +49,166 @@ metadata:
 | branch | 字符串 | 否 | 分支对比时的分支名（对应 `<branch>`；与 from_ref/to_ref 二选一） |
 | path_filter | 字符串 | 否 | 当目标为某 Git **仓库的子目录**（而非仓库根）时，指定相对仓库根的子目录路径（如 `github-personal-manager`）。用于把审查范围精确收敛到该子目录，避免范围失控扩大到整个父仓库。省略则按 `target_repo` 整仓审查。 |
 
-## 核心原则：方案 B 交叉验证（不叠加、不重复劳动）
+## 核心原则：三路交叉验证（不叠加、不重复劳动）
 
-两个子技能唯一重叠的「找 bug」动作，统一交给 `review-spd` 承担，并显式接收 `open-code-review-delegate` 的发现作为**待验证 / 待补充**输入：
+Stage1 并行跑三路：`ocr review`（外部 Key，广覆盖 + 规则分组）、`ocr delegate`（host LLM **平等主审**，独立全量审查、零 Key 依赖）、`review-spd`（host LLM 五焦点语义深度）。三路共享同一段业务上下文 `-b`，互为交叉验证：
 
-1. `review-spd` 先**验证** OCR 报告 A 中每一项发现是否属实（读取实际代码核实，误报标注为假阳性）；
-2. 再**独立挖掘** OCR 未覆盖的盲区（review-spd 五焦点深度）。
+1. `review-spd` 先**验证** `ocr review` 与 `ocr delegate` 的发现是否属实（读取实际代码核实，误报标注为假阳性）；
+2. 再**独立挖掘** 两路未覆盖的盲区（review-spd 五焦点深度）。
 
-这样既保留「双引擎交叉验证」的价值，又避免两份完全独立审查的纯重复劳动与结论打架。
+`ocr delegate` 已升为与 `ocr review` **平等的「主审」**（不再是全 Key 失效才兜底的从属路径），与 OCR 原生审查互补；三者统一在 Stage3 由 `merge_reports` 确定性合并去重，既保留「多引擎交叉验证」价值，又避免纯重复劳动与结论打架。
 
-## 三阶段工作流
+## 工作流（Stage0 选择器 probe 探测 Key 活/死 → Stage1 OCR 原生审查 + delegate 平等主审 + review-spd 三路并行 → Stage2 review-spd 交叉验证 → Stage3 merge_reports 合并去重）
 
-### 阶段一：open-code-review-delegate 委托模式完整审查 → 产出报告 A
+### Stage0：select-provider 选择器（先 `probe` 判定 Key 活/死）
 
-读取 `./open-code-review-delegate/SKILL.md`，按其「委托模式主工作流（默认，无需 LLM Key）」执行：
+本阶段先实打实**探测**各 provider 的 LLM Key 是否可用，再决定 Stage1 走「多 Key + delegate 平等主审」还是「全死 → delegate 降级」。读取 `./scripts/select-provider`（bash + node 解析 JSON，无裸 python/pip），运行其 `probe` 子命令：
 
-1. 前置检查：`ocr` CLI 可用性（子技能会自动安装 / 自检）。
-2. `ocr delegate preview [--from <from_ref> --to <to_ref>]` 确定范围（默认工作区改动；分支对比用 `--from main --to <branch>`；**单提交模式（提供 `commit_hash`）用 `ocr delegate preview --commit <commit_hash>`（或 `-c <commit_hash>`），让 ocr 产出 commit 模式元数据；实际 diff 仍按步骤 4 的 `git show <commit_hash>` 获取，与 ocr 原生 Commit 模式一致**）。
-3. `ocr delegate rule <paths>` 解析规则并分组。
-4. 取 diff：`git diff HEAD`（已跟踪）/ merge_base..to（range）/ `git show <commit_hash>`（commit）/ 未跟踪新文件用 `cat`。
-5. 宿主按规则逐文件审查（Step 4）。
-6. 收敛为结构化 JSON（Step 5/6，Schema 见子技能「七、输出 JSON Schema」）。
+```bash
+bash ./scripts/select-provider probe [-c <config>]   # 默认读本技能目录 config/providers.json
+#   exit 0  → 至少 1 个 provider 可用：stdout 打印 {"ok":true,"provider":"<P>","model":"...","url":"...","latency_ms":...}
+#   exit 2  → 全部 provider 不可用：stdout 打印 {"ok":false,"all_failed":true,"results":[...]}
+```
 
-产出 **报告 A**：结构化 JSON（含 `files` / `rules` / `findings` / `summary`）。
+- **Key 活（exit 0）**：记下返回的 `provider` 名（首个探测成功的 provider），供 Stage1 的 `ocr review --provider <P>` 使用（`probe` 已把它串行设为 ocr 全局激活 provider，Stage1 可直接复用，无需再显式 `--provider`）。进入 Stage1「Key 活」三路。
+- **Key 死（exit 2）**：全部 provider 不可用 → **跳过 `ocr review`，进入 Stage1「Key 死」降级两路**（跑 `ocr delegate` + `review-spd`）。不报错退出。
 
-> 边界：若目标文件为 `.md` 等 OCR 不支持的扩展名，`preview` 会标记 `excluded: unsupported_ext`。此时沿用委托模式本质——由宿主直接读取这些文件的 diff 并审查（同 Step 4 宿主审查），再按子技能 JSON Schema 收敛，不走 OCR 的文件筛选。
+`probe` 的实现要点（与 `list` / `mark` / `clear` 共用同一套两级 TTL 缓存机制）：
 
-> **子目录目标的范围收敛（重要）**：当 `target_repo` 是一个 Git 仓库、而实际要审查的是其中的**子目录 SKILL**（如 `AI_MCP-Skill-CLI/github-personal-manager`）时，`ocr delegate preview` 仅支持 `--repo/--exclude`、**无 `--path` 子目录限制**，会默认列出整个父仓库的工作区改动，导致范围失控。正确做法：用 `git diff HEAD -- <path_filter>` 精确取子目录 diff 作为审查范围；或 `ocr delegate preview --repo <仓库根> --exclude '<其他顶级目录>'` 排除无关目录；也可改用 `ocr scan --path <子目录>`（整库扫描模式，基于当前文件而非 diff）。宿主按此收敛后的文件列表执行 Step 4 审查。
+- **串行探测**：按 `config/providers.json` 的 `custom_providers` 顺序逐个跑 `ocr llm test`，首个成功即停（exit 0），全失败才 exit 2；因 `ocr config set provider` 改全局配置，必须串行轮询。
+- **复用两级 TTL 死 Key 缓存**（`.ocr-provider-cache.json`，落盘于 combo 目录内）：
+  - 硬失效（HTTP 401/403，Key 无效/被吊销）→ 长 TTL 拉黑 24h（`hard`）；
+  - 软不可用（HTTP 429 / 超时 / 单日额度耗尽）→ 按次日 00:00 本地时间解禁（`soft`）。
+  - 下次 `probe` 直接跳过已拉黑项，避免重复烧 Key。
+- **最省 Token**：每轮探测复用 `ocr llm test` 连通性检查（约 100 token/次），**不**触发完整审查，相比直接 `ocr review` 实跑大幅省成本。
+- **手动调试（可选）**：
+  ```bash
+  bash ./scripts/select-provider mark <provider> hard   # 401/403 拉黑 24h
+  bash ./scripts/select-provider mark <provider> soft   # 429/超时/额度耗尽 次日解禁
+  bash ./scripts/select-provider clear [<provider>]      # 解除拉黑（调试/恢复）
+  ```
 
-### 阶段二：review-spd 交叉验证模式 → 产出报告 B
+> **Key 配置（方案 β · 外置于技能目录，相对路径加载）**：provider 凭证统一存放于本技能目录 `config/providers.json`（模板 `config/providers.example.json`，含占位符，已被 `.gitignore` 忽略，**绝不进 git**）。`select-provider` 启动时经相对路径读取该文件并自动合并同步到 ocr 运行时配置（`~/.opencodereview/config.json`，备份后仅合并、不覆盖 `provider` / `llm` 等其它键），后续 `ocr review`/`ocr scan` 即可直接使用。结构示例：
+> ```json
+> { "custom_providers": { "<NAME>": { "api_key": "<PROVIDER_API_KEY>", "url": "https://...", "protocol": "openai", "model": "<MODEL>" } } }
+> ```
+> 兼容旧路径：也可直接 `ocr config set custom_providers.<NAME>.api_key "<PROVIDER_API_KEY>"` 写入 ocr 全局配置（此时 `select-provider` 回退读取全局配置）。无论哪种，**真实 Key 仅在本机、绝不写入技能逻辑文件或 git 历史**。resolver 优先级：**config 完整 provider > 环境变量**（实测裁决：env 被忽略），故一律用 `custom_providers` 显式配置，并以 `--provider <name>` 覆盖为准。ocr CLI 自动安装、Win11 PATH 处理、LLM 连通性验证见 `./local/setup.md`。
 
-读取 `./review-spd/SKILL.md`，按其 Phase 1–6 流程执行，但采用**方案 B 交叉验证变体**：
+### Stage1：OCR 原生审查 + delegate 平等主审 + review-spd 并行（多 Key / 全 Key 失效降级）→ 报告 A / A' / B
 
-- **子目录目标的范围收敛（已支持 `--path`，C-1 修复）**：`review-context.py` 会切到 git 根（`require_git_repo()`），并支持 `--path <subdir>` 参数（相对仓库根的子目录）将收集范围精确收敛到该子目录——该参数把 `-- <subdir>` 注入所有 git 命令（status / diff / log），因此阶段二直接运行 `python ./review-spd/scripts/review-context.py --path <path_filter>` 即可得到子目录级上下文，无需宿主再手工 `git diff HEAD -- <path_filter>` 收敛。省略 `--path` 时脚本收集整个父仓库上下文，此时才需要宿主手工收敛或按「异常处理」告知范围已扩大到整个仓库。
-- **Phase 2 上下文增强**：除运行 `./review-spd/scripts/review-context.py` 收集 git 上下文外，**额外把阶段一的 diff 与报告 A 的发现列表**作为补充输入提供给审查者。
-  - **单提交模式（`commit_hash`）**：`review-context.py` 支持 `--branch` / `--base` / `--since` / `--until` / `--path`，但无 `--commit`。因此阶段二**不调用该脚本的 date-range / branch 参数**，而是直接以 `git show <commit_hash>` 的 diff（与阶段一同一来源）作为 git 上下文提供给 review-spd；同时照常把阶段一的报告 A 作为交叉验证输入。阶段三输出 JSON 的 `target.type` 取 `commit`、`target.commit` 填 `<commit_hash>`。
+本阶段把**三路审查并行跑起来**，互为交叉验证；`ocr delegate` 已升为与 `ocr review` **平等的「主审」**（独立全量审查，不依附 OCR 发现）。业务上下文用 `-b/--background` **注入一次、三路同食**（v1.9.5 最大杠杆：显著降低误报、提升真阳性）。
+
+#### 0. 前置：先跑 Stage0 `probe`
+按 Stage0 取可用 provider：
+- **probe exit 0** → 记下 `provider`（首个探测成功者），走下方「Key 活」三路；
+- **probe exit 2**（全死）→ 走下方「Key 死」降级两路（跳过 `ocr review`）。
+
+#### Key 活：并行三路
+以 Git 仓库为例（非 Git 文件夹把 ① 换成 `ocr scan`，规则见下方「非 Git 目标」）：
+
+```bash
+# ① OCR 原生审查（外部 Key，广覆盖 + 规则分组）→ 报告 A
+ocr review --provider <P> --format json --audience agent \
+  -b "$CTX" [--repo <target_repo>] [--from <base> --to <head>]   # 工作区省略 --from/--to；单提交用 --commit <hash>
+
+# ② delegate 平等主审（host LLM 独立全量主审，零外部 Key 依赖）→ 报告 A'
+ocr delegate preview [--from <from_ref> --to <to_ref>]          # 单提交用 --commit <hash>
+ocr delegate rule <paths>                                        # 规则分组
+#   宿主按规则逐文件审查，按 ./local/delegate-json-schema.md 收敛为 comments[]（字段用 content）
+
+# ③ review-spd（host LLM，5 焦点：正确性/回归兼容/测试/安全/性能并发；排除 style 噪音）→ 报告 B
+#   详见 Stage2（与 ① ② 并行执行，产出 findings[] 直接进 Stage3）
+```
+
+- **报告 A**（`ocr review`）：取 stdout 的 **`comments[]`** 数组（review 含 `manifest`，合并绝不可依赖它）。**不要设 `--max-tokens-budget`**（或若必设则 ≥250000：实测 20000 触发预算护栏导致 0 findings）；`--audience agent` 使 stdout 为纯 JSON、进度落 stderr。首个成功产出即用。
+- **报告 A'（delegate 平等主审）**：宿主产出，按 `./local/delegate-json-schema.md` 的**宿主 JSON Schema 包装**收敛；强约束 `summary.coverage_rate` 必须为 `100%`（每个 `preview` 文件都 `reviewed` 或带明确理由 `skipped`，零遗漏），字段统一用 `content`（非旧版 `comment`）。此路**完全不依赖外部 LLM Key**，是 delegate 升主审的核心保障。
+- **报告 B**（`review-spd`）：见 Stage2，产出 `findings[]`（5 类 category），直接进 Stage3 合并。
+
+> **delegate 升平等主审要点**：`ocr delegate` 不再是「OCR 全死才兜底的从属路径」，而是与 `ocr review` 并列的**独立主审引擎**——由宿主 LLM 直接、完整地审查全部改动文件（preview → rule 分组 → 逐文件审查 → 收敛 JSON）。它与 OCR 原生审查互补：OCR 擅长广覆盖与规则分组、delegate 擅长语义深度与零 Key 依赖；二者 + review-spd 在 Stage3 统一合并去重。
+
+#### Key 死：降级两路（跳过 `ocr review`）
+probe exit 2 时**跳过 ① `ocr review`**，仅并行跑：
+- ② `ocr delegate`（host LLM 主审，零 Key 依赖，照常产出报告 A'）；
+- ③ `review-spd`（host LLM，5 焦点，产出报告 B）。
+两路产出报告 A'、B 后继续 Stage3 合并去重，不报错退出。
+  - **Git 目标** → 走 `open-code-review-delegate` 委托模式（前置 `ocr` CLI 自动安装/自检见 `./local/setup.md`）：`ocr delegate preview` → `ocr delegate rule` → 取 diff（`git diff HEAD` / `merge_base..to` / `git show <commit_hash>` / 未跟踪新文件用 `cat`）→ 宿主逐文件审查 → 按 `./local/delegate-json-schema.md` 收敛为报告 A'。
+  - **非 Git 目标** → 「通用非 Git 委托分支」：宿主直读目标文件夹源码逐文件审查（与 git 无关），按同 Schema 收敛为报告 A'。此分支复用既有委托能力，不新造逻辑。
+
+#### 系统性业务上下文注入 `-b`（关键杠杆）
+三路**共用同一段** `-b/--background "<业务上下文>"`（一次撰写、三路同食）：
+```bash
+ocr review --provider <P> --format json --audience agent -b "$CTX" ...
+# delegate / review-spd 在各自指令中同样接收 $CTX（见 ./local/delegate-json-schema.md 与 Stage2）
+```
+`$CTX` 应描述：模块用途、关键不变量、历史雷区、本次改动意图。v1.9.5 实测：有业务上下文时误报率显著下降、真阳性召回上升。
+
+#### 失败处理（仅 ① `ocr review` 适用）
+实跑遇 401/403 → `bash ./scripts/select-provider mark <P> hard`；遇 429/超时/单日额度耗尽 → `mark <P> soft`；随后试下一个候选。所有候选全失败 → 自动转入「Key 死」降级两路。
+
+> **边界（.md 等不支持扩展名）**：若 `preview` 标记 `excluded: unsupported_ext`（仅委托模式场景），沿用委托本质——由宿主直接读取这些文件并审查，再按 `./local/delegate-json-schema.md` 收敛，不走 OCR 文件筛选。
+
+> **非 Git 目标**：① 改为 `ocr scan`（以目标目录为 cwd 运行；默认 whole，或 `--path <相对子路径>`，**绝不用绝对路径**）：
+> ```bash
+> cd <target_folder> && ocr scan --provider <P> --format json --audience agent -b "$CTX" [--path <相对子路径>]
+> ```
+> 若 Stage0 probe 全死或 ① 实跑全失败 → 走「通用非 Git 委托分支」兜底（宿主直读文件审查，与 git 无关），不报错退出。
+
+> **Windows 路径注意（重要）**：`ocr` 为 **Go 二进制，不识别 POSIX 风格路径**（如 `/d/path/to/repo`），传入 `--repo /d/...` 会被误转为 `D:\d\...` 导致 `stat` 失败。Windows 下**推荐 cwd 方式**：在目标仓库目录内直接运行 `ocr review`/`ocr scan`（不传 `--repo`）；或给 `--repo` 传 **Windows 绝对路径**（如 `D:\path\to\repo`）。本技能的 `select-provider`/`merge_reports` 已统一用 `pwd -W` 取 Windows 路径规避该问题。
+
+> **子目录目标的范围收敛（重要）**：当 `target_repo` 是一个 Git 仓库、实际要审查的是其中**子目录**（如 `AI_MCP-Skill-CLI/github-personal-manager`）时：
+> - `ocr review` 支持 `--repo <仓库根> --from/--to` 但无 `--path` 子目录限制，会扩大到整个父仓库。正确做法：用 `git diff HEAD -- <path_filter>` 精确取子目录 diff 作为审查范围；或 `ocr delegate preview --repo <仓库根> --exclude '<其他顶级目录>'`。
+> - `ocr scan` 可用 `--path <子目录>`（相对扫描根的子目录）收敛，或直接以该子目录为 cwd 运行 `ocr scan`。
+> 宿主按此收敛后的文件列表执行审查。
+
+### Stage2：review-spd 交叉验证（Stage1 并行三路之第③路）→ 产出报告 B
+
+> 本阶段即 Stage1「Key 活 / Key 死」三路中的第③路，**与 `ocr review` / `ocr delegate` 并行执行**；其产出**报告 B（`findings[]`，5 类 category：bug / security / performance / test / other，排除 style 噪音）**直接进 Stage3 由 `merge_reports` 合并去重。
+
+读取 `./review-spd/SKILL.md`，按其 Phase 1–6 流程执行，但采用**方案 B 交叉验证变体（同时验证 `ocr review` 与 `ocr delegate` 两路发现）**：
+
+- **子目录目标的范围收敛（已支持 `--path`，C-1 修复）**：`review-context.py` 会切到 git 根（`require_git_repo()`），并支持 `--path <subdir>` 参数（相对仓库根的子目录）将收集范围精确收敛到该子目录——该参数把 `-- <subdir>` 注入所有 git 命令（status / diff / log），因此 Stage2 直接运行 `python ./review-spd/scripts/review-context.py --path <path_filter>` 即可得到子目录级上下文，无需宿主再手工 `git diff HEAD -- <path_filter>` 收敛。省略 `--path` 时脚本收集整个父仓库上下文，此时才需要宿主手工收敛或按「异常处理」告知范围已扩大到整个仓库。
+- **Phase 2 上下文增强**：除运行 `./review-spd/scripts/review-context.py` 收集 git 上下文外，**额外把 Stage1 的 diff 与报告 A / A'（`comments[]`）的发现列表**作为补充输入提供给审查者。
+  - **单提交模式（`commit_hash`）**：`review-context.py` 支持 `--branch` / `--base` / `--since` / `--until` / `--path`，但无 `--commit`。因此 Stage2 **不调用该脚本的 date-range / branch 参数**，而是直接以 `git show <commit_hash>` 的 diff（与 Stage1 同一来源）作为 git 上下文提供给 review-spd；同时照常把 Stage1 的报告 A / A' 作为交叉验证输入。Stage3 输出 JSON 的 `target.type` 取 `commit`、`target.commit` 填 `<commit_hash>`。
 - **Phase 4 子代理指令注入（关键）**：在每一个 focused reviewer 的指令中加入——
-  > 「你已收到 open-code-review-delegate 的报告 A（JSON 发现列表）。请先逐一核对其标出的每项发现是否属实（读取实际代码验证，误报请标注为假阳性并说明原因）；随后再独立审查本焦点盲区，挖掘报告 A 未覆盖的缺陷。最终只产出你独立确认或新发现的、证据充分的发现。」
-- **Phase 6 输出**：除 review-spd 原生 findings-first 文本外，按 `./review-spd/references/output-format.md` 的「Structured JSON」同时产出报告 B JSON（与报告 A 同 Schema，下游兼容；`mode` 用 `workspace | range | commit`）。
+  > 「你已收到 open-code-review-delegate 的报告 A / A'（JSON 发现列表，结构化于 `comments[]` 或委托模式 `findings`）。请先逐一核对其标出的每项发现是否属实（读取实际代码验证，误报请标注为假阳性并说明原因）；随后再独立审查本焦点盲区，挖掘报告 A / A' 未覆盖的缺陷。最终只产出你独立确认或新发现的、证据充分的发现。」
+- **Phase 6 输出**：除 review-spd 原生 findings-first 文本外，按 `./review-spd/references/output-format.md` 的「Structured JSON」同时产出报告 B JSON（与报告 A / A' 同 Schema，下游兼容；`mode` 用 `workspace | range | commit`）。
 
 产出 **报告 B**：findings-first 文本 + 结构化 JSON。
 
-### 阶段三：Agent 验证、审核两份报告 → 唯一审计报告
+### Stage3：merge_reports 确定性合并去重 → 唯一审计报告（.json + .md）
 
-由本技能（宿主）执行最终裁决，必须结合实际代码，不得凭空采信任一份报告：
+> **可执行自动化（推荐）**：本技能内置 `./scripts/merge_reports`（bash + node，零外部依赖，含 `bash ./tests/test_merge_reports.sh` 回归校验）完成「归一化 + 跨源去重 + 按 severity 排序 + 唯一报告输出（`.json` + `.md`）」的全部逻辑。三路报告（报告 A = `ocr review`、报告 A' = `ocr delegate`、报告 B = `review-spd`）循环读入、统一合并：
+> ```bash
+> bash ./scripts/merge_reports <报告A.json> <报告A'.json> <报告B.md|json> [<输出名>]
+> #   位置参数均为输入报告（≥2 份，顺序不限）；
+> #   最后一段若以 .json/.md 结尾且参数≥3，则视为输出名，其余皆为输入报告。
+> #   载体自动识别：.md → 抽 ```json 块 findings[]（review-spd）；
+> #                 .json 含 comments[] → ocr/delegate（content→comment 双字段兼容）；
+> #                 .json 含 findings[] → review-spd。
+> # 输出：<输出>.json（机器可操作）+ <输出>.md（人类可读，确定性结构化）
+> ```
+> 合并规则（确定性，非 LLM）：
+> - **跨源判定**：同一 `(path, start_line, end_line, category)` 被两路及以上报告 → `verified_by=both`；severity 一致 → `cross_check=confirmed`，不一致 → `cross_check=disputed` 并**取两源中更高 severity**（保守升级）；仅单源 → `ocr-only` / `review-spd-only` + `cross_check=new`。
+> - **category 8↔5 映射**：ocr/delegate 的 8 类归一；`maintainability` / `documentation` → 归入 `other`；`style` 视为噪音**整体丢弃**（计入 `summary.dropped_style`），保证跨源 `both` 在映射后口径一致。
+> - **双字段兼容**：ocr/delegate 用 `content`，review-spd 用 `comment`；`suggestion_code` ↔ `suggestion`，脚本自动归一。
+>
+> **两份产物**：
+> - **`.json`（机器可操作）**：结构化 findings + summary，可直接交给 Agent / 下游工具**自动改代码修 BUG**（稳定字段：`path`/`start_line`/`end_line`/`category`/`severity`/`comment`/`content`/`suggestion`/`verified_by`/`cross_check`）。
+> - **`.md`（人类可读，确定性）**：机器生成的表格化报告（总览 / Top 风险 / 按文件分组 / 修复建议），不调用 LLM，结果可复现。
+>
+> **可选：host LLM 叙事增强**：如需更连贯的人类报告，宿主 LLM 可读取 `.json` 后按 `./local/report-narrative.md` 的 prompt 生成更流畅的 `.md` 叙事——**只叙事、不裁决**（severity / 误报 / 去重已由 `merge_reports` 决定，宿主不得推翻或重判）。
 
-1. **交叉比对**：读取报告 A 与报告 B，逐项归类——
-   - 两份都报的（高置信，保留）；
-   - 仅一份报的（重点验证：读取实际代码核实真伪，确认则保留，误报则丢弃）；
+由本技能（宿主）执行最终裁决，必须结合实际代码，不得凭空采信任一份报告。
+
+> **合并基准（关键）**：合并去重**仅基于 `comments[]` / `findings[]` 的发现数组**，按每条发现的 `path` + `start_line` + `end_line` + `category` 去重；**绝不依赖 `manifest`**——`ocr review` 的 `manifest` 仅含 operation/coverage 元数据、`ocr scan` 输出**无 `manifest`**，二者都无法承载 findings，合并逻辑不得读取 `manifest`。Stage1 的 OCR / delegate 报告以 `comments[]` 为载体（字段用 `content`），review-spd 报告以 `findings[]` 为载体（字段用 `comment`），Stage3 统一归一化后去重。
+
+1. **交叉比对**：读取各报告，逐项归类——
+   - 多源都报的（高置信，保留）；
+   - 仅单源报的（重点验证：读取实际代码核实真伪，确认则保留，误报则丢弃）；
    - severity 冲突的（读取代码核实后取较高者或据实定级）；
    - 疑似误报（无代码证据支撑的，静默丢弃）。
-2. **真实验证**：对「仅一份报」或「疑似」项，必须打开实际代码核实，禁止直接采信子技能结论。
-3. **去重合并与字段赋值**：按 `path` + `start_line` + `category` 去重，合成一份 findings 列表，按 severity 排序（Critical / High / Medium / Low）。若同一代码位置（`path` + `start_line` + `end_line`）被两源以不同 `category` 报告，视为同一缺陷合并，`category` 取更具体者（优先 bug / security / performance，其次 maintainability / test，再次 other / style / documentation），并据来源标记 `verified_by` 为 `both`。对每条去重后的 finding **显式赋值**：
-   - `verified_by`：两源均报 → `both`；仅 open-code-review-delegate → `ocr-only`；仅 review-spd → `review-spd-only`。
-   - `cross_check`：交叉比对确认 → `confirmed`；某源新发现且另一源未覆盖 → `new`；证据冲突或存疑 → `disputed`。
-   - 并据 `verified_by` 统计 `summary.ocr_only`（仅 ocr-only 的条数）、`summary.review_spd_only`（仅 review-spd-only 的条数）。
+2. **真实验证**：对「仅单源报」或「disputed」项，必须打开实际代码核实，禁止直接采信子技能结论。**注意**：`merge_reports` 完成机械合并后，宿主仍须对「仅单源（ocr-only / review-spd-only）」与「disputed」项实读代码核实。
+3. **去重合并与字段赋值**：按 `path` + `start_line` + `end_line` + `category` 去重（与「合并基准」一致），合成一份 findings 列表，按 severity 排序（Critical / High / Medium / Low）。若同一代码位置被多源以不同 `category` 报告，视为同一缺陷合并，`category` 取更具体者（优先 bug / security / performance，其次 test，再次 other），并据来源标记 `verified_by`。对每条去重后的 finding **显式赋值** `verified_by`（both / ocr-only / review-spd-only）与 `cross_check`（confirmed / new / disputed）；并据 `verified_by` 统计 `summary.ocr_only` / `summary.review_spd_only`。
 4. **唯一审计报告**：同时给出
    - 人类可读文本（findings-first，按严重度分组，含 `Residual Risks` / `Testing Gaps` / `Verification`）；
    - 结构化 JSON（复用 open-code-review-delegate Schema，便于下游 / Agent 消费）。
@@ -112,7 +233,7 @@ metadata:
       "path": "src/foo.go",
       "start_line": 10,
       "end_line": 12,
-      "category": "bug | security | performance | maintainability | test | style | documentation | other",
+      "category": "bug | security | performance | test | other   # merge 后 8→5 归一：maintainability/documentation→other，style 已丢弃",
       "severity": "critical | high | medium | low",
       "comment": "问题描述",
       "suggestion": "修复建议（可选）",
@@ -126,16 +247,17 @@ metadata:
 
 - `verified_by`：该项由两者共同确认（both）/ 仅 open-code-review-delegate 发现（ocr-only）/ 仅 review-spd 发现（review-spd-only）。
 - `cross_check`：交叉验证结论（确认 confirmed / 新发现 new / 有争议 disputed）。下游可据此判断置信度。
-- `summary.ocr_only` / `summary.review_spd_only`：仅由单一引擎发现、经阶段三核实后保留的项数，用于量化交叉覆盖效果。
+- `summary.ocr_only` / `summary.review_spd_only`：仅由单一引擎发现、经 Stage3 核实后保留的项数，用于量化交叉覆盖效果。
 
 ## 异常处理
 
-- **目标非 Git 仓库**（路径无 `.git` 或 git 不可用）：停止并输出「❌ 目标不是 Git 仓库，无法进行基于 diff 的审查；若为纯文件夹请先 `git init` 或手工提供 diff。」，不进入三阶段。
-  - 注：本条仅针对**被审查目标**。维护期「审计 combo 自身」（见 README）属于维护者主动选择的静态直读路径——此时不调用 `review-context.py`（其 `require_git_repo()` 会报错），改由宿主直读 `.md` 文件按五焦点审查，不走「目标非 Git 仓库」拒绝。
-- **目标为 Git 仓库的子目录且未指定 `path_filter`**：combo 无法自动识别子目录边界，审查范围将扩大到整个父仓库。应在输入参数补充 `path_filter`，并按「阶段一/阶段二范围收敛」说明用 `git diff HEAD -- <path_filter>` 收敛；否则继续执行（不阻断）并明确告知：「⚠️ 检测到 `<path>` 不是 Git 仓库根（其 git 根在 `<toplevel>`）；若仅审查该子目录请指定 `path_filter`，否则将审查整个仓库。」
-- **无可审查内容**（工作区干净且无分支 / 提交差异，或 preview 全 `excluded`）：输出「No findings（无可审查改动）」并附 `Residual Risks`。
+- **目标非 Git 文件夹**：不再拒绝。默认走 Stage1 `ocr scan`（整库/目录扫描，`requireGit=false` 已实测）；若 Stage0 `probe` exit 2（全部 provider 死 Key）或 ① `ocr review` 实跑全失败 → 走「通用非 Git 委托分支」兜底（宿主直读文件审查，与 git 无关），不报错退出。
+  - 注：维护期「审计 combo 自身」（见 README）属于维护者主动选择的静态直读路径——此时不调用 `review-context.py`（其 `require_git_repo()` 会报错），改由宿主直读 `.md` 文件按五焦点审查。
+- **全部 LLM Key 失效（全 Key 失效降级）**：Stage0 `select-provider probe` exit 2（全部 provider 不可用）或 ① `ocr review` 所有候选 provider 实跑失败 → **降级 delegate**：Git 目标走 `open-code-review-delegate` 委托模式（无需 Key，产出报告 A'），非 Git 目标走通用非 Git 委托分支；均产出报告 A' 后继续 Stage3，不中断。
+- **目标为 Git 仓库的子目录且未指定 `path_filter`**：combo 无法自动识别子目录边界，审查范围将扩大到整个父仓库。应在输入参数补充 `path_filter`，并按「Stage1 范围收敛」说明用 `git diff HEAD -- <path_filter>` 收敛；否则继续执行（不阻断）并明确告知：「⚠️ 检测到 `<path>` 不是 Git 仓库根（其 git 根在 `<toplevel>`）；若仅审查该子目录请指定 `path_filter`，否则将审查整个仓库。」
+- **无可审查内容**（工作区干净且无分支 / 提交差异，或 preview 全 `excluded`，或 scan 命中 0 文件）：输出「No findings（无可审查改动）」并附 `Residual Risks`。
 - **OCR CLI 安装 / 自检失败**（open-code-review-delegate 子技能前置异常）：停止并展示失败原因，提示检查 npm / 网络；不编造 LLM Key。
-- **阶段三后 findings 为空**：唯一审计报告输出「No findings」，附 `Testing Gaps` / `Residual Risks`。
+- **Stage3 后 findings 为空**：唯一审计报告输出「No findings」，附 `Testing Gaps` / `Residual Risks`。
 
 ## 示例与上游跟进
 
