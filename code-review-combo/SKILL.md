@@ -12,7 +12,7 @@ metadata:
 - `./open-code-review-delegate/SKILL.md` —— 基于 open-code-review（OCR）的委托模式。OCR 承担确定性工程（范围筛选、规则解析、整库扫描），宿主承担语义审查；其 SKILL.md 内置 `ocr` CLI 的**自动安装与自检查**，无需 LLM Key 即可走委托模式。
 - `./review-spd/SKILL.md` —— findings-first 五焦点（正确性 / 回归兼容 / 测试 / 安全 / 性能并发）强制语义深度审查，自带 `./review-spd/scripts/review-context.py` 收集 git 上下文。
 
-> **术语约定**：正文中的「open-code-review-delegate 子技能」与其底层工具「OCR / ocr」指代同一子技能；JSON 字段 `verified_by` 取值 `ocr-only` 即「仅 open-code-review-delegate 子技能发现」。
+> **术语约定**：正文中的「open-code-review-delegate 子技能」与其底层工具「OCR / ocr」指代同一子技能；JSON 字段 `verified_by` 取值 `ocr-only` 即「仅 open-code-review-delegate 子技能发现」，`review-spd-only` 即「仅 review-spd 子技能发现」，`both` 即「两者共同确认」（完整三值释义见 README「二、术语约定」）。
 
 > **调用约定**：本技能不通过 Skill 工具单独激活任一子技能，而是**直接读取子目录的 SKILL.md 并按其指令执行**（子技能未单独安装）。请勿在本技能运行时再单独触发 open-code-review-delegate 或 review-spd，避免重复与结论冲突。
 
@@ -36,7 +36,7 @@ metadata:
   - **Git 仓库** → Stage1 用 `ocr review` 基于 diff 审查（默认路径）。
   - **非 Git 文件夹** → Stage1 用 `ocr scan` 整库/目录扫描（`requireGit=false`，已实测支持）；若所有 LLM Key 均失效，则降级为「通用非 Git 委托分支」（宿主直读文件审查，与 git 无关，复用既有委托能力），不报错退出。
 - `open-code-review-delegate` 子技能会在首次运行时自动安装并自检 `ocr` CLI（委托模式无需 LLM Key）；使用 Stage1 的 `ocr review` / `ocr scan` 原生能力时需按**方案 β**配置**至少一个 LLM provider**：在 ocr 配置的 `custom_providers` 中注册多个跨厂商 provider（如 `nvidia`、`sensenova`），由 **Stage0 `probe`** 探测 Key 活/死、跑通即用。配置与轮询细节见 Stage0，Key 一律用占位符、绝不落明文。
-- 本技能自身不引入任何额外外部依赖。
+- 本技能自身不引入新的 LLM/SDK 依赖（ocr CLI 由 SKILL.md 指引自安装、node 为运行环境自带；运行期依赖外部 `git` 与 `ocr`，二者均不随技能打包）。
 
 ## 输入参数
 
