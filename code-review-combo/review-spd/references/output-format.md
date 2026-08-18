@@ -1,3 +1,10 @@
+<!--
+本文件基于上游 zhu1090093659/spec_driven_develop @ d5d3477 的 output-format.md，
+额外包含 fork 35cc1e8 加入的 "## Structured JSON" 一节（review-spd 结构化 JSON 输出
+schema）。该节不在上游中，是 combo 让 Stage3 merge_reports 可解析 findings 的关键。
+跟进上游时，替换上游正文后需重新补回 "## Structured JSON" 一节。
+-->
+
 # Review Output Format
 
 Final review responses must be findings-first.

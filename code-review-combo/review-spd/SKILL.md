@@ -1,3 +1,23 @@
+<!--
+本文件不是上游 zhu1090093659/spec_driven_develop @ d5d3477 的纯镜像，
+而是其 fork zhangweildlh/spec_driven_develop @ 35cc1e8 的副本
+（fork = 上游 d5d3477 + "Dual output" 结构化 JSON 输出改造）。
+
+【为何不能纯镜像】上游 output-format.md 仅含人类可读散文，并不原生输出
+```json findings 块；combo 的 Stage3 merge_reports 依赖该结构化 JSON 才能解析。
+而该 JSON 能力是纯指令层改造（本文件 Phase 6 "Dual output" + output-format.md
+"Structured JSON"），完全未改动代码——scripts/review-context.py 与上游逐字节相同
+（fork 与 upstream 的 review-context.py 完全一致）。
+
+【落地策略】保留 fork 的 JSON 输出指令覆盖层；review-context.py 本身可直接上游
+纯镜像。本仓库本地副本另含 combo 自加的 --path 子目录审查特性（SKILL.md Phase 1
+与 scripts/review-context.py 同步），与 JSON 镜像无关，单独保留。
+
+【跟进上游】用
+`gh api repos/zhu1090093659/spec_driven_develop/contents/plugins/spec-driven-develop/skills/review-spd/SKILL.md?ref=<新sha> -H 'Accept: application/vnd.github.raw'`
+取上游最新正文替换本文件，再重新套用下方 Phase 6 "Dual output" 一节即可。
+-->
+
 ---
 name: review-spd
 description: >-

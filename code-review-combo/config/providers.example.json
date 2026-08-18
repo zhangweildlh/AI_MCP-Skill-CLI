@@ -1,0 +1,16 @@
+{
+  "custom_providers": {
+    "nvidia": {
+      "api_key": "<NVIDIA_API_KEY>",
+      "url": "https://integrate.api.nvidia.com/v1",
+      "protocol": "openai",
+      "model": "nvidia/llama-3.3-nemotron-super-49b-v1"
+    },
+    "sensenova": {
+      "api_key": "<SENSENOVA_API_KEY>",
+      "url": "https://token.sensenova.cn/v1",
+      "protocol": "openai",
+      "model": "sensenova-6.7-flash-lite"
+    }
+  }
+}
