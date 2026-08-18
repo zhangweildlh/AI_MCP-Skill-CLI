@@ -8,3 +8,6 @@ config/providers.json
 
 # select-provider 同步本地产到 ocr 运行时配置时的备份
 .opencodereview-config.json.bak
+
+# merge_reports 回归测试临时产物（由 tests/test_merge_reports.sh 生成，非交付物）
+tests/fixtures/_out.*
