@@ -40,12 +40,19 @@ jobs:
           # 健壮性（2026-08-19 修复）：历史改写（filter-branch/强推）后 github.event.before
           # 可能指向已不存在的旧 SHA，git diff 会 fatal 使 job 失败。此处先在 diff 前校验
           # 基准可解析：不可用（空/全0/对象不存在）→ 置 meta=1 保守全量 CI，绕开 diff。
-          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ] \
-             || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+          # 注意：避免 `! cmd` 与 set -e 的组合陷阱，用显式 if 判断。
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_OK=0
+          elif git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            BASE_OK=1
+          else
+            BASE_OK=0
+          fi
+          if [ "$BASE_OK" = "1" ]; then
+            CHANGED=$(git diff --name-only "${BASE_SHA}"...HEAD || true)
+          else
             CHANGED=""
             meta=1
-          else
-            CHANGED=$(git diff --name-only "${BASE_SHA}"...HEAD || true)
           fi
 
           # ---- 逐个变更路径判定 scope ----
@@ -85,7 +92,8 @@ jobs:
           done
 
           # ---- 去重并输出 JSON 数组 ----
-          uniq_scopes=$(printf '%s\n' $scopes | sort -u | grep -v '^$')
+          # 注意：scopes 为空时 grep 无匹配返回非零，set -e 下会误退出 → || true 兜底。
+          uniq_scopes=$(printf '%s\n' $scopes | sort -u | grep -v '^$' || true)
           if [ "$meta" = "1" ] || [ -z "$uniq_scopes" ]; then
             json='["meta"]'                                 # meta / 无可判定 scope → 全量
           else
