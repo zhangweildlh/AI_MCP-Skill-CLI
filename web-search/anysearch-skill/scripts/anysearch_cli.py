@@ -29,12 +29,7 @@ def _load_env():
     variable to match the documented priority order.
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    # 探测顺序：脚本同目录 -> 上游 anysearch-skill/ -> 父技能 web-search/（解耦后密钥落在此处）
-    for env_path in [
-        os.path.join(script_dir, ".env"),
-        os.path.join(script_dir, "..", ".env"),
-        os.path.join(script_dir, "..", "..", ".env"),
-    ]:
+    for env_path in [os.path.join(script_dir, ".env"), os.path.join(script_dir, "..", ".env")]:
         if os.path.isfile(env_path):
             with open(env_path, "r", encoding="utf-8-sig") as f:
                 for line in f:
@@ -48,7 +43,6 @@ def _load_env():
                     value = value.strip().strip("\"'").strip()
                     if key and value:
                         os.environ[key] = value
-            break  # 就近优先：命中第一个存在的 .env 即停止，避免父级静默覆盖子目录 key
 
 
 _load_env()

@@ -1,0 +1,6 @@
+# vendored 纯上游副本行尾符治理（审计 finding M2）：
+# 仓库根配置了 core.autocrlf=true，若不约束，sync_anysearch.py 以二进制 'wb'
+# 写入上游 LF 原始字节后，Git 下次触碰 vendored 文件会执行 LF→CRLF 转换，
+# 产生大量纯换行符噪音 diff，淹没真实上游漂移信号。
+# 强制本目录所有文本文件以 LF 入库/检出，屏蔽 autocrlf 的行尾转换噪音。
+* text eol=lf
