@@ -112,7 +112,17 @@ if [ "$b" -gt 0 ]; then
 fi
 
 if [ "$a" -gt 0 ]; then
+  # 分支保护核验（仅 --confirm 真正 push 前执行；dry-run 不推送故跳过，避免夹具/无远端场景误暂停）
   if [ "$CONFIRM" -eq 1 ]; then
+    _sop_check_main_protection
+    prot_rc=$?
+    if [ "$prot_rc" -eq 1 ]; then
+      echo "已暂停：主线受保护，请改走 PR 流程（sop_pr_create.sh --base $MAIN_BRANCH）。"
+      exit 0
+    elif [ "$prot_rc" -eq 2 ]; then
+      echo "已暂停：无法确认分支保护状态，fail-safe 停止直推。"
+      exit 1
+    fi
     echo "➡️ 执行: git push $ORIGIN_REMOTE $MAIN_BRANCH"
     if "$GIT_BIN" push "$ORIGIN_REMOTE" "$MAIN_BRANCH"; then
       echo "✅ 已推送（快进）。"
