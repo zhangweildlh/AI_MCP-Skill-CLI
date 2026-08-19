@@ -22,8 +22,8 @@ CLI 用法：
     python scripts/check_upstream_drift.py --local-cli <path> --recorded-sha <path>
     python scripts/check_upstream_drift.py --update-record   # 拉到上游 firecrawl sha 后写回基线
 
-注：本文件完全独立（仅依赖标准库），不会 import web-search 下任何业务模块，
-可被陌生 Agent 直接 `exec_module` 加载测试。
+注：本文件仅依赖标准库；允许 import 同目录的 ``vendoring_config`` 纯配置模块
+（不含业务逻辑），可被陌生 Agent 直接 `exec_module` 加载测试。
 """
 
 import argparse
@@ -47,6 +47,16 @@ FIRECRAWL_RECORD_KEY = "firecrawl_openapi_sha"
 
 ANYPATH = "repos/anysearch-ai/anysearch-skill/contents/scripts/anysearch_cli.py"
 FIREPATH = "repos/firecrawl/firecrawl/contents/apps/api/openapi.json"
+
+# —— 全子树漂移检测新增（解耦后 anysearch-skill 为 vendored 纯副本）——
+ANYSEARCH_VENDOR_DIR = os.path.join(WEB_SEARCH_DIR, "anysearch-skill")
+
+# 单一常量源：ANYSEARCH_ALLOWLIST 来自 vendoring_config（与 sync_anysearch 共用，
+# 避免双份硬编码，审计 finding M1）。同目录注入 sys.path 以兼容 importlib 文件级加载。
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+from vendoring_config import ALLOWLIST as ANYSEARCH_ALLOWLIST, UPSTREAM_REPO
+ANYSEARCH_API_BASE = "repos/%s/contents" % UPSTREAM_REPO
 
 
 def sha256_file(path):
@@ -175,6 +185,56 @@ def check_firecrawl(subprocess_run=None, recorded_sha_path=None):
     return result
 
 
+def check_anysearch_subtree(subprocess_run=None):
+    """全子树漂移检测：遍历 ANYSEARCH_ALLOWLIST，逐文件比对本地 sha256 与上游内容 sha256。
+
+    返回: {"check":"anysearch_subtree","status":"ok"|"drift"|"unknown",
+           "files":[{"path","status","local_sha","upstream_sha"}, ...]}
+
+    设计：单文件失败（gh 缺失 / 网络 / 解码失败 / 本地缺失）一律该文件 unknown，
+    不误判整树 drift；仅当至少一对可比文件出现 sha 不一致时，整树判 drift。
+    """
+    result = {"check": "anysearch_subtree", "status": "unknown", "files": []}
+    has_drift = False
+    has_checked = False
+    for rel in ANYSEARCH_ALLOWLIST:
+        local_path = os.path.join(ANYSEARCH_VENDOR_DIR, rel)
+        local_sha = sha256_file(local_path)
+        file_res = {
+            "path": rel,
+            "status": "unknown",
+            "local_sha": local_sha,
+            "upstream_sha": None,
+        }
+        try:
+            data = _gh_api_json(
+                "%s/%s" % (ANYSEARCH_API_BASE, rel), subprocess_run
+            )
+            raw = _decode_base64_content(data.get("content"))
+            if raw is None:
+                file_res["status"] = "unknown"
+            else:
+                up_sha = hashlib.sha256(raw).hexdigest()
+                file_res["upstream_sha"] = up_sha
+                if local_sha is None:
+                    file_res["status"] = "unknown"
+                else:
+                    has_checked = True
+                    if local_sha == up_sha:
+                        file_res["status"] = "ok"
+                    else:
+                        file_res["status"] = "drift"
+                        has_drift = True
+        except FileNotFoundError:
+            file_res["status"] = "unknown"
+        except Exception:
+            file_res["status"] = "unknown"
+        result["files"].append(file_res)
+    if has_checked:
+        result["status"] = "drift" if has_drift else "ok"
+    return result
+
+
 def update_firecrawl_record(recorded_sha_path=None, upstream_sha=None):
     """将上游 firecrawl sha 写回基线记录文件（best-effort）。
 
@@ -232,6 +292,7 @@ def main(argv=None, subprocess_run=None):
         check_firecrawl(
             subprocess_run=subprocess_run, recorded_sha_path=args.recorded_sha
         ),
+        check_anysearch_subtree(subprocess_run=subprocess_run),
     ]
 
     # --update-record：成功取到上游 firecrawl sha 时写回基线
@@ -255,14 +316,23 @@ def main(argv=None, subprocess_run=None):
             "drift": "DRIFT",
             "unknown": "UNKNOWN",
         }.get(r["status"], r["status"].upper())
-        print("  [%-7s] %-10s" % (mark, r["check"]))
-        print("      local   : %s" % r["local_sha"])
-        print("      upstream: %s" % r["upstream_sha"])
+        print("  [%-7s] %-18s" % (mark, r["check"]))
+        if r["check"] == "anysearch_subtree":
+            for fr in r.get("files", []):
+                fmark = {
+                    "ok": "OK  ",
+                    "drift": "DRIFT",
+                    "unknown": "UNK  ",
+                }.get(fr["status"], fr["status"].upper())
+                print("      %-8s %s" % (fmark, fr["path"]))
+        else:
+            print("      local   : %s" % r["local_sha"])
+            print("      upstream: %s" % r["upstream_sha"])
         if r["status"] == "drift":
             has_drift = True
     print("=" * 56)
     if has_drift:
-        print("结论：检测到上游漂移，请按 README 同步记录表跟进上游。")
+        print("结论：检测到上游漂移，请运行 sync_anysearch.py 跟进上游（见 VENDORING.md）。")
         sys.exit(1)
     print("结论：无漂移（或无法判定/无网络，视为通过）。")
     sys.exit(0)
