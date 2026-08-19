@@ -3,88 +3,6 @@ name: chrome-devtools
 description: "通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome / 360Chromex 等）进行网页调试、浏览器自动化、性能分析与网络检查的中文本地化技能。服务器以全局方式安装（npm install -g，位于 $(npm root -g)），可任选 MCP 服务模式或 CLI 模式使用。激活关键词：Chrome DevTools、浏览器自动化、网页调试、页面快照(take_snapshot)、元素交互(点击/填写/拖拽)、性能分析(Lighthouse/Performance Insight)、内存泄漏排查、网络请求检查、控制台日志、网页截图。适用场景：调试网页或 Web 应用、自动化点击/填写/导航、分析 LCP/内存/可访问性、抓取页面结构与控制台、连接已登录浏览器复用登录态。不适用场景：纯后端或 CLI 任务、无需浏览器的数据处理、本机无可用浏览器且未用 verify_browser 指定路径的情况。"
 ---
 
-## Core Concepts
-
-**Browser lifecycle**: Browser starts automatically on first tool call using a persistent Chrome profile. Configure via CLI args in the MCP server configuration. The server is installed **globally** (`npm install -g`, located at `$(npm root -g)/chrome-devtools-mcp`), so do **not** use `npx -y`. To see all options:
-
-- macOS / Linux / Git Bash:
-  ```bash
-  node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" --help
-  ```
-- Windows (cmd.exe):
-  ```bat
-  for /f "delims=" %i in ('npm root -g') do node "%i\chrome-devtools-mcp\build\src\bin\chrome-devtools.js" --help
-  ```
-- Windows (PowerShell):
-  ```powershell
-  $g = npm root -g; node "$g/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" --help
-  ```
-
-Additional tooling can be enabled by providing the following flags:
-
-- For extension tooling, use the `--categoryExtensions` flag.
-- For memory tooling, use the `--memoryDebugging` flag.
-
-**Page selection**: Tools operate on the currently selected page. Use `list_pages` to see available pages, then `select_page` to switch context.
-**Element interaction**: Use `take_snapshot` to get page structure with element `uid`s. Each element has a unique `uid` for interaction. If an element isn't found, take a fresh snapshot - the element may have been removed or the page changed.
-
-## Workflow Patterns
-
-### Before interacting with a page
-
-1. Navigate: `navigate_page` or `new_page`
-2. Wait: `wait_for` to ensure content is loaded if you know what you look for.
-3. Snapshot: `take_snapshot` to understand page structure
-4. Interact: Use element `uid`s from snapshot for `click`, `fill`, etc.
-
-### Efficient data retrieval
-
-- Use `filePath` parameter for large outputs (screenshots, snapshots, traces)
-- Use pagination (`pageIdx`, `pageSize`) and filtering (`types`) to minimize data
-- Set `includeSnapshot: false` on input actions unless you need updated page state
-
-> **落盘路径约束**：`take_screenshot` 等写文件工具受 daemon `--no-allow-unrestricted-paths` 约束，`--filePath` 必须落在已配置的工作区根内。若需自由路径，省略 `--filePath`，截图会落入 daemon 临时目录（如 `chrome-devtools-mcp-<random>/`），再用普通文件操作复制到目标位置。
-
-> **校验元素可见性**：用 `evaluate_script` 判断某元素是否对用户可见时，须用 `document.elementFromPoint(cx,cy)` 命中测试回查是否命中元素或其后代；仅看 `getBoundingClientRect().width>0` / `display` / `hidden` 会被祖先 `overflow` 裁剪误导（几何存在但视觉不可见）。
-
-### Tool selection
-
-- **Automation/interaction**: `take_snapshot` (text-based, faster, better for automation)
-- **Visual inspection**: `take_screenshot` (when user needs to see visual state)
-- **Additional details**: `evaluate_script` for data not in accessibility tree
-
-### Parallel execution
-
-You can send multiple tool calls in parallel, but maintain correct order: navigate → wait → snapshot → interact.
-
-### Testing an extension
-
-> **Before proceeding**: Extension tools (`install_extension`, `list_extensions`, etc.) are only available when the MCP server is started with the `--categoryExtensions` flag. If these tools are not in your tool list, stop and ask the user to update their MCP server configuration:
->
-> ```json
-> {
->   "mcpServers": {
->     "chrome-devtools": {
->       "command": "node",
->       "args": ["<全局 bin 路径>", "--categoryExtensions"]
->     }
->   }
-> }
-> ```
->
-> The global bin path is: `$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js`.
-> After updating, the user must restart the MCP server (or their AI client) for the change to take effect.
-
-1. **Install**: Use `install_extension` with the path to the unpacked extension.
-2. **Identify**: Get the extension ID from the response or by calling `list_extensions`.
-3. **Trigger Action**: Use `trigger_extension_action` to open the popup or side panel if applicable.
-4. **Verify Service Worker**: Use `evaluate_script` with `serviceWorkerId` to check extension state or trigger background actions.
-5. **Verify Page Behavior**: Navigate to a page where the extension operates and use `take_snapshot` to check if content scripts injected elements or modified the page correctly.
-
-> **先探测、后降级（CDP `Extensions` 域）**：运行 `list_extensions` 前先确认浏览器 CDP 是否提供 `Extensions` 域。若返回 `Extensions.getExtensions wasn't found`，说明该浏览器（常见于 360Chromex 等**定制 Chromium 构建**）裁掉了该域，此时 `install_extension` / `trigger_extension_action` / `reload_extension` 均不可用。请降级处理：用 `new_page chrome://extensions/?id=<id>` 截图证明扩展已加载启用，并在目标站点页面截图证明内容脚本注入；依赖侧边栏的交互给出手动操作流程交由用户补图。**切勿反复重试 `trigger_extension_action` 浪费时间。**
-
-> **验证已构建扩展禁 `file://`**：验证已构建/打包的扩展必须用 `chrome-extension://<id>/...`，**严禁 `file://`** 直接打开 dist 里的 html（vite 等产物用绝对 `/assets/` 引用脚本，在 `file://` 下解析失败导致 JS 不加载、按钮全部点不动的假阳性）。
-
 ---
 
 <!-- LOCALIZED:360Chromex -->
@@ -217,3 +135,20 @@ node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" take_
 - **扩展工具（`--categoryExtensions`）**：MCP server 模式默认不含（`categoryExtensions=false`），如需扩展工具须在 mcp.json 的 args 显式加 `--categoryExtensions`；而 **CLI `start` 模式默认已启用扩展**（`start` 子命令把 `--categoryExtensions` 默认值置为 `true`），故 `start --browserUrl` 连接下扩展工具可用（如 `install_extension` / `list_extensions`）。历史上「browserUrl 模式不支持扩展」的限制（上游 #149）已在 1.6.0 的 CLI start 路径解除。
 - **动用户日常浏览器需谨慎（安全红线）**：本技能经 `--browserUrl` 直连你**正在使用的**浏览器实例（复用登录态与 profile）。自动化前确认无未保存编辑；收尾用 `close_page` 关掉过程中开出的临时标签页，避免遗留干扰。优先用独立测试 profile 验证破坏性操作。
 - 本地化段以哨兵 `LOCALIZED:360Chromex` 标记；`--strip` 再注入可刷新，直接重跑则仅保全不刷新（兜底）。
+
+### 本地化补充注意（上游 prose 的本地化改写与增补）
+
+> **全局 bin 调用参考（对应上游 "Browser lifecycle" 本地化改写——一律走 `$(npm root -g)` 全局安装，禁用 `npx -y`）**：查看全部选项：
+> - macOS / Linux / Git Bash：`node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" --help`
+> - Windows (cmd.exe)：`for /f "delims=" %i in ('npm root -g') do node "%i\chrome-devtools-mcp\build\src\bin\chrome-devtools.js" --help`
+> - Windows (PowerShell)：`$g = npm root -g; node "$g/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" --help`
+>
+> 附加工具开关：扩展工具用 `--categoryExtensions`；内存调试用 `--memoryDebugging`。
+
+> **落盘路径约束**：`take_screenshot` 等写文件工具受 daemon `--no-allow-unrestricted-paths` 约束，`--filePath` 必须落在已配置的工作区根内。若需自由路径，省略 `--filePath`，截图会落入 daemon 临时目录（如 `chrome-devtools-mcp-<random>/`），再用普通文件操作复制到目标位置。
+
+> **校验元素可见性**：用 `evaluate_script` 判断某元素是否对用户可见时，须用 `document.elementFromPoint(cx,cy)` 命中测试回查是否命中元素或其后代；仅看 `getBoundingClientRect().width>0` / `display` / `hidden` 会被祖先 `overflow` 裁剪误导（几何存在但视觉不可见）。
+
+> **先探测、后降级（CDP `Extensions` 域）**：运行 `list_extensions` 前先确认浏览器 CDP 是否提供 `Extensions` 域。若返回 `Extensions.getExtensions wasn't found`，说明该浏览器（常见于 360Chromex 等**定制 Chromium 构建**）裁掉了该域，此时 `install_extension` / `trigger_extension_action` / `reload_extension` 均不可用。请降级处理：用 `new_page chrome://extensions/?id=<id>` 截图证明扩展已加载启用，并在目标站点页面截图证明内容脚本注入；依赖侧边栏的交互给出手动操作流程交由用户补图。**切勿反复重试 `trigger_extension_action` 浪费时间。**
+
+> **验证已构建扩展禁 `file://`**：验证已构建/打包的扩展必须用 `chrome-extension://<id>/...`，**严禁 `file://`** 直接打开 dist 里的 html（vite 等产物用绝对 `/assets/` 引用脚本，在 `file://` 下解析失败导致 JS 不加载、按钮全部点不动的假阳性）。
