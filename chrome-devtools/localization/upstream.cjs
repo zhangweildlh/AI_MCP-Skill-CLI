@@ -101,6 +101,7 @@ function pruneStale(src, dst) {
 // 全新引导（bootstrap）检测：upstream/ 不存在时，本脚本将直接从钉版本仓库克隆并填充，
 // 无需预置 upstream/（满足"主副本最小化、upstream/ 可衍生"的要求：删除主副本 upstream/ 后，
 // 陌生 Agent 仅凭 README + 本脚本即可重建）。已存在时则按"升级"流程处理。
+if (require.main === module) {
 const upstreamExists = fs.existsSync(UPSTREAM_PKG);
 if (!upstreamExists) {
   console.log('[信息] 未检测到 upstream/package.json，进入全新引导（bootstrap）模式：将直接从钉版本仓库克隆并填充 upstream/。');
@@ -198,3 +199,6 @@ try {
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log('[已清理] 临时下载目录');
 }
+}
+
+module.exports = {};
