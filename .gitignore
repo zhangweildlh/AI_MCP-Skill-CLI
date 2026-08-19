@@ -1,18 +1,18 @@
 # =====================================================================
 # AI_MCP-Skill-CLI 仓库级 .gitignore
-# 用途：私有仓库，用于日常生产环境 + 云端备份。
-# 规则依据：用户 2026-07-17 需求
+# 用途：私有仓库（转公开中），用于日常生产环境 + 云端备份。
+# 规则依据：用户 2026-07-17 需求 + 2026-08-19 转公开决策
 #   - Memory-Data 直接子级「非 .md 文件」不入库（直接子级 .md 保留入库）；
 #     Memory-Data/task-methodology/（p1/p2 方法论文档）有意不入库
 #     （2026-08-19 决策：仅本地知识沉淀，不随仓库分发）
 #   - .workbuddy 为本地项目配置，不入库（仅本地读取）
 #   - Syncfolders 同步数据库、*.7z 压缩包不入库
-#   - 用户明确允许入库（含真实 API Key 与隐私，仅限私有仓库、绝不外推）：
-#       · ref-material-writing/.env（D-2026-0811-01 授权，保持私有）
-#       · anysearch-skill/.env
-#   - web-search/.env：2026-08-11 安全决议改判为「绝不入库」（真实密钥已落 git 历史、
-#     须到 anysearch.com/settings/api-keys 轮换作废），须忽略，与
-#     scripts/smoke/tier0_secrets.py 的 MUST_IGNORE 一致。
+#   - 2026-08-19 转公开决策（D-2026-0819-02）：密钥/凭据文件一律不入库、不留历史，
+#     作废 D-2026-0811-01「ref-material-writing/.env 授权入库」例外。
+#     须忽略并已从历史清除：ref-material-writing/.env、web-search/.env、
+#     code-review-combo/config/providers.json。
+#   - 允许入库的示例/脚本（无真实密钥）：web-search/anysearch-skill/.env.example、
+#     scripts/smoke/tier0_secrets.py（扫描脚本）。
 #   - 注：仓库级忽略规则仅匹配 env/ 与 .venv/ 目录，不忽略顶层 .env 文件，
 #     故需忽略的顶层 .env 在下方「敏感凭据」段单独显式声明。
 # =====================================================================
@@ -37,7 +37,9 @@ __pycache__/
 venv/
 env/
 # ---------- 敏感凭据（绝不入库，与 tier0_secrets.py MUST_IGNORE 一致）----------
+ref-material-writing/.env
 web-search/.env
+code-review-combo/config/providers.json
 node_modules/
 *.log
 .sisyphus/

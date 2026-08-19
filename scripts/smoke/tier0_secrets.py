@@ -7,11 +7,11 @@
   2. .gitignore 策略校验：确保敏感目录被忽略、按策略应入库的文件未被忽略。
 
 关于 ANYSEARCH_API_KEY：
-  ref-material-writing/.env 中的真实 ANYSEARCH_API_KEY 按用户明确决策（#10 / D-2026-0811-01）已授权入库，
-  故列入 ALLOW_PATTERNS + 路径级豁免（EXEMPT_SCAN_PATHS），扫描命中不报致命。
+  2026-08-19 转公开决策（D-2026-0819-02）作废 D-2026-0811-01「ref-material-writing/.env 授权入库」例外：
+  该文件真实 ANYSEARCH_API_KEY 一律「绝不入库」，从 EXEMPT_SCAN_PATHS / ALLOW_PATTERNS 移除、
+  归入 MUST_IGNORE，与 .gitignore 一致（密钥须到 anysearch.com/settings/api-keys 轮换作废）。
   web-search/.env 中的同类真实密钥已于 2026-08-11 改判为「绝不入库」（密钥已落历史、
   须轮换作废，见 .gitignore），故从 MUST_TRACK 移除并归入 MUST_IGNORE，与 .gitignore 一致。
-  若日后希望收紧 ref-material-writing，移除 EXEMPT_SCAN_PATHS 与 ALLOW_PATTERNS 中对应条目即可。
 
 可见性守卫（方案 Y）：
   所有路径级豁免（EXEMPT_SCAN_PATHS）仅当仓库为 private 时生效（_repo_is_private）；
@@ -43,7 +43,6 @@ DENY_PATTERNS = [
 
 # ---- 允许清单（命中则不报致命）----
 ALLOW_PATTERNS = [
-    re.compile(r"ANYSEARCH_API_KEY\s*="),           # 用户授权入库的真实 Key
     re.compile(r"你的API Key"),
     re.compile(r"(your[-_ ]?api[-_ ]?key|example|xxxx|占位|示例|changeme|REPLACE|placeholder)", re.I),
     re.compile(r"[<>\[]"),                          # 占位符包裹的伪值
@@ -52,13 +51,13 @@ ALLOW_PATTERNS = [
 # ---- 路径级扫描豁免（仅私有仓库生效，方案 Y 密钥文件豁免）----
 # 判定：仓库可见性为 private 时豁免生效；public 下豁免全部失效（防密钥外泄）。
 #   mimo_mcp.py                          2026-08-17 授权：真实 OpenAI 密钥，私有可见性兜底
-#   ref-material-writing/.env            决策 D-2026-0811-01 授权：真实 ANYSEARCH_API_KEY 入库
 # 与 ALLOW_PATTERNS 的关系：此处为「已知密钥文件」级豁免，避免把真实密钥伪装成
 # 「占位符误判」，保持值级语义干净。
-# 注意：web-search/.env（2026-08-11 决议「绝不入库」）与
+# 注意：ref-material-writing/.env（2026-08-19 转公开决策作废 D-2026-0811-01，绝不入库）、
+# web-search/.env（2026-08-11 决议「绝不入库」）与
 # code-review-combo/config/providers.json（仅本地保留、绝不入库）均属「绝不入库」类，
 # 一律不豁免、保持扫描阻断（误暂存时仍会被拦截，防外泄双保险）。
-EXEMPT_SCAN_PATHS = {"mimo_mcp.py", "ref-material-writing/.env"}
+EXEMPT_SCAN_PATHS = {"mimo_mcp.py"}
 
 
 def _repo_is_private() -> bool:
@@ -86,10 +85,10 @@ MUST_IGNORE = [
     "x.pyc",
     ".venv/x",
     "web-search/.env",          # 2026-08-11 安全决议：真实密钥已落历史、须轮换作废，绝不入库（与 .gitignore 一致）
+    "ref-material-writing/.env", # 2026-08-19 转公开决策（D-2026-0819-02）作废 D-2026-0811-01：绝不入库（与 .gitignore 一致）
 ]
 # 必须被跟踪（按用户 #10 策略应入库）
 MUST_TRACK = [
-    "ref-material-writing/.env",
     "Skill-滴答清单智能任务解析创建器.md",
 ]
 
