@@ -58,8 +58,11 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 
 > 说明：脚本层（`scripts/lib/sop-common.sh` 的 `_sop_probe_tools`）也有同样的探测，即使绕过 Agent 直接运行脚本（如双击 GitExtensions 外挂），工具缺失时也会用纯中文优雅报错并退出，不会甩出一堆看不懂的 bash 错误。这是双层防护。
 
+- **脚本可用性核验（强制，D4 修复）**：进入本技能后（阶段 0 工具探测通过即执行），先 `ls "<技能根目录>/scripts/sop_*.sh"` 确认脚本已部署；若不存在 → **立即暂停**，提示「github-personal-manager 脚本未部署，请先部署 `scripts/` 后再用本技能」。所有 git/gh 写操作**必须**走 `bash scripts/sop_*.sh`，严禁手写等价命令绕过（脚本内含路径守卫 / dry-run / 暂停门禁，手写即绕过安全网）。脚本缺失时按本核验暂停，不降级为手写命令。
+
 ## 脚本调用约定（关键：明确告诉你要跑哪个脚本、怎么跑）
-- 本技能所有可执行脚本位于**技能根目录**下的 `scripts/` 子目录（即与本 SKILL.md 同级的 `scripts/`）。脚本内部通过 `BASH_SOURCE` 自定位，依赖**相对路径**解析，不依赖任何写死的安装位置字符串。
+- **强制走脚本（最高优先级，D4 修复）**：凡涉及 git/gh 写操作（提交 / 推送 / 开 PR / 合并 / 打标签 / 发版 / 删分支 / 清理工区），**一律调用 `bash scripts/sop_*.sh`，禁止手写等价命令**。未走脚本的写操作一律视为违反本技能。脚本缺失时按阶段 0「脚本可用性核验」暂停，不降级为手写命令。（应急通道：仅在脚本确缺失且用户显式要求时，才可手写等价命令作为降级，且仍须遵守全部顶级全局禁令与暂停门禁。）
+- 本技能所有可执行脚本位于**技能根目录**下的 `scripts/` 子目录（即与本 SKILL.md 同级的 `scripts/`）。脚本内部通过 `BASH_SOURCE` 自定位，依赖**相对路径**解析，不依赖任何写死的安装位置字符串。面向图形客户端（SourceGit / Git Extensions）的工作流封装脚本（`wf_*.sh`）位于与 `scripts/` 平级的 `workflows/` 目录，同样靠 `BASH_SOURCE` 相对解析、不写死安装位置。
 - **技能根目录 = 包含本 SKILL.md 的目录**。**经技能系统按名加载本技能时，运行环境已提供该目录，直接 `cd` 到该目录即可**；资源文件、脚本文件、程序文件的调用/加载一律以该目录为根，用**相对路径**拼接（如 `bash scripts/sop_*.sh`、`source lib/sop-common.sh`），**不得写死任何安装位置字符串**（无论是 `~/.workbuddy/skills/...`、`{workspace}/.workbuddy/skills/...` 还是 `D:/Documents/AI_MCP-Skill-CLI/...`）。
 - 调用一律用**相对路径**，格式：`bash scripts/sop_sync_precheck.sh <参数>`（示例脚本，其余 `sop_*.sh` 同理，脚本清单见各工作流）。
 - **不要**让 Agent 自行猜测或改写脚本内部逻辑；每个工作流已明确列出要跑的脚本与参数。
@@ -84,10 +87,12 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 7. **dry-run 优先（公开动作二次安全门）**：所有写操作脚本默认只打印将执行什么（干跑），加 `--confirm` 才真正执行。即使手动执行 git/gh 写命令，凡属公开动作（删除分支、打标签、发版、删远端）也先说明、后执行。
 8. **合并与回滚纪律**：多工作树/并行开发合并一律 `git merge --no-ff`（生成双父合并碑、保留中间提交谱系、不改写历史）；回滚一律 `git revert -m 1 <合并碑>`，**禁用 `reset --hard` + 强推**（`reset` 三模式在含 `.workbuddy` 工作树等场景的细节见 references/fork-ci-pitfalls.md 第44点）。已推送的提交属公开历史，禁止改写（rebase -i / amend / --force 推送）。
 9. **公开动作一律暂停确认（强门禁）**：删除分支、打标签、创建 Release、删除远端分支等，先大白话说明将做什么、后果、产物，暂停等明确指令；一切冲突、公开动作一律"大白话 + 后果 + 暂停等指令"，绝不自动执行。
+   - **特例（链路整体授权，D6 修复）**：当用户用**一条指令**明确授权了串联动公开动作（如「CI 全绿则合并 main + 打标签 + 发布版本」），视为对该链路整体授权，可免逐一暂停；但每个子动作执行前仍须用一句话说明「将做什么 + 后果」（不需等二次确认），且涉及「删远端标签重推 / 删远端分支」等不可逆动作时仍须显式确认。本特例**不扩展到**「删 main / 强推 / 推 upstream」等绝对红线，那些仍须独立二次授权（见第 2/4/5 条）。
 
 ## 环境硬约束
 1. 本机无 Docker，任何涉及 Docker 的安装/部署方案一律忽略，改用原生路径。
 2. 默认走远程 CI（GitHub Actions）构建二进制/产物；若仅用本机已安装且已在 PATH 注册的工具（如 `node`、`uv`/Python、本机已预装编译器）即可完成本地编译、且无需安装新编译工具链（MSVC Build Tools、MinGW-w64 等），则允许本地编译。
+3. **无工具链特例（强制，D3 修复）**：若阶段 0 探测到本机**完全没有**目标语言工具链（如 Rust 项目 `where.exe cargo` 无结果），则本地**仅能做人工静态审查 + 文档门禁**（`bash scripts/sop_docs_sync_check.sh`），编译 / fmt / lint / test 一律交 CI 兜底；开 PR 前**必须明确告知用户**「本机无 X 工具链，正确性依赖远端 CI 验证」，不得假装已本地验证。
 
 ## 输入参数
 | 参数名 | 类型 | 必填 | 说明 |
@@ -191,16 +196,20 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
    - 适用范围、"免触发"边界与完整分层定义见 `references/docs-sync-checklist.md`；本门禁不绕过任何顶级全局禁令/路径核验。
 4. 提交/推送/触发 CI（手动 `git`）：`git add [文件]` → `git commit -m "type: 简述"` → **推送(push) 前先运行 `bash scripts/sop_privacy_gate.sh <仓库路径>`（见顶级全局禁令第 6 条），命中即暂停处理再 push** → `git push -u origin feat/[topic]`。
    - **提交信息建议采用 conventional commits 类型前缀（规范引导，非强制校验）**：`type` 取 `feat:`（新功能）/ `fix:`（修复）/ `chore:`（杂务）/ `docs:`（文档）/ `refactor:`（重构）/ `test:`（测试）/ `style:`（格式），格式为 `type: 简述`（如 `fix: 修正 CI 路径核验误报`）。此举仅为提交信息约定，便于审阅与生成 CHANGELOG，工具层不强制校验；仍须坚持"一 PR 一主题"。注意：这是提交信息约定，与合并纪律（顶级禁令第 8 条 `--no-ff`）无关，互不替代。
-5. **开 PR（必须走脚本，不手写 gh）**：运行
+5. **CI 触发条件核查（开 PR / 轮询 CI 前强制，D2 修复）**：读取 `<仓库>/.github/workflows/*.yml`，确认 `on:` 下的 `push.branches` 与 `pull_request.branches`：
+   - 若当前功能分支(feat) 不在 `push.branches` 列表 → **明确告知用户**：「feature 分支 push 不会自动触发 CI，须开 PR（或合并 main）才能验证」；直接走「开 PR 触发 PR 的 CI」路径，不浪费一轮 push 后空等。
+   - 若 workflow 仅对 main 触发 → 开 PR 到 main 即触发，无需 push 后轮询。
+   此核查避免「push 后 CI 无运行记录」的误判与空等。
+6. **开 PR（必须走脚本，不手写 gh）**：运行
    `bash scripts/sop_pr_create.sh <仓库路径> --base <分支>` —— dry-run，打印将执行的 push + `gh pr create`；
    `bash scripts/sop_pr_create.sh <仓库路径> --base <分支> --confirm` —— 真正执行。
    脚本守卫：当前在 main 上会被拒绝（违反顶级禁令）；分离 HEAD 会拒绝；只在 feat 分支上才允许开 PR。
-6. **轮询 CI（脚本）**：运行 `bash scripts/sop_pr_checks.sh <仓库路径>`，只读输出 PR 检查状态与最近 5 条 workflow run。
-7. 对齐上游并强推（仅功能分支(feat)，非 main）：`git fetch upstream && git rebase upstream/main feat/[topic]`；冲突就地解决 → `git rebase --continue` → `git push --force-with-lease origin feat/[topic]`（绝不强推 main）。重跑 CI 至绿。
-8. 合并(merge)：贡献上游仓库(upstream) 由维护者合并(merge)，你仅监控；自有/自测 PR 用 `gh pr merge`；fork 内部 PR 用 `gh pr merge --squash`。
-9. 收尾：`git switch main && git pull upstream main && git push origin main`；`git branch -d feat/[topic]` + `git push origin --delete feat/[topic]`。
-10. 硬约束：本地 main 跟踪 origin/main；`git push` 只推 origin；fork Actions 需一次性手动启用；给上游建 PR 用 `gh`（免 403）。
-11. 临时抽屉（stash）：开发到一半被打断时 `git stash push -m "feat A 做到一半"` 暂存，恢复时 `git stash pop`；stash 后仍需合适时机 pop 回来继续，巡检遇工作区脏会硬停止。
+7. **轮询 CI（脚本）**：运行 `bash scripts/sop_pr_checks.sh <仓库路径>`，只读输出 PR 检查状态与最近 5 条 workflow run。
+8. 对齐上游并强推（仅功能分支(feat)，非 main）：`git fetch upstream && git rebase upstream/main feat/[topic]`；冲突就地解决 → `git rebase --continue` → `git push --force-with-lease origin feat/[topic]`（绝不强推 main）。重跑 CI 至绿。
+9. 合并(merge)：贡献上游仓库(upstream) 由维护者合并(merge)，你仅监控；自有/自测 PR 用 `gh pr merge`；fork 内部 PR 用 `gh pr merge --squash`。
+10. 收尾：`git switch main && git pull upstream main && git push origin main`；`git branch -d feat/[topic]` + `git push origin --delete feat/[topic]`。
+11. 硬约束：本地 main 跟踪 origin/main；`git push` 只推 origin；fork Actions 需一次性手动启用；给上游建 PR 用 `gh`（免 403）。
+12. 临时抽屉（stash）：开发到一半被打断时 `git stash push -m "feat A 做到一半"` 暂存，恢复时 `git stash pop`；stash 后仍需合适时机 pop 回来继续，巡检遇工作区脏会硬停止。
 
 ### 工作流五：多工作树并行开发（--no-ff 普通合并特化）
 （适用：同一仓库需多任务并行、代码隔离，最终 `--no-ff` 普通合并回主线、整段可回滚。本质是「工作流四 标准代码修改」的并行多工作树特化。前提：阶段 0 工具可用、已完成路径核验；先 `cd` 到技能根目录。）
@@ -213,8 +222,10 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
   `bash scripts/sop_worktree_add.sh <仓库路径> --branch feat/<topic> --confirm`
   可选参数：`--topic <名>`（工作树子目录名，缺省取分支末段）、`--worktree-root <dir>`（工作树父目录，缺省仓库内 `.worktrees`）。
   脚本四道守卫：主仓库须在 main 且工作区干净；分支名不与现有冲突；工作树路径未占用；遵循一分支一工作树。每任务重复本步即可并行开多棵。
+  ⚠️ **Windows 环境约束**：`sop_worktree_add.sh` 会把工作树路径统一归一化为 Windows 形态（`D:/...`）。请在 **Git for Windows + Git Bash** 环境下运行；若路径呈 POSIX 形态（`/d/...`），Git 会误判为相对路径、把工作树错建到 `D:/d/...` 而导致后续无法进入（P-GPM-4 已修复，但归一化依赖 Git Bash 环境的 `cygpath`）。纯 CMD / 非 Git Bash 终端可能异常。
 - **阶段二：工作树内开发 + 测试（在各自工作树目录内）**
   `cd` 到工作树目录，按需多次提交(commit)（保留中间提交谱系）；独立安装依赖（`node_modules` 等不跨工作树共享）；跑 `<INSTALL_DEPS> && <RUN_TESTS> && <BUILD>`，**全绿才允许合并**。可选 `git push -u origin feat/<topic>` 持久化引用。建议定期 `git fetch origin && git rebase origin/main` 减少后期冲突（仅未推送或已授权自身分支时）。
+- **阶段二·甲（并行子 Agent 完成核验门禁，强制，D1 修复）**：若采用「多个并行子 Agent 团队」模式（区别于手动 `git worktree`），每个子 Agent 结束后**必须**核验其产出的工作树/分支是否有实际提交：`git -C "<子Agent工作树>" rev-list --count <base>..HEAD`（`<base>` 取 main 或 PR 目标分支）。计数 = 0 → 该子 Agent 零产出，**立即报错并自动回退到串行亲自执行**（不在该子 Agent 上重试），同时记录该分支供清理；**绝不带着「未完成的并行」进入阶段三合并**。核验不通过不得继续后续合并/PR 步骤。
 - **阶段三：--no-ff 合并到主线（必须在主仓库目录，绝不在工作树内）**
   运行（先 dry-run 预览，再加 `--confirm` 真正合并）：
   `bash scripts/sop_worktree_merge.sh <仓库路径> --branch feat/<topic>`
@@ -234,6 +245,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 
 ### 工作流六：CI 失败排错
 （前提：阶段 0 工具可用，完成路径核验。先 `cd` 到技能根目录。）
+- **前置核查 · CI 触发条件核查（轮询 CI 前强制，D2 修复）**：同工作流四第 5 步——读取 `<仓库>/.github/workflows/*.yml` 的 `push.branches` / `pull_request.branches`，确认当前分支的 CI 是否被触发；若 feature 分支不在 `push.branches`，明确知晓「须开 PR 才能验证」，不空等 push 后的 run。进入本工作流通常已在 PR 中，此核查用于避免误判「CI 没跑」。
 1. **下载失败日志（脚本，只读）**：运行 `bash scripts/sop_ci_failed_log.sh <仓库路径>`，自动取最近一次 workflow run 并打印失败步骤日志，无需打开网页。
 2. **轮询 CI 状态（脚本，只读）**：运行 `bash scripts/sop_pr_checks.sh <仓库路径>`。
 3. 按现象对号入座（详见 references/fork-ci-pitfalls.md）：fmt 失败 → 格式化；clippy `-D warnings` → 改 feat 重验；`action_required` → 等维护者；整 CI 红且无关代码 → 取消 pinned SHA 勾选；发布 job 失败 → 给发布 job 加 `if: github.repository == '<upstream>'` 守卫（⚠️ actionlint 拒绝纯常量 `if: false`，须用非常量仓库名比较）；CHANGELOG 缺段 → 补段。
@@ -246,6 +258,10 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 （本工作流无专门脚本，按以下手动流程（均为公开动作，需暂停确认）。前提：阶段 0 工具可用，完成路径核验。）
 1. 发版前检查：CHANGELOG 顶部有对应 `## [X.Y.Z] - [date]` 段；`release.yml` 发布类 job 已加 `if: github.repository == '<upstream>'` 守卫（⚠️ 禁止写纯常量 `if: false`，actionlint 会报 `constant expression` 致整条 CI 失败）；未勾 pinned SHA；fork Settings → Actions → Workflow permissions = Read and write。可用 `git diff <上一tag> <本次tag> --stat` 复核本次发版改动范围。
 2. **Release PR 步骤（推荐，发版前先开）**：发版前先开一个「Release PR」——须在「Release 专用分支」（如 `release/X.Y.Z`，**不可在 main 上执行**：`sop_pr_create.sh` 守卫会拦截处于 main 时的调用）上，仅更新 CHANGELOG 草稿段 + 版本号，再用 `bash scripts/sop_pr_create.sh --base main`（或手写 `gh pr create --base main`）发起；合并时 fork 内部 PR 采用 **squash 合并策略**（由 GitHub 分支保护 / 合并按钮设定，非脚本参数），主线合并遵循顶级禁令第 8 条 `--no-ff`，二者互不替代。PR 合并后才真正打 tag/发 Release；此举使发版可审查、可追溯。**明确禁止为生成线性历史而对 main 改用 squash-merge**（与顶级禁令第 8 条冲突，不可妥协）。
+2.5 **产物来源核查（发版前强制，D5 修复）**：读取 `.github/workflows/release.yml`（或 ci.yml 的 build job），确认是否有 `actions/upload-artifact` 上传构建产物：
+   - 有 → `gh release download v[version]` 可取产物；
+   - 无 → 明确「仅发 tag + GitHub Release 说明（`--generate-notes`），不附二进制产物」，或补 `upload-artifact` 步骤后再发；fork 发版绝不发 crates.io/PyPI（见硬前提第 5 条）。
+   此核查避免「发版时 `gh release download` 取不到产物」的空错。
 3. 打标签(tag) 触发（公开动作，暂停等指令）：`git tag -a v[version] -m "release v[version]"` → `git push origin v[version]`。重触发用「删远端标签 + 重推」（`git push origin :refs/tags/v[version]` → `git push origin v[version]`），禁强推标签。推前大白话说明版本号、触发工作流、产物，暂停确认。⚠️ 标签 SHA 核对：`git ls-remote --tags` 返回的是注解标签对象 SHA，核对须先 `git rev-parse v[version]^{commit}` 解引用出提交 SHA 再比。
 4. 监控与取产物：`gh run watch` → `gh release view v[version]` → `gh release download v[version]`。无自动发布时 `gh release create v[version] --generate-notes` + `gh release upload v[version] [产物文件]`。
 5. 硬前提：fork 发版仅自取构建产物，绝不发布到 crates.io/PyPI。
