@@ -1,0 +1,204 @@
+--- a/scripts/anysearch_cli.py
++++ b/scripts/anysearch_cli.py
+@@ -13,10 +13,54 @@
+ if sys.stderr.encoding != "utf-8":
+     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+ 
+-ENDPOINT = "https://api.anysearch.com/mcp"
++# 模块级安全兜底域名列表：与 scripts/shared/constants.json 的 available_domains 保持一致。
++# 当 constants.json 加载失败（文件缺失/损坏/非 JSON）时，_get_constants() 回退到该列表，
++# 保证 AVAILABLE_DOMAINS 非空、argparse choices 与 --domain 参数始终可用。
++SAFE_DOMAINS = [
++    "general", "resource", "social_media", "finance", "academic",
++    "legal", "health", "business", "security", "ip", "code",
++    "energy", "environment", "agriculture", "travel", "film", "gaming",
++]
++
++# constants.json 加载失败时使用的兜底常量字典（endpoint / client_version 也给出安全默认值）。
++_SAFE_CONSTANTS = {
++    "endpoint": "https://api.anysearch.com/mcp",
++    "client_version": "5.0.0",
++    "available_domains": SAFE_DOMAINS,
++}
++
++def _get_constants():
++    """Load scripts/shared/constants.json — single source of truth for endpoint, domains, version.
++
++    任意加载异常（文件缺失/损坏/非 JSON/权限）不再静默退化为空字典，而是回退到
++    模块级 SAFE_CONSTANTS，并向 stderr 打印一行告警，确保 AVAILABLE_DOMAINS 非空、
++    search --domain 不会因 invalid choice 而崩溃。
++    """
++    _dir = os.path.dirname(os.path.abspath(__file__))
++    _p = os.path.join(_dir, "shared", "constants.json")
++    try:
++        with open(_p, "r", encoding="utf-8") as f:
++            return json.load(f)
++    except Exception as e:
++        print(
++            f"Warning: failed to load constants.json ({e}); "
++            "using built-in fallback domain list",
++            file=sys.stderr,
++        )
++        return dict(_SAFE_CONSTANTS)
++
++_CONSTANTS = _get_constants()
++
++# API endpoint mirrors scripts/shared/constants.json; falls back if missing.
++ENDPOINT = _CONSTANTS.get("endpoint", "https://api.anysearch.com/mcp")
++
+ # Identifies access mode + spec version to the backend (X-Anysearch-Client).
+-# Keep the version aligned with SKILL.md `version`.
+-CLIENT_HEADER = "skill/3.0.1"
++# Aligned with SKILL.md `version` via scripts/shared/constants.json `client_version`.
++CLIENT_HEADER = "skill/" + str(_CONSTANTS.get("client_version", "5.0.0"))
++
++# .env 允许注入的键白名单：仅注入工具需要的少量键，杜绝全盘覆盖 PATH/PYTHONPATH
++# 等环境（安全约束）。密钥值本身不会被读取、打印或输出。
++_ENV_ALLOWLIST = ["ANYSEARCH_API_KEY"]
+ 
+ def _load_env():
+     """Load API keys from .env files near the skill.
+@@ -24,9 +68,11 @@
+     The documented priority is:
+     --api_key > .env file > environment variable > anonymous.
+ 
++    安全约束：仅将白名单内的键（如 ANYSEARCH_API_KEY）注入 os.environ，
++    绝不全盘注入 .env 任意 key（避免覆盖 PATH/PYTHONPATH/系统关键环境）。
+     Use utf-8-sig so .env files saved by Windows Notepad with a BOM are parsed
+-    correctly. The .env value intentionally overrides an existing environment
+-    variable to match the documented priority order.
++    correctly. The allowed-key value intentionally overrides an existing environment
++    variable to match the documented priority order (.env > 环境变量).
+     """
+     script_dir = os.path.dirname(os.path.abspath(__file__))
+     for env_path in [os.path.join(script_dir, ".env"), os.path.join(script_dir, "..", ".env")]:
+@@ -41,20 +87,18 @@
+                     key, _, value = line.partition("=")
+                     key = key.strip().lstrip(chr(0xFEFF))
+                     value = value.strip().strip("\"'").strip()
+-                    if key and value:
++                    # 仅注入白名单内且非空的键
++                    if key and value and key in _ENV_ALLOWLIST:
+                         os.environ[key] = value
+ 
+ 
+ _load_env()
+ 
+ 
+-# BEGIN GENERATED:CONSTANTS
+-AVAILABLE_DOMAINS = [
+-    "general", "resource", "social_media", "finance", "academic", "legal",
+-    "health", "business", "security", "ip", "code", "energy",
+-    "environment", "agriculture", "travel", "film", "gaming",
+-]
+-# END GENERATED:CONSTANTS
++# Domain list loaded from scripts/shared/constants.json (single source of truth).
++# The previous GENERATED:CONSTANTS inline copy was removed to avoid drift.
++# 兜底：若常量中无 available_domains（极端情况），退回模块级 SAFE_DOMAINS，保证非空。
++AVAILABLE_DOMAINS = _CONSTANTS.get("available_domains", []) or SAFE_DOMAINS
+ 
+ 
+ def _build_headers(api_key: str) -> dict:
+@@ -91,7 +135,17 @@
+         print("Timeout: The API request timed out.", file=sys.stderr)
+         sys.exit(1)
+ 
+-    data = resp.json()
++    # F2 修复：HTTP 200 但响应体非合法 JSON（如代理错误页）时，resp.json() 会抛
++    # json.JSONDecodeError；此前未被捕获，会导致未处理异常。这里捕获并给出可读报错。
++    try:
++        data = resp.json()
++    except json.JSONDecodeError:
++        print(
++            "Error: API returned a non-JSON response (likely a proxy error page). "
++            f"Body preview:\n{resp.text[:500]}",
++            file=sys.stderr,
++        )
++        sys.exit(1)
+     if "error" in data:
+         error_msg = data["error"].get("message", str(data["error"]))
+         print(f"API Error: {error_msg}", file=sys.stderr)
+@@ -142,8 +196,8 @@
+             if "=" not in pair:
+                 continue
+             idx = pair.index("=")
+-            key = pair[:idx].strip()
+-            val = pair[idx + 1:].strip()
++            key = pair[:idx].strip().strip("'\"")
++            val = pair[idx + 1:].strip().strip("'\"")
+             if key:
+                 result[key] = val
+         return result if result else None
+@@ -165,7 +219,13 @@
+             arguments["sub_domain_params"] = parsed
+ 
+     if args.max_results is not None:
+-        arguments["max_results"] = min(args.max_results, 10)
++        # F6 修复：max_results 必须落在 [1, 10] 区间；此前仅用 min() 截上限、
++        # 未校验下限，传入 0/负数会被直接透传。越界则报错并退出。
++        max_results = args.max_results
++        if not (1 <= max_results <= 10):
++            print("Error: --max_results must be between 1 and 10", file=sys.stderr)
++            sys.exit(1)
++        arguments["max_results"] = max_results
+ 
+     print(_call_api("search", arguments, args.api_key))
+ 
+@@ -317,6 +377,11 @@
+     shared_sdp_raw = getattr(args, "batch_sdp", None)
+     shared_sdp = _parse_sub_domain_params(shared_sdp_raw) if shared_sdp_raw else None
+     shared_max_results = getattr(args, "batch_max_results", None)
++    # F6 修复：shared max_results 同样需落在 [1, 10]；越界直接报错退出，
++    # 避免把 0/负数注入到各 query item。
++    if shared_max_results is not None and not (1 <= shared_max_results <= 10):
++        print("Error: --max_results must be between 1 and 10", file=sys.stderr)
++        sys.exit(1)
+ 
+     for item in queries:
+         if shared_domain and not item.get("domain"):
+@@ -326,7 +391,13 @@
+         if shared_sdp and not item.get("sub_domain_params"):
+             item["sub_domain_params"] = shared_sdp
+         if shared_max_results is not None and item.get("max_results") is None:
+-            item["max_results"] = min(shared_max_results, 10)
++            item["max_results"] = shared_max_results
++        # N2 修复：per-item max_results（无论查询自带还是由 shared 注入）均须落在 [1, 10]；
++        # 越界直接报错退出，避免把非法值透传到 API（补全 F6 的残留盲区）。
++        _mr = item.get("max_results")
++        if _mr is not None and not (1 <= _mr <= 10):
++            print("Error: each query item's max_results must be between 1 and 10", file=sys.stderr)
++            sys.exit(1)
+         # Parse KV string sub_domain_params inside query items
+         if isinstance(item.get("sub_domain_params"), str):
+             item["sub_domain_params"] = _parse_sub_domain_params(item["sub_domain_params"])
+@@ -342,12 +413,26 @@
+     _shared = os.path.join(_dir, "shared")
+     with open(os.path.join(_shared, "doc_spec.md"), "r", encoding="utf-8") as _f:
+         _tpl = _f.read()
+-    with open(os.path.join(_shared, "constants.json"), "r", encoding="utf-8") as _f:
+-        _c = _json.load(_f)
++    # F9 修复：加载 constants.json 复用已有容错的 _get_constants()（文件缺失/损坏/
++    # 非 JSON 时回退 _SAFE_CONSTANTS），避免直接 json.load 抛出未处理异常。
++    _c = _get_constants()
+     _tpl = _tpl.replace("{{LANG_NAME}}", "Python")
+     _tpl = _tpl.replace("{{LANG_CODEBLOCK}}", "")
+-    _tpl = _tpl.replace("{{LANG_INVOKE}}", "python scripts/anysearch_cli.py")
+-    _tpl = _tpl.replace("{{DOMAINS_SPACE}}", " ".join(_c["available_domains"]))
++    # F4 修复：uv 工程路径为本机专属默认值；若非由环境变量显式设置且该路径不存在，
++    # 打印可读告警（而非静默拼出错误命令）。保留默认值 fallback。
++    _env_uv = os.environ.get("REF_MATERIAL_UV_PROJECT")
++    _uv_project = _env_uv if _env_uv is not None else "D:/Tools/Assembly/python/myenv"
++    if _env_uv is None and not os.path.isdir(_uv_project):
++        print(
++            f"Warning: uv project not found at {_uv_project}; "
++            "set REF_MATERIAL_UV_PROJECT to your uv project",
++            file=sys.stderr,
++        )
++    _tpl = _tpl.replace("{{LANG_INVOKE}}", f"uv run --project {_uv_project} python scripts/anysearch_cli.py")
++    # N1 修复：与模块级 AVAILABLE_DOMAINS 的兜底逻辑（line 101）保持一致，
++    # constants.json 合法 JSON 但缺 available_domains 键时回退 SAFE_DOMAINS，
++    # 避免直接下标取值抛 KeyError 导致 doc / 无参调用崩溃。
++    _tpl = _tpl.replace("{{DOMAINS_SPACE}}", " ".join(_c.get("available_domains", SAFE_DOMAINS)))
+     return _tpl
+ # END GENERATED:DOC_SPEC
+ 
