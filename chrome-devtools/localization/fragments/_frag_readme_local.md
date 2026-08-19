@@ -7,7 +7,7 @@
 
 ## 模块 0：架构总览与核心约定
 
-- **服务器全局安装（符号链接模式）**：`npm install -g .` 会在 `$(npm root -g)`（npm 全局根目录，随 Node 安装位置而定）下创建名为 `chrome-devtools-mcp` 的**符号链接**，指向本文件夹；它**不拷贝、也不安装依赖**。运行时依赖与构建产物实际位于被链接的文件夹（`node_modules/` + `build/`）。调用方一律走全局 bin：`$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js`（经符号链接解析到本文件夹）。因此主副本文件夹本身保持最小化、可拷贝即走；依赖在激活后由 `deploy.cjs` 装到该文件夹。
+- **服务器全局安装（符号链接模式）**：`npm install -g .` 会在 `$(npm root -g)`（npm 全局根目录，随 Node 安装位置而定）下创建名为 `chrome-devtools-mcp` 的**符号链接**，指向本文件夹；它**不拷贝、也不安装依赖**。运行时依赖与构建产物实际位于被链接的文件夹（`node_modules/` + `build/`）。调用方一律走全局 bin 目录 `$(npm root -g)/chrome-devtools-mcp/build/src/bin/`：其中 **CLI 模式用 `chrome-devtools.js`**、**MCP server 模式用 `chrome-devtools-mcp.js`**（两者经符号链接解析到本文件夹）。因此主副本文件夹本身保持最小化、可拷贝即走；依赖在激活后由 `deploy.cjs` 装到该文件夹。
 - **拷贝即走**：把整个 `chrome-devtools/` 文件夹复制到任意电脑、激活主 `SKILL.md`，Agent 即可自主完成「全局安装 → 构建 → 浏览器检测/启动 → 暴露工具」，无需预装。
 - **跨平台说明**：底层脚本（deploy / upstream / copyDir / verify_browser）均为跨平台实现；本地化默认面向 **Windows + 360Chromex（含登录态）**。在 macOS / Linux 上可改用本机 Chrome（去掉 360Chromex 相关步骤，`verify_browser.cjs` 会检测 Chrome 的注册表/PATH 候选），其余流程一致。
 - **复用登录态、零下载**：仅依赖 puppeteer-core，**不下载任何浏览器内核**（`PUPPETEER_SKIP_DOWNLOAD=1` 由部署脚本内置）。
@@ -111,7 +111,7 @@ chrome-devtools 可二选一使用，**严禁 `npx -y`**，一律走全局路径
 }
 ```
 
-在 WorkBuddy 连接器管理页"信任"后即可使用29 个原生工具。
+在 WorkBuddy 连接器管理页"信任"后即可使用 29 个原生工具（对应上游 chrome-devtools-mcp v1.7.0；工具数量随上游版本变化，请以实际 `list_tools` 返回为准）。
 
 ### 4.3 CLI 模式（不配 MCP 也可用，二选一）
 
@@ -119,20 +119,20 @@ chrome-devtools 可二选一使用，**严禁 `npx -y`**，一律走全局路径
 
 - macOS / Linux / Git Bash：
   ```bash
-  node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js" <tool> [参数] --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
+  node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" <tool> [参数] --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
   ```
 - Windows (cmd.exe)：
   ```bat
-  for /f "delims=" %i in ('npm root -g') do node "%i\chrome-devtools-mcp\build\src\bin\chrome-devtools-mcp.js" <tool> [参数] --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
+  for /f "delims=" %i in ('npm root -g') do node "%i\chrome-devtools-mcp\build\src\bin\chrome-devtools.js" <tool> [参数] --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
   ```
 - Windows (PowerShell)：
   ```powershell
-  $g = npm root -g; node "$g/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js" <tool> [参数] --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
+  $g = npm root -g; node "$g/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" <tool> [参数] --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
   ```
 
 或等价使用 CLI 辅助脚本（仅 CLI 模式、可被删除）：`node localization/cli_run.cjs <tool> [参数]`。
 
-例如 `node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js" take_snapshot --browserUrl=http://127.0.0.1:9222 --no-usage-statistics`。
+例如 `node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" take_snapshot --browserUrl=http://127.0.0.1:9222 --no-usage-statistics`。
 
 ---
 
@@ -166,7 +166,7 @@ chrome-devtools 可二选一使用，**严禁 `npx -y`**，一律走全局路径
 node localization/upstream.cjs
 ```
 
-自动完成：检测新版本 → `git clone --depth 1` 拉源码 → 剥离并覆盖本地目标文件（保留 localization/ 与 mirror_to_target.cjs）→ 重注入本地化（保全约束）→ 重新固定 zod（compat.cjs）→ **全局卸载/安装/构建**（依赖位于 `$(npm root -g)`）→ 重新部署（生成全局路径 MCP 配置）。
+自动完成：检测新版本 → `git clone --depth 1` 拉源码 → 剥离并覆盖本地目标文件（保留 localization/）→ 重注入本地化（保全约束）→ 重新固定 zod（compat.cjs）→ **全局卸载/安装/构建**（依赖位于 `$(npm root -g)`）→ 重新部署（生成全局路径 MCP 配置）。
 
 ### 3) 手动升级（纯命令，不依赖脚本）
 
@@ -174,7 +174,7 @@ node localization/upstream.cjs
 
 ```sh
 git clone --depth 1 https://github.com/ChromeDevTools/chrome-devtools-mcp.git <临时目录>
-# 将 <临时目录> 的 src/ skills/ scripts/ 以及 README.md package.json server.json puppeteer.config.cjs tsconfig.json .npmrc .nvmrc .gitignore 覆盖到本仓库（保留 localization/ 与 mirror_to_target.cjs）
+# 将 <临时目录> 的 src/ skills/ scripts/ 以及 README.md package.json server.json puppeteer.config.cjs tsconfig.json .npmrc .nvmrc .gitignore 覆盖到本仓库（保留 localization/）
 node localization/apply_localize.cjs --strip   # 剥离旧本地化段（还原纯上游原文基线）
 node localization/apply_localize.cjs           # 重注入最新片段（含 description 中文化，幂等）
 PUPPETEER_SKIP_DOWNLOAD=1 npm install          # 先在本文件夹装齐依赖（devDependencies，含 puppeteer-core 等运行时；注意 npm install -g . 不会装依赖）

@@ -18,6 +18,7 @@ const KNOWN_TARGETS = new Set([
   'upstream/skills/chrome-devtools/SKILL.md',
   'upstream/skills/chrome-devtools-cli/SKILL.md',
   'upstream/README.md',
+  'SKILL.md',
 ]);
 
 function readConfig() {
@@ -154,6 +155,7 @@ function main() {
     strip('upstream/skills/chrome-devtools/SKILL.md');
     strip('upstream/skills/chrome-devtools-cli/SKILL.md');
     strip('upstream/README.md');
+    strip('SKILL.md');
     console.log('\n[完成] 已剥离本地化段。请运行 `node localization/apply_localize.cjs` 重新注入最新片段。');
     process.exit(0);
   }
@@ -163,12 +165,19 @@ function main() {
   inject('upstream/README.md', '_frag_readme_local.md');
   localizeDescription('upstream/skills/chrome-devtools/SKILL.md', '_frag_skill_main_desc.txt');
   localizeDescription('upstream/skills/chrome-devtools-cli/SKILL.md', '_frag_skill_cli_desc.txt');
+
+  // 根 SKILL.md（父技能运行时文档，WorkBuddy 加载技能时读取的入口）由本脚本统一从
+  // _frag_skill_main.md 重建（方案 A：根与上游子技能共享同一本地化片段，单一事实源）。
+  // 先剥离旧注入段（无哨兵则跳过），再追加哨兵 + 片段，确保片段更新后能刷新根文档；
+  // 随后 localizeDescription 改写其 frontmatter 的 description 为中文。
+  strip('SKILL.md');
+  inject('SKILL.md', '_frag_skill_main.md');
+  localizeDescription('SKILL.md', '_frag_skill_main_desc.txt');
+
   genMcpConfig();
 
-  // 注意：根 SKILL.md 是本技能的"父技能运行时文档"（WorkBuddy 加载技能时读取的入口），
-  // 与上游 skills/chrome-devtools/SKILL.md（MCP 内部子技能文档，注入本地化段后由 MCP server 提供）
-  // 是两个不同文件、两种用途，切勿互相覆盖。根 SKILL.md 由维护者手工维护（见 README 第 11 节），
-  // apply_localize 仅向上游快照内的注入点追加本地化段，不触碰根 SKILL.md。
+  // 注：根 SKILL.md 与上游 skills/chrome-devtools/SKILL.md 是不同文件、不同用途，
+  // 但如今同源于同一 _frag_skill_main.md（均由本脚本注入生成，单一事实源），不再手工维护。
 
   const cfg = readConfig();
   // 不在源码写死机器路径（RC-B）：
