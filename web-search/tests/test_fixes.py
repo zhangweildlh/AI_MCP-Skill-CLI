@@ -54,7 +54,11 @@ class TestAuditFixes(unittest.TestCase):
     def test_f2_env_load_resolves_parent_env(self):
         # 解耦后密钥注入点已从 anysearch_cli.py::_load_env 上移至 orchestrate._load_parent_api_key。
         # 本用例改为断言：orchestrate._load_parent_api_key 能真实从 web-search/.env 解析 ANYSEARCH_API_KEY。
-        self.assertTrue(os.path.isfile(DOTENV), "web-search/.env 应存在，供 _load_parent_api_key 解析")
+        # CI 安全化：web-search/.env 按 2026-08-11 安全决议被 .gitignore 永久忽略、绝不入库，
+        # CI 干净检出无此文件 → 本用例必然失败，导致全仓库 smoke 红灯（历史遗留缺陷）。
+        # 改为：.env 缺失时跳过（CI 场景），仅在本机存在 .env 时做真实密钥解析校验。
+        if not os.path.isfile(DOTENV):
+            self.skipTest("web-search/.env 缺失（git-ignored，仅本机集成校验，CI 跳过）")
         key = orchestrate._load_parent_api_key(WEB_SEARCH)
         self.assertTrue(
             key,
@@ -147,11 +151,14 @@ class TestAuditFixes(unittest.TestCase):
             "D8：解耦后 anysearch_cli.py 不应再含祖父目录三级探测补丁",
         )
         # (b) orchestrate._load_parent_api_key 能从 web-search/.env 解析（就近优先，仅一层父目录）
-        key = orchestrate._load_parent_api_key(WEB_SEARCH)
-        self.assertTrue(
-            key,
-            "D8：orchestrate._load_parent_api_key 应能从 web-search/.env 解析 ANYSEARCH_API_KEY",
-        )
+        # CI 安全化：web-search/.env 被 .gitignore 永久忽略、绝不入库，CI 干净检出无此文件；
+        # 无 .env 时跳过 (b) 真实解析断言（仍保留 (a) 结构回归），仅本机存在 .env 时校验。
+        if os.path.isfile(DOTENV):
+            key = orchestrate._load_parent_api_key(WEB_SEARCH)
+            self.assertTrue(
+                key,
+                "D8：orchestrate._load_parent_api_key 应能从 web-search/.env 解析 ANYSEARCH_API_KEY",
+            )
 
     def test_f7_cli_contract(self):
         # B13 修复：用 shutil.which 解析（Windows 下含 .cmd 后缀），避免 subprocess 找不到无扩展名可执行
