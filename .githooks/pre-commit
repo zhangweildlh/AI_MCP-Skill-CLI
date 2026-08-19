@@ -1,14 +1,24 @@
 #!/bin/sh
-# 冒烟测试 pre-commit 钩子：仅跑 Tier0（密钥/忽略门禁）+ Tier1（结构），秒级、阻断致命问题。
-# 安装方式（一次）：git config core.hooksPath .githooks
-# Python 不可用时降级为警告并放行，避免锁死提交。
+# pre-commit 钩子：冒烟测试 + worktree 分支 scope 校验。
+# 1) 冒烟测试（原有逻辑）：跑 Tier0（密钥/忽略门禁）+ Tier1（结构），秒级、阻断致命问题；
+#    Python 不可用时降级为警告并放行，避免锁死提交。
+# 2) Scope 校验（本钩子新增）：当前分支若形如 feat/<name>-<topic>-<YYYYMMDDHHMMSS>（worktree 纪律分支），
+#    则暂存(staged)文件必须全部属于该 <name> 对应的 scope（目录型 dir/<目录名> / 根级文件型 file/<name> / meta）。
+#    混入其它 scope 文件则阻断提交。
+# 安装方式（一次）：bash scripts/install-hooks.sh （等价于 git config core.hooksPath .githooks）
+#
+# scope 清单解析：读取 AGENTS.md 第 2 章（简单 grep，不依赖 YAML 解析库）：
+#   2.1 目录型：行形如 `  - `dir/<目录名>``，目录名 == SKILL.md 的 name 字段；
+#   2.2 根级文件型：Markdown 表格 `| 文件名 | `name` |`，由 name 字段反查文件名；
+#   2.3 meta：scripts/、.github/、README.md、CHANGELOG.md、AGENTS.md、Memory-Data/。
 set -e
 
-# 获取仓库根目录，并转换为 Windows 原生路径（规避 Git Bash / Windows Python 路径歧义）
+# ---------- 0. 定位仓库根 ----------
 REPO_ROOT_MSYS=$(git rev-parse --show-toplevel)
 REPO_ROOT_WIN=$(cygpath -w "$REPO_ROOT_MSYS" 2>/dev/null || echo "$REPO_ROOT_MSYS")
 cd "$REPO_ROOT_WIN"
 
+# ---------- 1. 冒烟测试（保持原有逻辑） ----------
 # 选择可用的 Python 命令（优先 python / python3，回退 uv run python）
 if command -v python >/dev/null 2>&1; then
   RUN_CMD="python"
@@ -22,18 +32,141 @@ fi
 
 if [ -z "$RUN_CMD" ]; then
   echo "⚠️ 未找到 Python，跳过冒烟测试（请稍后手动运行 python scripts/smoke/run_all.py --tier 0,1）"
+else
+  if eval "$RUN_CMD \"$REPO_ROOT_WIN/scripts/smoke/run_all.py\" --tier 0,1 --staged"; then
+    status=0
+  else
+    status=$?
+  fi
+  if [ "$status" -ne 0 ]; then
+    echo "❌ 冒烟测试未通过，提交已阻断。运行以下命令查看详情："
+    echo "   python scripts/smoke/run_all.py --tier 0,1 --staged"
+    exit 1
+  fi
+fi
+
+# ---------- 2. Scope 校验（worktree 纪律分支专用） ----------
+AGENTS="$REPO_ROOT_MSYS/AGENTS.md"
+if [ ! -f "$AGENTS" ]; then
+  echo "⚠️ 未找到 AGENTS.md，跳过 scope 校验"
   exit 0
 fi
 
-if eval "$RUN_CMD \"$REPO_ROOT_WIN/scripts/smoke/run_all.py\" --tier 0,1 --staged"; then
-  status=0
-else
-  status=$?
+# 2.1 解析分支名中的 <name> 段：feat/<name>-<topic>-<YYYYMMDDHHMMSS>
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+if [ -z "$BRANCH" ]; then
+  echo "⚠️ 无法获取当前分支，跳过 scope 校验"
+  exit 0
 fi
 
-if [ "$status" -ne 0 ]; then
-  echo "❌ 冒烟测试未通过，提交已阻断。运行以下命令查看详情："
-  echo "   python scripts/smoke/run_all.py --tier 0,1 --staged"
+SCOPE_NAME=""
+BRANCH_IS_FEAT=0
+if echo "$BRANCH" | grep -Eq '^feat/[A-Za-z0-9._-]+-[0-9]{14}$'; then
+  BRANCH_IS_FEAT=1
+  # 去掉 feat/ 前缀与尾部 -<14位时间戳>，得到 "<name>-<topic>" 候选串
+  CAND=$(echo "$BRANCH" | sed -E 's/^feat\///; s/-[0-9]{14}$//')
+  # 收集 AGENTS.md 第 2 章已知 name（2.1 目录名 + 2.2 表格 name 列，外加字面 meta）
+  KNOWN_NAMES=$(grep -E '^[[:space:]]*-[[:space:]]*`dir/' "$AGENTS" \
+                 | sed -E 's/.*`dir\/([^`]+)`.*/\1/')
+  KNOWN_NAMES="$KNOWN_NAMES $(grep -E '^[[:space:]]*\| .+ \| `[a-z0-9-]+` \|$' "$AGENTS" \
+                 | sed -E 's/.*\| `([a-z0-9-]+)` \|$/\1/')"
+  # 最长前缀匹配：CAND 以某已知 name 开头即命中（name 与 topic 都可能含连字符，故取最长匹配）
+  for n in $KNOWN_NAMES meta; do
+    case "$CAND" in
+      "$n"|"$n-"*)
+        if [ "${#n}" -gt "${#SCOPE_NAME}" ]; then
+          SCOPE_NAME="$n"
+        fi
+        ;;
+    esac
+  done
+fi
+
+if [ "$BRANCH_IS_FEAT" -eq 1 ] && [ -z "$SCOPE_NAME" ]; then
+  # 分支符合 feat/<name>-<topic>-<timestamp> 命名，但 <name> 无法在 AGENTS.md 第 2 章解析出已知 scope
+  echo "❌ 无法从分支名解析所属 scope（分支: $BRANCH）。"
+  echo "   请检查分支命名是否符合 feat/<name>-<topic>-<timestamp>，"
+  echo "   或运行 scripts/sync-scope-manifest.py --update 同步 AGENTS.md 第 2 章清单。"
   exit 1
 fi
+
+if [ -z "$SCOPE_NAME" ]; then
+  # 非 worktree 纪律分支（如主仓库 main、普通开发分支），跳过 scope 校验，仅冒烟
+  echo "ℹ️ 分支 '$BRANCH' 非 worktree 纪律分支（feat/<name>-<topic>-<timestamp>），跳过 scope 校验"
+  exit 0
+fi
+
+# 2.2 判定 scope 类型并确定允许路径
+SCOPE_TYPE="unknown"
+SCOPE_DIR=""     # 目录型：允许所有 <目录名>/* 路径
+FILE_PATH=""     # 文件型：允许单一根级文件名
+
+if grep -Eq "^[[:space:]]*-[[:space:]]*\`dir/$SCOPE_NAME\`" "$AGENTS"; then
+  SCOPE_TYPE="dir"
+  SCOPE_DIR="$SCOPE_NAME"
+elif [ "$SCOPE_NAME" = "meta" ]; then
+  SCOPE_TYPE="meta"
+elif grep -Eq "^[[:space:]]*\| .* \| \`$SCOPE_NAME\` \|$" "$AGENTS"; then
+  # 由 2.2 表格反查 name 字段对应的根级文件名
+  FILE_PATH=$(grep -E "^[[:space:]]*\| .* \| \`$SCOPE_NAME\` \|$" "$AGENTS" \
+               | sed -E 's/^[[:space:]]*\| (.*) \| `[a-z0-9-]+` \|$/\1/' | sed 's/[[:space:]]*$//')
+  if [ -n "$FILE_PATH" ]; then
+    SCOPE_TYPE="file"
+  fi
+fi
+
+if [ "$SCOPE_TYPE" = "unknown" ]; then
+  echo "❌ 无法从分支名解析所属 scope（分支: $BRANCH，候选 name: $SCOPE_NAME）。"
+  echo "   请检查分支命名是否符合 feat/<name>-<topic>-<timestamp>，"
+  echo "   或运行 scripts/sync-scope-manifest.py --update 同步 AGENTS.md 第 2 章清单。"
+  exit 1
+fi
+
+# 2.3 校验暂存文件全部属于该 scope
+STAGED=$(git diff --cached --name-only)
+if [ -z "$STAGED" ]; then
+  echo "ℹ️ 无暂存文件（如 --amend 场景），跳过 scope 文件校验"
+  exit 0
+fi
+
+echo "🔎 scope 校验：分支 '$BRANCH' → $SCOPE_TYPE/$SCOPE_NAME"
+
+VIOL_COUNT=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  ok=0
+  case "$SCOPE_TYPE" in
+    dir)
+      case "$f" in
+        "$SCOPE_DIR/"*) ok=1 ;;
+      esac
+      ;;
+    file)
+      [ "$f" = "$FILE_PATH" ] && ok=1
+      ;;
+    meta)
+      case "$f" in
+        scripts/*|.github/*|README.md|CHANGELOG.md|AGENTS.md|Memory-Data/*) ok=1 ;;
+      esac
+      ;;
+  esac
+  if [ "$ok" -eq 0 ]; then
+    if [ "$VIOL_COUNT" -eq 0 ]; then
+      echo "❌ 提交混入非本 scope 文件（当前 scope: $SCOPE_NAME）"
+    fi
+    echo "   - $f"
+    VIOL_COUNT=$((VIOL_COUNT + 1))
+  fi
+done <<EOF
+$STAGED
+EOF
+
+if [ "$VIOL_COUNT" -gt 0 ]; then
+  echo ""
+  echo "   请仅暂存属于 '$SCOPE_NAME' 的文件后重新提交；"
+  echo "   确需跨 scope 时，请按 AGENTS.md 第 5 章提交/PR 约定分次提交。"
+  exit 1
+fi
+
+echo "✅ scope 校验通过：暂存文件全部属于 $SCOPE_TYPE/$SCOPE_NAME"
 exit 0

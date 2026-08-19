@@ -4,12 +4,13 @@
 # 中文名: github-personal-manager 公共函数库
 #
 # 【功能】
-#   为 scripts/ 下全部 sop_*.sh 业务脚本提供统一的底层能力，共五类：
+#   为 scripts/ 下全部 sop_*.sh 业务脚本提供统一的底层能力，共六类：
 #     1) 配置加载  _sop_load_config     读取 config/github-sop.config.sh 并补全默认值
 #     2) 工具探测  _sop_probe_tools     探测本机 git/gh，缺失则中止（脚本层防护）
-#     3) 帮助打印  _sop_print_help      从调用者头部标记块提取帮助文本
-#     4) 仓库守卫  _sop_require_repo    进入目标仓库并校验其为 git 仓库根
-#     5) 状态探测  _sop_is_clean / _sop_current_branch / _sop_detect_local_origin /
+#     3) 纪律探测  _sop_probe_agents_md 探测目标仓库 AGENTS.md（有则提示读、强制列表缺失则暂停）
+#     4) 帮助打印  _sop_print_help      从调用者头部标记块提取帮助文本
+#     5) 仓库守卫  _sop_require_repo    进入目标仓库并校验其为 git 仓库根
+#     6) 状态探测  _sop_is_clean / _sop_current_branch / _sop_detect_local_origin /
 #                  _sop_detect_origin_upstream / _sop_parse_owner_repo / _sop_resolve_remotes
 #
 # 【用途 / 使用场景】
@@ -25,6 +26,9 @@
 #   载入后可直接调用的函数与其契约：
 #     _sop_print_help <文件路径>        打印该文件头部标记块内的帮助文本（去掉行首井号）
 #     _sop_require_repo [目录]          目录非空则进入并校验为 git 仓库根；成功 0 / 失败 1
+#     _sop_probe_agents_md [仓库根]     探测纪律文件：AGENTS.md 存在返回 0 并提示先阅读；
+#                                       缺失且仓库在 AGENTS_MD_REQUIRED_REPOS 强制列表 → 返回 1
+#                                       （打印中文错误 + 恢复命令）；否则静默返回 0
 #     _sop_is_clean                     工作区干净返回 0，有未提交改动返回 1
 #     _sop_current_branch               输出当前分支名（分离 HEAD 时输出 HEAD）
 #     _sop_detect_local_origin          输出 "落后数 领先数"（本地 main 相对 origin/main）
@@ -83,6 +87,10 @@ _sop_load_config() {
   GH_USER="${GH_USER:-}"
   GH_EMAIL="${GH_EMAIL:-}"
   REPO_ROOT="${REPO_ROOT:-}"
+  # 纪律文件(AGENTS.md)相关配置：config 显式值优先，缺失时回退默认（默认含本仓库，保证即使
+  # 无 config 也能按方案 Y 对 D:/Documents/AI_MCP-Skill-CLI 强制纪律文件探测）。
+  AGENTS_MD_REQUIRED_REPOS="${AGENTS_MD_REQUIRED_REPOS:-D:/Documents/AI_MCP-Skill-CLI}"
+  AGENTS_MD_MODE="${AGENTS_MD_MODE:-required}"
   SOP_ROOT_DIR="$root_dir"
   # 脚本层工具探查（双层防护之一）：缺失 git/gh 直接退出，避免后续命令报晦涩错误
   if ! _sop_probe_tools; then
@@ -142,6 +150,56 @@ _sop_probe_tools() {
   if [ "$missing" -ne 0 ]; then
     echo "⚠️ 由于缺少必要工具，脚本无法继续。请按上方提示处理后重跑本脚本；" >&2
     echo "   若你是在 Agent（github-personal-manager 技能）中操作，请直接告诉我工具路径或安装方式。" >&2
+    return 1
+  fi
+  return 0
+}
+
+# 探测目标仓库是否存在纪律文件 AGENTS.md（方案 Y：多 Agent 并发 scope 纪律）。
+# 入参 $1：目标仓库根目录（Windows 形态 D:/... 或 POSIX 形态 /d/... 均可）。
+# 行为分三支：
+#   - AGENTS.md 存在 → 打印中文提示「检测到纪律文件 AGENTS.md，请先阅读」，返回 0（不阻断）；
+#   - 不存在但仓库根匹配 AGENTS_MD_REQUIRED_REPOS（逗号分隔，config 读取，lib 有默认值）
+#     → 打印中文错误 + 恢复命令（git checkout main -- AGENTS.md），返回 1（强制暂停）；
+#   - 不存在且不在强制列表 → 静默跳过，返回 0（其它普通仓库不打扰）。
+# 依赖：须已 _sop_load_config（确保 AGENTS_MD_REQUIRED_REPOS / AGENTS_MD_MODE 就绪）。
+# 【调用约定】在 _sop_require_repo 进入目标仓库（此时 cwd 即仓库根）之后、任何写操作之前调用：
+#     _sop_probe_agents_md "$(pwd)" || exit 1
+# 该顺序与 SKILL.md「阶段 0 · 第 3 步：纪律文件探测」及「顶级全局禁令第 1.5 条」一致。
+_sop_probe_agents_md() {
+  local repo_root="${1:-}"
+  if [ -z "$repo_root" ]; then
+    echo "错误：_sop_probe_agents_md 缺少仓库根参数。" >&2
+    return 1
+  fi
+  # 统一路径形态：Git Bash 下把 /d/... 转为 D:/...，便于与 config 中的 D:/... 条目比对。
+  # 非 Windows 环境无 cygpath，原样保留（本就同为 POSIX 形态）。
+  local normalized="$repo_root"
+  if command -v cygpath >/dev/null 2>&1; then
+    normalized="$(cygpath -m "$repo_root" 2>/dev/null || echo "$repo_root")"
+  fi
+  # 分支一：纪律文件存在 → 提示先阅读，不阻断。
+  if [ -f "$repo_root/AGENTS.md" ]; then
+    echo "📋 检测到纪律文件 AGENTS.md，请先阅读并遵循其中全部规则。"
+    return 0
+  fi
+  # 分支二/三：文件不存在 → 仅当仓库在强制列表内才暂停，否则静默跳过。
+  local need=0 item item_norm oldifs="$IFS"
+  IFS=','
+  # 注意：此处故意不加引号，利用 IFS 把逗号分隔列表拆成多个词（列表为空则整体为空串、不进入循环）。
+  for item in ${AGENTS_MD_REQUIRED_REPOS:-}; do
+    item="$(printf '%s' "$item" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "$item" ] || continue
+    item_norm="$item"
+    if command -v cygpath >/dev/null 2>&1; then
+      item_norm="$(cygpath -m "$item" 2>/dev/null || echo "$item")"
+    fi
+    if [ "$normalized" = "$item_norm" ]; then need=1; break; fi
+  done
+  IFS="$oldifs"
+  if [ "$need" -eq 1 ]; then
+    echo "⛔ 错误：目标仓库缺少纪律文件 AGENTS.md。该仓库在 AGENTS_MD_REQUIRED_REPOS 强制列表中，缺失时按纪律方案必须暂停，绝不继续后续写操作。" >&2
+    echo "   恢复命令：git checkout main -- AGENTS.md（把 AGENTS.md 恢复到仓库根后重跑本脚本）。" >&2
     return 1
   fi
   return 0

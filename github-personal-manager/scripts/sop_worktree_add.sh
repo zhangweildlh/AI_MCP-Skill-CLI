@@ -22,13 +22,18 @@
 #     bash sop_worktree_add.sh --branch feat/login --confirm                # 真正创建工作树与分支
 #     bash sop_worktree_add.sh /path/to/repo --topic login --branch feat/login --confirm
 #     bash sop_worktree_add.sh --branch feat/x --worktree-root D:/wt --confirm
+#     bash sop_worktree_add.sh --scope web-search --branch feat/sync-work --confirm  # 带 name 字段（对齐 AGENTS.md）
 #     bash sop_worktree_add.sh -h                                           # 查看本帮助
 #
 #   参数说明:
 #     [主仓库路径]           可选。主仓库「根目录」（须含 .git）；缺省取当前工作目录。传子目录会被拒绝。
-#     --branch <feat/x>      必填。要创建的新功能分支名；已存在（本地或远端）时会被拒绝。
-#     --topic <topic>        可选。工作树子目录名；缺省取分支名的最后一段。
-#     --worktree-root <dir>  可选。工作树根目录；缺省为主仓库下的 .worktrees。
+#     --branch <feat/x>      必填。功能分支主题（feat/ 前缀可省，缺省自动补）；实际分支名会追加时间戳
+#                            （feat/<scope>-<topic>-<TS> 或 feat/<topic>-<TS>）。已存在（本地或远端）时会被拒绝。
+#     --topic <topic>        可选。工作树子目录名基名；缺省取分支名最后一段。实际目录名 = <scope>-<topic>-<TS>。
+#     --scope <name>         可选。Skill 的 name 字段（如 web-search / github-personal-manager），用于对齐仓库纪律
+#                            AGENTS.md §4.1 的 <name>-<topic>-<TS> 命名；仅允许小写字母/数字/连字符，
+#                            非法值直接以退出码 2 拒绝；未传时维持通用命名 <topic>-<TS>（兼容无 scope 概念的仓库）。
+#     --worktree-root <dir>  可选。工作树根目录；缺省为主仓库下的 worktrees/（与仓库级 .gitignore 的 worktrees/ 一致）。
 #     --confirm              真正创建工作树。不加则只预览，不改动磁盘。
 #     --dry-run              显式声明预览模式（默认行为）。
 #     -h|--help              打印本帮助并退出。
@@ -41,13 +46,17 @@
 #   退出码:
 #     0  正常完成（打印预览 / 成功创建工作树）
 #     1  守卫未通过（当前分支非 main / 工作区脏 / 分支已存在 / 工作树路径已占用 / 创建失败）
-#     2  参数错误（未指定 --branch，或传入未知选项）
+#     2  参数错误（未指定 --branch，或 --scope 非法，或传入未知选项）
 #
 # 【注意事项】
 #   - 默认走预览模式(dry-run)，必须显式加 --confirm 才会真正创建。
 #   - 四道守卫：主仓库须处于 main 且工作区干净；分支名不得与现有冲突；工作树路径不得已存在；
 #     遵循「一分支一工作树」，不同工作树必须检出不同分支。
 #   - 每棵工作树是独立的工作目录，依赖需各自安装（例如 node_modules 不共享）。
+#   - 时间戳一致性（遵循仓库纪律 AGENTS.md §4.1）：创建时一次 `date +%Y%m%d%H%M%S` 生成无分隔符 TS；
+#     传 --scope <name> 时目录名 = <scope>-<topic>-<TS>、分支名 = feat/<目录名>；
+#     未传时目录名 = <topic>-<TS>、分支名 = feat/<目录名>；
+#     始终保证「目录名 + feat/ 前缀 = 分支名」，目录与分支共享同一 TS。
 #   - 合并回主线请回到主仓库执行 sop_worktree_merge.sh，绝不在工作树目录内做合并。
 #<!--HELP-END-->
 set -uo pipefail
@@ -60,9 +69,11 @@ CONFIRM=0
 REPO=""
 TOPIC=""
 BRANCH=""
+SCOPE=""
 WTROOT=""
 NEED_TOPIC=0
 NEED_BRANCH=0
+NEED_SCOPE=0
 NEED_WTROOT=0
 for a in "$@"; do
   case "$a" in
@@ -71,11 +82,13 @@ for a in "$@"; do
     --dry-run) CONFIRM=0 ;;
     --topic) NEED_TOPIC=1 ;;
     --branch) NEED_BRANCH=1 ;;
+    --scope) NEED_SCOPE=1 ;;
     --worktree-root) NEED_WTROOT=1 ;;
     -*) echo "未知选项: $a" >&2; exit 2 ;;
     *)
       if [ "$NEED_TOPIC" = "1" ]; then TOPIC="$a"; NEED_TOPIC=0
       elif [ "$NEED_BRANCH" = "1" ]; then BRANCH="$a"; NEED_BRANCH=0
+      elif [ "$NEED_SCOPE" = "1" ]; then SCOPE="$a"; NEED_SCOPE=0
       elif [ "$NEED_WTROOT" = "1" ]; then WTROOT="$a"; NEED_WTROOT=0
       else REPO="$a"; fi
       ;;
@@ -94,14 +107,33 @@ if ! _sop_is_clean; then
 fi
 # 参数校验
 if [ -z "$BRANCH" ]; then echo "⛔ 必须指定 --branch <feat/x>。"; exit 2; fi
+# --scope 校验：仅允许小写字母/数字/连字符（与 AGENTS.md name 字段同构），非法即 exit 2
+if [ -n "${SCOPE:-}" ] && ! [[ "$SCOPE" =~ ^[a-z0-9-]+$ ]]; then
+  echo "⛔ --scope 仅允许小写字母/数字/连字符（如 web-search、github-personal-manager），收到: [$SCOPE]。"; exit 2
+fi
+# 时间戳一致性（方案 Y 多并发守纪律）：创建时仅此一次生成无分隔符 TS（%Y%m%d%H%M%S），
+# 工作树目录名与分支名复用同一 TS，保证「目录名 + feat/ 前缀 = 分支名」。
+# 命名遵循仓库纪律文件 AGENTS.md §4.1：
+#   传 --scope <name> 时 → 目录名 = <scope>-<topic>-<TS>，分支名 = feat/<scope>-<topic>-<TS>；
+#   未传时（兼容无 scope 概念的通用仓库）→ 目录名 = <topic>-<TS>，分支名 = feat/<topic>-<TS>。
+# 若用户给的是裸主题名（无 feat/ 前缀），先归一化，再统一构造。
+if [[ "$BRANCH" != */* ]]; then BRANCH="feat/$BRANCH"; fi
+TS="$(date +%Y%m%d%H%M%S)"
+# 目录名基名：--topic 优先，缺省取分支名最后一段；实际目录名追加无分隔符 TS（并按需前缀 scope）。
+if [ -z "$TOPIC" ]; then TOPIC="$(basename "$BRANCH")"; fi
+if [ -n "${SCOPE:-}" ]; then
+  DIRNAME="${SCOPE}-${TOPIC}-${TS}"
+else
+  DIRNAME="${TOPIC}-${TS}"
+fi
+BRANCH="feat/${DIRNAME}"
 # 守卫3: 分支不已存在（本地或远端跟踪）
 if "$GIT_BIN" show-ref --verify --quiet "refs/heads/$BRANCH" 2>/dev/null || "$GIT_BIN" show-ref --verify --quiet "refs/remotes/$ORIGIN_REMOTE/$BRANCH" 2>/dev/null; then
   echo "⛔ 分支 [$BRANCH] 已存在（本地或 $ORIGIN_REMOTE 远端），请换名或先清理。"; exit 1
 fi
-# 工作树路径
-if [ -z "$TOPIC" ]; then TOPIC="$(basename "$BRANCH")"; fi
-WTROOT="${WTROOT:-$(pwd)/.worktrees}"
-WTPATH="$WTROOT/$TOPIC"
+# 工作树路径（默认仓库内 worktrees/，与仓库级 .gitignore 的 worktrees/ 规则一致）
+WTROOT="${WTROOT:-$(pwd)/worktrees}"
+WTPATH="$WTROOT/$DIRNAME"
 if [ -e "$WTPATH" ]; then echo "⛔ 工作树路径 [$WTPATH] 已存在，请换 --topic 或 --worktree-root。"; exit 1; fi
 
 echo "===== 开独立工作树（多任务并行）====="

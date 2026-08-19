@@ -34,3 +34,5 @@ REPO_ROOT="D:/Documents/AI_Work_Temp"   # 本地 GitHub 仓库根目录默认值
 GH_USER=""                  # GitHub 用户名默认值（允许的硬编码默认值）；实际值由 origin 远端拥有者覆盖
 GH_EMAIL=""           # 提交用邮箱，如 <email>；留空则用 git 全局配置
 TEST_REPO_DIR=""      # 冒烟夹具仓库根（运行期生成，可留空用默认 tmp）
+AGENTS_MD_REQUIRED_REPOS="D:/Documents/AI_MCP-Skill-CLI"   # 逗号分隔的强制纪律仓库列表，缺失 AGENTS.md 即暂停（方案 Y）
+AGENTS_MD_MODE="required"                                   # required=强制读（缺失即暂停）；optional=有则读、无则跳过

@@ -58,6 +58,12 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 
 > 说明：脚本层（`scripts/lib/sop-common.sh` 的 `_sop_probe_tools`）也有同样的探测，即使绕过 Agent 直接运行脚本（如双击 GitExtensions 外挂），工具缺失时也会用纯中文优雅报错并退出，不会甩出一堆看不懂的 bash 错误。这是双层防护。
 
+- **阶段 0 · 第 3 步：纪律文件探测（强制）**：对已确定的目标仓库（路径核验通过后），检测其仓库根目录是否存在 `AGENTS.md`：
+  - **存在** → **必须读取并遵循其中全部规则**（该文件是仓库的纪律/范围声明，与目标仓库同生共长；本技能内的通用默认与其冲突处，以仓库纪律为准，并向用户大白话说明差异）；
+  - **不存在** → 若该仓库在 config 的 `AGENTS_MD_REQUIRED_REPOS` 强制列表（默认含 `D:/Documents/AI_MCP-Skill-CLI`）中 → **立即暂停**，用大白话告诉用户「目标仓库缺少纪律文件 AGENTS.md，按纪律方案该仓库必须有它才能继续」，并给出恢复命令 `git checkout main -- AGENTS.md`（把 AGENTS.md 恢复到仓库根后重跑本步骤）；
+  - **否则**（不在强制列表中的其它仓库）→ **静默跳过**，不提示、不报错，视为普通仓库继续。
+  > 脚本层对应实现为 `scripts/lib/sop-common.sh` 的 `_sop_probe_agents_md`，双层防护一致。
+
 - **脚本可用性核验（强制，D4 修复）**：进入本技能后（阶段 0 工具探测通过即执行），先 `ls "<技能根目录>/scripts/sop_*.sh"` 确认脚本已部署；若不存在 → **立即暂停**，提示「github-personal-manager 脚本未部署，请先部署 `scripts/` 后再用本技能」。所有 git/gh 写操作**必须**走 `bash scripts/sop_*.sh`，严禁手写等价命令绕过（脚本内含路径守卫 / dry-run / 暂停门禁，手写即绕过安全网）。脚本缺失时按本核验暂停，不降级为手写命令。
 
 ## 脚本调用约定（关键：明确告诉你要跑哪个脚本、怎么跑）
@@ -78,8 +84,9 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 6. 首次部署（自包含闭环）：复制 `config/github-sop.config.template.sh` 为同目录 `config/github-sop.config.sh` 并填入本机值（`cp config/github-sop.config.template.sh config/github-sop.config.sh`）；该实例文件已被 `.gitignore` 忽略、不入库，脚本缺失时自动回退 PATH 解析 git/gh，全新安装无 config 也能运行。
 
 ## 顶级全局禁令（本技能的硬约束，独立执行亦完整；各条均为自包含规则，无需外部记忆）
-1. **路径核验（最高优先级）**：任何 git/gh/文件读写前，先 `ls "<目录>/.git"` 确认 `.git` 存在，再 `git -C "D:/绝对/Windows/路径" rev-parse --show-toplevel`（`D:/` 盘符格式）确认仓库根；**绝不直接对根目录执行 git 操作**。禁止 `git -C /d/...`（Unix 风格根路径，Git Bash 下必误报 `fatal: not a git repository`）。`git rev-parse` 报 `not a git repository` 时**先怀疑路径格式/当前目录错误，绝不直接判定"该目录不是 git 仓库"**，必须先 `ls "<目录>/.git"` 复核。路径异常（指向非预期仓库、根目录意外出现 `.git`）立即暂停、大白话说明、先与用户对齐"要操作的文件夹路径"后再继续。
-2. **禁止强推/删除「你的远端仓库(origin) 的 main」及任何已开启分支保护的分支**：包括 `git push --force` / `--force-with-lease` / `-f` 到 `origin/main`，以及删除 main 分支（任何手段）。正常（非强推）推送(push)到 main 不受限（推标签、走 PR 合并(merge)后自动更新等）。
+  1. **路径核验（最高优先级）**：任何 git/gh/文件读写前，先 `ls "<目录>/.git"` 确认 `.git` 存在，再 `git -C "D:/绝对/Windows/路径" rev-parse --show-toplevel`（`D:/` 盘符格式）确认仓库根；**绝不直接对根目录执行 git 操作**。禁止 `git -C /d/...`（Unix 风格根路径，Git Bash 下必误报 `fatal: not a git repository`）。`git rev-parse` 报 `not a git repository` 时**先怀疑路径格式/当前目录错误，绝不直接判定"该目录不是 git 仓库"**，必须先 `ls "<目录>/.git"` 复核。路径异常（指向非预期仓库、根目录意外出现 `.git`）立即暂停、大白话说明、先与用户对齐"要操作的文件夹路径"后再继续。
+  1.5. **AGENTS.md 纪律文件（强制）**：路径核验（第 1 条）通过后、**任何写操作前**，必须读取目标仓库根 `AGENTS.md`（若存在）并遵循其中全部规则；对 config 的 `AGENTS_MD_REQUIRED_REPOS` 强制列表（默认含 `D:/Documents/AI_MCP-Skill-CLI`）中的仓库，若缺失 `AGENTS.md` → **立即暂停**，大白话报告缺失并给恢复命令（`git checkout main -- AGENTS.md`），绝不静默继续；不在列表中的仓库缺失时**静默跳过**，不强制新建。
+  2. **禁止强推/删除「你的远端仓库(origin) 的 main」及任何已开启分支保护的分支**：包括 `git push --force` / `--force-with-lease` / `-f` 到 `origin/main`，以及删除 main 分支（任何手段）。正常（非强推）推送(push)到 main 不受限（推标签、走 PR 合并(merge)后自动更新等）。
 3. **标签移动/重推用「删远端标签 + 重推」，严禁强推标签**：`git push origin :refs/tags/vX` → `git push origin vX`；禁用 `git push --force-with-lease origin vX`。
 4. **只推 origin，绝不推 upstream**：`git push` 默认目标为 `origin`；给上游仓库(upstream) 贡献一律走 PR（`gh pr create`），绝不 `git push upstream`。强推仅允许功能分支(feat) 且用 `--force-with-lease`，绝不强推 main。
 5. **三段式二次授权铁律（优先级高于一切便利）**：任何"强推/删除自家 main（或任何受保护分支）"的操作，必须走三段式——① 用户先显式授权（表达要做）；② 我必须主动暂停，大白话说明后果、列出将执行的精确动作；③ 用户给出**第二次**显式授权后，方可执行。缺任一环节（尤其第二次授权）一律不执行。凡一次性授权执行过的强推/删除，绝不自动沿用为惯例。标签删除/分支删除等其它破坏性操作不受此铁律限制，但仍遵循各自门禁（先列清单+状态、暂停等确认）。
