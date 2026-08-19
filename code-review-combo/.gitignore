@@ -1,0 +1,13 @@
+# code-review-combo 运行时缓存（由 scripts/select-provider 两级 TTL 死 Key 缓存写回）
+# 不入库：含本地 provider 拉黑状态，属运行时产物且可能暴露环境信息
+.ocr-provider-cache.json
+
+# 技能本地 provider 配置（含明文 api_key，由 config/providers.example.json 复制而来）
+# 不入库：真实 Key 仅留本机，防泄露；模板 config/providers.example.json 正常入库
+config/providers.json
+
+# select-provider 同步本地产到 ocr 运行时配置时的备份
+.opencodereview-config.json.bak
+
+# merge_reports 回归测试临时产物（由 tests/test_merge_reports.sh 生成，非交付物）
+tests/fixtures/_out.*
