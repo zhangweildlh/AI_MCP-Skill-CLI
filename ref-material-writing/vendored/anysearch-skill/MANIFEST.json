@@ -1,0 +1,10 @@
+{
+  "upstream": "anysearch-ai/anysearch-skill",
+  "anchor_commit": "69b3088fd36f20e3501951ec3826a208d0b085a4",
+  "fetched_at": "2026-08-18",
+  "files": [
+    {"rel":"scripts/anysearch_cli.py","upstream_blob":"0b24517af558192e6eb877eb98513800ca2f8de1","patched_local_blob":"920487140fce52e81e03619aa4c453ecd7b8bba7","patch":"patches/anysearch_cli.py.patch"},
+    {"rel":"scripts/shared/constants.json","upstream_blob":"e2a80d5da99190c98ba474945788c388afe2f4ce","patched_local_blob":"e26fa5f8b5db1e74f09c8fe37a36e0fee1cc4d88","patch":"patches/constants.json.patch"},
+    {"rel":"scripts/shared/doc_spec.md","upstream_blob":"08c34c284f31c88a7c0360193f451ac4fe3659e0","patched_local_blob":"08c34c284f31c88a7c0360193f451ac4fe3659e0","patch":null}
+  ]
+}
