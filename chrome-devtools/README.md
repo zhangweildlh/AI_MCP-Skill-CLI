@@ -33,7 +33,7 @@
 
 ### 2.2 本地化注入机制（哨兵幂等）
 
-本地化改造经 `localization/apply_localize.cjs`，以哨兵标记 `<!-- LOCALIZED:360Chromex -->` **幂等注入**到上游快照内的若干合法注入点（见第 6.1 节）。注入是「追加本地化段到文件末尾 + 改写 YAML frontmatter 的 `description`」两种动作的组合，剥离时由哨兵行定位、截断还原，从而与上游源码**物理隔离**。
+本地化改造经 `localization/apply_localize.cjs`，以哨兵标记 `<!-- LOCALIZED:360Chromex -->` **幂等注入**到上游快照内的注入点 + 根 `SKILL.md`（见第 6.1 节）。注入是「追加本地化段到文件末尾 + 改写 YAML frontmatter 的 `description`」两种动作的组合，剥离时由哨兵行定位、截断还原，从而与上游源码**物理隔离**。
 
 这种机制的好处：
 
@@ -68,7 +68,7 @@ chrome-devtools/
 │   ├── start.cjs                 # 以 --user-data-dir 启动浏览器（复用登录态）
 │   ├── cli_run.cjs               # CLI 模式辅助（仅 CLI 模式，可被删除）
 │   ├── fragments/                # 本地化注入片段源（_frag_*.md / *.txt / *.json）
-│   └── test/localize.test.cjs    # 本地化层单元测试（预期 全部 PASS（项数以 test 文件为准））
+│   └── test/localize.test.cjs    # 本地化层单元测试（预期 全部 PASS（当前 14 项；增减后请以 test 文件实际 T 编号为准））
 ├── local-config.json             # 机器专属（浏览器路径/端口），由脚本生成，不入库
 ├── mcp-local-config.json         # 生成的 MCP 配置样例，不入库
 └── upstream/                     # 【子技能·vendored 快照 + 流水线就地注入·非手工编辑区】见 3.2
@@ -83,7 +83,7 @@ chrome-devtools/
 ```
 upstream/
 ├── skills/                   # 上游 5 个子技能（chrome-devtools / chrome-devtools-cli / a11y-debugging / ...）
-│   └── chrome-devtools/SKILL.md   # 上游子技能文档（MCP server 内部子技能）；被注入本地化段，与根 SKILL.md 是不同文件、不同用途
+│   └── chrome-devtools/SKILL.md   # 上游子技能文档（MCP server 内部子技能）；被注入本地化段，与根 SKILL.md 是不同文件、不同用途，但同源 _frag_skill_main.md（单一事实源）
 ├── src/ build/               # 上游源码与构建产物（build/ 不入库）
 ├── package.json              # 上游包定义（本地化层守卫校验此文件存在）
 ├── README.md                 # 上游主文档（被注入本地化段）
@@ -101,7 +101,7 @@ upstream/
 - `chrome-devtools_v1.6.0.zip`：历史版本备份压缩包（本地备份，不随仓库分发）。
 - `upstream/node_modules/`、`upstream/build/`：上游依赖与构建产物（按需本地生成）。
 - `upstream/devtools-frontend/`：vendored 副本（GB 级，按钉版本填充；路径与上游 v1.7.0 `.gitmodules` 的 submodule 一致，顶层）。
-- `local-config.json`、`mcp-local-config.json`：机器专属配置（模板见 `*.example.json`）。
+- `local-config.json`、`mcp-local-config.json`：机器专属配置（模板见 `*.example.json`）。二者含本机浏览器路径与 npm 全局绝对路径，**机相关、不随仓库分发、严禁跨机直接拷贝**；跨机重新部署或迁移时必须重跑 `node localization/deploy.cjs` 由脚本依据本机环境重新生成，否则会因路径失效导致 MCP server 启动失败。
 
 ---
 
@@ -128,6 +128,8 @@ DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 
 ### 4.2 何时及如何更新钉版本
 
 **仅当 deliberate 决定跟随上游新版本时**才更新。严禁随手 bump 版本号却不刷新快照。更新规程：
+
+> 注意：`DEVTOOLS_FRONTEND_SHA256` 为 **opt-in 供应链校验**——`vendor_frontend.cjs` 仅在配置该值后才在解包前强制校验 tarball SHA256，否则仅告警跳过。deliberate 跟版时建议填入钉版本 tarball 的 SHA256（防御传输损坏 / 供应链篡改）；若留空，须信任上游仓库与传输通道。
 
 1. 修改 `UPSTREAM_REF` 的 `UPSTREAM_VERSION` 与 `DEVTOOLS_FRONTEND_COMMIT` 两个版本字段（必要时同步 `SNAPSHOT_DATE`）。
 2. 直接运行 `node localization/upstream.cjs`（见 6.2），它会自动检测并 clone 新版本、刷新 `upstream/` 快照、重注入本地化、重新部署。
@@ -170,11 +172,12 @@ DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 
 
 核心本地化注入器。无参数时执行注入；支持以下模式：
 
-- **（默认，无参数）注入**：向 `upstream/` 内的合法注入点追加本地化段并改写 `description`：
+- **（默认，无参数）注入**：向 `upstream/` 内的合法注入点 + 根 `SKILL.md` 追加本地化段并改写 `description`（根 `SKILL.md` 先 `--strip` 再注入，确保可从片段刷新）：
+  - 根 `SKILL.md`（父技能运行时文档，片段 `_frag_skill_main.md` + 描述 `_frag_skill_main_desc.txt`）——**由本脚本统一重建**，不再手工维护；
   - `upstream/skills/chrome-devtools/SKILL.md`（片段 `_frag_skill_main.md` + 描述 `_frag_skill_main_desc.txt`）
   - `upstream/skills/chrome-devtools-cli/SKILL.md`（片段 `_frag_skill_cli.md` + 描述 `_frag_skill_cli_desc.txt`）
   - `upstream/README.md`（片段 `_frag_readme_local.md`）
-  - 生成 `mcp-local-config.json`。（根 `SKILL.md` 是独立的"父技能运行时文档"，由维护者手工维护，**不会被本脚本覆盖**；上游 `skills/chrome-devtools/SKILL.md` 是 MCP 内部子技能文档，二者用途不同。）
+  - 生成 `mcp-local-config.json`。根 `SKILL.md` 与上游 `skills/chrome-devtools/SKILL.md` 是不同文件、不同用途，但**同源**于同一 `_frag_skill_main.md`（单一事实源）。
 - **`--check`（无副作用自检）**：仅校验守卫（`upstream/package.json` 存在）与全部注入目标存在性，不修改任何文件。通过输出 `[CHECK] 通过`。供 CI / 测试使用，防回归。
 - **`--strip`（剥离）**：移除已注入的本地化段（哨兵行到文件末尾），用于上游更新后「刷新」重注入。剥离后需再无参重跑本脚本重新注入。
 
@@ -210,7 +213,7 @@ DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 
 7. 重新注入本地化（`apply_localize.cjs`）。
 8. 生成 `mcp-local-config.json`，并**幂等合并进 `~/.workbuddy/mcp.json`**（含 `CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1` 环境变量）。
 
-跨机可用：拷贝本文件夹（无需 `node_modules` / `build`）到任意位置。**重新部署（`upstream/` 已存在时）**运行 `node localization/deploy.cjs` 即自动装依赖、建符号链接、构建并生成配置；**全新引导（`upstream/` 不存在，例如最小化的主副本）须先运行 `node localization/upstream.cjs`** 克隆钉版本上游并自动完成后续引导（见 §6.2 / 第 7.2 节）——`deploy.cjs` 不是引导入口，它在 `upstream/` 缺失时会报错退出。
+跨机可用：拷贝本文件夹（无需 `node_modules` / `build`；但 `mcp-local-config.json` 为机相关产物、含本机路径，不随拷贝迁移）到任意位置。**重新部署（`upstream/` 已存在时）**运行 `node localization/deploy.cjs` 即自动装依赖、建符号链接、构建并重新生成本机 `mcp-local-config.json`（详见上文「机器专属配置」说明）；**全新引导（`upstream/` 不存在，例如最小化的主副本）须先运行 `node localization/upstream.cjs`** 克隆钉版本上游并自动完成后续引导（见 §6.2 / 第 7.2 节）——`deploy.cjs` 不是引导入口，它在 `upstream/` 缺失时会报错退出。
 
 ### 6.4 vendor_frontend.cjs（见第 5 节）
 
@@ -230,7 +233,7 @@ DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 
   - `_frag_skill_main_desc.txt` / `_frag_skill_cli_desc.txt`：中文化的 `description` 完整行。
   - `_frag_readme_local.md`：注入到上游 `README.md` 的本地化段。
   - `_frag_mcp_config.json`：MCP 配置模板（`__GLOBAL_BIN__` 占位符由 `apply_localize.cjs` 替换为实际全局 bin 路径）。
-- **test/localize.test.cjs**：本地化层单元测试，预期 **全部 PASS（项数以 test 文件为准）**，含 `--check` 断言（T7 等）。是回归验证的主入口。
+- **test/localize.test.cjs**：本地化层单元测试，预期 **全部 PASS（当前 14 项；增减后请以 test 文件实际 T 编号为准）**，含 `--check` 断言（T7 等）。是回归验证的主入口。
 
 ---
 
@@ -259,7 +262,7 @@ node localization/upstream.cjs
 随后：
 
 1. **自检浏览器路径**：`node localization/verify_browser.cjs`（deploy 已触发；如未生成 `local-config.json` 可补跑）。
-2. **回归自检**：`node localization/test/localize.test.cjs`（预期 全部 PASS（项数以 test 文件为准））。
+2. **回归自检**：`node localization/test/localize.test.cjs`（预期 全部 PASS（当前 14 项；增减后请以 test 文件实际 T 编号为准））。
 3. 在 WorkBuddy 连接器管理页「信任」chrome-devtools 服务器。
 
 ### 7.3 跟随上游升级到新版本
@@ -283,7 +286,7 @@ node localization/upstream.cjs
 
 ### 8.1 本地化层单元测试
 
-`node localization/test/localize.test.cjs` 是本地化层的主回归入口。预期 **全部 PASS（项数以 test 文件为准）**，覆盖注入 / 剥离 / 描述本地化 / `--check` 守卫断言（含 T7）等。
+`node localization/test/localize.test.cjs` 是本地化层的主回归入口。预期 **全部 PASS（当前 14 项；增减后请以 test 文件实际 T 编号为准）**，覆盖注入 / 剥离 / 描述本地化 / `--check` 守卫断言（含 T7）等。
 
 - 可在部署前后各跑一次，确认本地化注入未漂移、守卫齐全。
 - `apply_localize.cjs --check` 可作为轻量 CI 门禁（无副作用），验证注入目标存在性。
@@ -378,7 +381,7 @@ node localization/upstream.cjs
 | 读者 | WorkBuddy / Agent（运行时） | 人 / 陌生 Agent（演进 / 维护） |
 | 内容 | 工具调用、启动流程、本地化用法、红线 | 架构原理、目录布局、钉版本、vendoring、脚本接口、演进步骤、已知坑 |
 | 性质 | 精简指令，不含解释性 / 维护性内容 | 解释性、维护性、结构化说明 |
-| 演进时 | 根 SKILL.md 由维护者手工更新（不自动同步）；上游子技能 SKILL.md 由 `apply_localize.cjs` 注入本地化段 | 由维护者人工更新以反映设计决策 |
+| 演进时 | 根 SKILL.md 与上游子技能 SKILL.md 均由 `apply_localize.cjs` 从同一 `_frag_skill_main.md` 注入生成（同源单一事实源，根文档不再手工维护） | 由维护者人工更新以反映设计决策 |
 
 简言之：**SKILL.md 管「怎么用」，README.md 管「为什么这样、怎么演进」**。任何 Agent 运行时不需要的内容，都从 SKILL.md 移入本文件。
 
