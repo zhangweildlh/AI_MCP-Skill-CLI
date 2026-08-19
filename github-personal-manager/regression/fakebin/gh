@@ -68,7 +68,13 @@ case "$1" in
         if printf '%s' "$*" | grep -q -- "--json"; then
           # ci_failed_log / ci_rerun 用 JSON 取 databaseId
           if [ -n "$repo" ]; then
-            echo '[{"databaseId":123456,"status":"completed","conclusion":"success"}]'
+            # 模拟 --jq 过滤：脚本常用 `--jq ".[0].databaseId"` 提取 run id，
+            # 真实 gh 输出纯数字；桩若不模拟会导致脚本把整串 JSON 当 runid（P-GPM-5 修复）。
+            if printf '%s' "$*" | grep -q -- 'databaseId'; then
+              echo '123456'
+            else
+              echo '[{"databaseId":123456,"status":"completed","conclusion":"success"}]'
+            fi
           else
             echo '[]'
           fi

@@ -291,15 +291,18 @@ _sop_parse_owner_repo() {
 # 调用前须已 _sop_load_config（确保 GIT_BIN/ORIGIN_REMOTE/UPSTREAM_REMOTE 就绪），且已 cd 进目标仓库。
 _sop_resolve_remotes() {
   local remotes_raw owner_repo line
-  remotes_raw="$("$GIT_BIN" remote -v 2>/dev/null || true)"
-  # origin owner/repo（取首个匹配行，fetch/push 均可）
-  line="$(printf '%s\n' "$remotes_raw" | grep -m1 "^[[:space:]]*${ORIGIN_REMOTE}[[:space:]]" || true)"
-  owner_repo="$(printf '%s\n' "$line" | awk '{print $2}' | _sop_parse_owner_repo)"
+  # 用 git config --get 读取原始 remote URL（而非 remote -v）：
+  # remote -v 会受 url.<base>.insteadOf 重写影响（显示本地路径导致 github owner/repo 解析失败，
+  # 如回归夹具用 insteadOf 把 github URL 重写到本地裸仓）；config --get 返回存储的原始 URL，
+  # 保证 _sop_parse_owner_repo 能正确解析 github.com 形态。P-GPM-5 修复（2026-08-19）。
+  # origin owner/repo
+  line="$("$GIT_BIN" config --get "remote.$ORIGIN_REMOTE.url" 2>/dev/null || true)"
+  owner_repo="$(printf '%s\n' "$line" | _sop_parse_owner_repo)"
   SOP_ORIGIN_OWNER="${owner_repo%%/*}"
   SOP_ORIGIN_REPO="${owner_repo##*/}"
   # upstream owner/repo
-  line="$(printf '%s\n' "$remotes_raw" | grep -m1 "^[[:space:]]*${UPSTREAM_REMOTE}[[:space:]]" || true)"
-  owner_repo="$(printf '%s\n' "$line" | awk '{print $2}' | _sop_parse_owner_repo)"
+  line="$("$GIT_BIN" config --get "remote.$UPSTREAM_REMOTE.url" 2>/dev/null || true)"
+  owner_repo="$(printf '%s\n' "$line" | _sop_parse_owner_repo)"
   SOP_UPSTREAM_OWNER_REPO="$owner_repo"
 
   # 补全 GH_USER：origin 拥有者优先于 config 默认值（避免 config 非空默认值锁死跨账号身份）。

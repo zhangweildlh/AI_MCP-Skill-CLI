@@ -69,8 +69,16 @@ while [ $# -gt 0 ]; do
     --confirm) CONFIRM=1; shift ;;
     -h|--help) _sop_print_help "${BASH_SOURCE[0]}"; exit 0 ;;
     *)
-      echo "错误：未知参数 $1（使用 --help 查看用法）。" >&2
-      exit 1 ;;
+      # 位置参数：支持「单仓库路径」模式（与其他 sop_*.sh 契约一致）。
+      # 是 git 仓库根 → 以该目录为 REPO_ROOT 扫描；非 git → 提示并 rc=1。
+      if [ -d "$1/.git" ] || git -C "$1" rev-parse --show-toplevel >/dev/null 2>&1; then
+        REPO_ROOT="$1"
+        shift
+      else
+        echo "错误：不是 git 仓库：$1（请传入含 .git 的仓库根目录，或用 --root 指定目录树）。" >&2
+        exit 1
+      fi
+      ;;
   esac
 done
 
@@ -178,17 +186,23 @@ process_repo() {
   cd "$REPO_ROOT" || exit 1
 }
 
-# 遍历 REPO_ROOT 下第一级子目录（含点目录，再用排除列表过滤）
-while IFS= read -r -d '' sub; do
-  name="$(basename "$sub")"
-  # 排除 .mimocode / .workbuddy
-  case ",$EXCLUDE," in
-    *",$name,"*) continue ;;
-  esac
-  # 仅处理目录
-  [ -d "$sub" ] || continue
-  process_repo "$sub"
-done < <(find "$REPO_ROOT" -maxdepth 1 -mindepth 1 -print0)
+# 若 REPO_ROOT 本身是 git 仓库（单仓库模式），直接扫描它自身，不遍历子目录。
+# 判定：REPO_ROOT 含 .git 目录，或 git -C 能解析到其自身为仓库根。
+if [ -d "$REPO_ROOT/.git" ] || git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1; then
+  process_repo "$REPO_ROOT"
+else
+  # 遍历 REPO_ROOT 下第一级子目录（含点目录，再用排除列表过滤）
+  while IFS= read -r -d '' sub; do
+    name="$(basename "$sub")"
+    # 排除 .mimocode / .workbuddy
+    case ",$EXCLUDE," in
+      *",$name,"*) continue ;;
+    esac
+    # 仅处理目录
+    [ -d "$sub" ] || continue
+    process_repo "$sub"
+  done < <(find "$REPO_ROOT" -maxdepth 1 -mindepth 1 -print0)
+fi
 
 echo "--- 汇总 ---"
 echo "扫描仓库数=$SCAN_COUNT  跳过(非仓库)=$SKIP_COUNT  脏工作区=$DIRTY_COUNT  有未推送=$UNPUSHED_COUNT  落后>0=$BEHIND_COUNT  领先>0=$AHEAD_COUNT"
