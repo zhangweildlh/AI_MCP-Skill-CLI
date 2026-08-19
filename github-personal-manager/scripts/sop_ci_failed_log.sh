@@ -48,10 +48,14 @@ case "${1:-}" in
 esac
 _sop_require_repo "${1:-}" || exit 1
 
-runid="$("$GH_BIN" run list --limit 1 --json databaseId --jq ".[0].databaseId" 2>/dev/null)"
+# 解析远端三元组：gh 调用必须显式 --repo（审计契约）
+_sop_resolve_remotes 2>/dev/null || true
+REPO_ID="${SOP_ORIGIN_OWNER:-$GH_USER}/${SOP_ORIGIN_REPO:-}"
+
+runid="$("$GH_BIN" run list --repo "$REPO_ID" --limit 1 --json databaseId --jq ".[0].databaseId" 2>/dev/null)"
 if [ -z "$runid" ]; then
   echo "无 workflow run（可能尚未触发 CI）"
   exit 0
 fi
 echo "===== 失败日志 (run $runid) ====="
-"$GH_BIN" run view "$runid" --log-failed 2>&1 || echo "(该 run 无失败步骤或无法获取)"
+"$GH_BIN" run view "$runid" --repo "$REPO_ID" --log-failed 2>&1 || echo "(该 run 无失败步骤或无法获取)"

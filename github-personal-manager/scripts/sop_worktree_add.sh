@@ -134,6 +134,14 @@ fi
 # 工作树路径（默认仓库内 worktrees/，与仓库级 .gitignore 的 worktrees/ 规则一致）
 WTROOT="${WTROOT:-$(pwd)/worktrees}"
 WTPATH="$WTROOT/$DIRNAME"
+# 路径归一（P-GPM-4 回归修复）：统一为 Windows 形态(D:/...)，避免 git 把 POSIX 形态
+# /d/... 当作相对路径错误建到 D:/d/...（Git for Windows 已知缺陷；与
+# sop_worktree_cleanup.sh 同款处理，保证 add 与 cleanup 路径语义一致）。
+# cygpath 不可用时（非 Windows）跳过归一化，保留原始行为。
+if command -v cygpath >/dev/null 2>&1; then
+  WTROOT="$(cygpath -m "$WTROOT" 2>/dev/null || echo "$WTROOT")"
+  WTPATH="$(cygpath -m "$WTPATH" 2>/dev/null || echo "$WTPATH")"
+fi
 if [ -e "$WTPATH" ]; then echo "⛔ 工作树路径 [$WTPATH] 已存在，请换 --topic 或 --worktree-root。"; exit 1; fi
 
 echo "===== 开独立工作树（多任务并行）====="

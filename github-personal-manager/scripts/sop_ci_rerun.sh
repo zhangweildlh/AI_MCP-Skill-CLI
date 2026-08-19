@@ -61,9 +61,10 @@ done
 _sop_require_repo "${REPO:-}" || exit 1
 
 echo "===== 重跑失败 CI ====="
-# 依赖 gh 在当前仓库(已 cd 进目标仓库)的自动探测，不再把完整 remote URL 传给 --repo
-# （gh --repo 期望 owner/repo 格式，传完整 URL 可能查不到 run；与 sop_pr_checks / sop_ci_failed_log 保持一致）
-runs="$("$GH_BIN" run list --limit 1 --json databaseId,status,conclusion 2>/dev/null)"
+# 解析远端三元组：gh 调用必须显式 --repo（审计契约；避免在非仓库目录/多远端下误探测）
+_sop_resolve_remotes 2>/dev/null || true
+REPO_ID="${SOP_ORIGIN_OWNER:-$GH_USER}/${SOP_ORIGIN_REPO:-}"
+runs="$("$GH_BIN" run list --repo "$REPO_ID" --limit 1 --json databaseId,status,conclusion 2>/dev/null)"
 id="$(printf '%s' "$runs" | grep -o '"databaseId":[0-9]*' | head -1 | grep -o '[0-9]*')"
 
 if [ -z "$id" ]; then
@@ -73,10 +74,10 @@ if [ -z "$id" ]; then
 fi
 
 if [ "$CONFIRM" -eq 1 ]; then
-  echo "➡️ 执行: gh run rerun $id --failed"
-  "$GH_BIN" run rerun "$id" --failed
+  echo "➡️ 执行: gh run rerun $id --repo $REPO_ID --failed"
+  "$GH_BIN" run rerun "$id" --repo "$REPO_ID" --failed
   echo "✅ 已请求重跑 run #$id 的失败 job。"
 else
-  echo "[dry-run] 将执行: gh run rerun $id --failed  （加 --confirm 真正执行）"
+  echo "[dry-run] 将执行: gh run rerun $id --repo $REPO_ID --failed  （加 --confirm 真正执行）"
   echo "  当前 run #$id 状态: $(printf '%s' "$runs" | grep -o '"status":"[A-Z]*"' | head -1)"
 fi

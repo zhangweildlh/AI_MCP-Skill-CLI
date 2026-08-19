@@ -45,9 +45,19 @@ case "${1:-}" in
 esac
 _sop_require_repo "${1:-}" || exit 1
 
+# 解析远端三元组：显式 --repo 依赖 SOP_ORIGIN_OWNER/REPO（审计契约：gh 调用必须带 --repo）
+_sop_resolve_remotes 2>/dev/null || true
+REPO_ID="${SOP_ORIGIN_OWNER:-$GH_USER}/${SOP_ORIGIN_REPO:-}"
+
 branch="$(_sop_current_branch)"
 echo "===== 轮询 CI 状态 (分支: $branch) ====="
-echo "--- PR 检查 (gh pr checks) ---"
-"$GH_BIN" pr checks 2>&1 || echo "(无关联 PR 或 gh 未登录)"
-echo "--- 最近 5 条 workflow run (gh run list) ---"
-"$GH_BIN" run list --limit 5 2>&1 || echo "(无法获取 run 列表)"
+if [ "$branch" = "HEAD" ] || [ -z "$branch" ]; then
+  echo "⚠️ 分离 HEAD（无具名分支），跳过 PR 检查。"
+  echo "--- 最近 5 条 workflow run (gh run list --repo $REPO_ID) ---"
+  "$GH_BIN" run list --repo "$REPO_ID" --limit 5 2>&1 || echo "(无法获取 run 列表)"
+  exit 0
+fi
+echo "--- PR 检查 (gh pr checks --repo $REPO_ID $branch) ---"
+"$GH_BIN" pr checks --repo "$REPO_ID" "$branch" 2>&1 || echo "(无关联 PR 或 gh 未登录)"
+echo "--- 最近 5 条 workflow run (gh run list --repo $REPO_ID) ---"
+"$GH_BIN" run list --repo "$REPO_ID" --limit 5 2>&1 || echo "(无法获取 run 列表)"

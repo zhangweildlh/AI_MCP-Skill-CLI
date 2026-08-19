@@ -92,7 +92,8 @@ test_ci_failed_log_repo() {
   if ! assert_rc "$rc" 0; then fail "ci_failed_log rc=$rc out=$out"; return 1; fi
   log="$(last_call_log)"
   if ! grep -q -- "run list --repo zhangweildlh/gpm-forkrepo" "$log"; then fail "ci_failed_log run list 未带 --repo: $(cat "$log")"; return 1; fi
-  if ! grep -q -- "run view --repo zhangweildlh/gpm-forkrepo" "$log"; then fail "ci_failed_log run view 未带 --repo: $(cat "$log")"; return 1; fi
+  # run view 调用形如 `gh run view <runid> --repo ...`（runid 在 --repo 之前），断言须匹配该形态
+  if ! grep -qE -- "run view [0-9]+ --repo zhangweildlh/gpm-forkrepo" "$log"; then fail "ci_failed_log run view 未带 --repo: $(cat "$log")"; return 1; fi
   pass "ci_failed_log: run list/view 均显式 --repo"
 }
 
