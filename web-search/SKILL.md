@@ -11,7 +11,7 @@ version: 1.0.0
 
 ## 路径约定（可移植，禁止硬编码绝对路径）
 - 本技能根目录记为 `{SKILL_ROOT}`（WorkBuddy 注入变量，运行期解析为技能实际所在目录）。
-- 子技能目录：`{SKILL_ROOT}/anysearch-skill/`（Python，上游扁平并入，非独立 clone，无嵌套 .git；保留 `_load_env` 父级 .env 探测补丁）、`{SKILL_ROOT}/firecrawl/`（适配层，调官方 CLI）。
+- 子技能目录：`{SKILL_ROOT}/anysearch-skill/`（Python，上游 **vendored 纯上游副本**，非独立 clone，无嵌套 .git，**零本地补丁**；密钥由父层 `orchestrate.py` 在拉起子进程时注入子进程 env）、`{SKILL_ROOT}/firecrawl/`（适配层，调官方 CLI）。
 - 资源/脚本一律相对 `{SKILL_ROOT}` 引用；Python 脚本内部用 `Path(__file__).resolve().parent` 定位同目录资源（如 `shared/`）。
 - 部署到任意目录（如 `~/.workbuddy/skills/web-search/`）均不失效。
 
@@ -20,7 +20,7 @@ version: 1.0.0
 ### 阶段A：双轨独立并行（互不依赖，各自跑完）
 - 轨道1 AnySearch：见 `{SKILL_ROOT}/anysearch-skill/SKILL.md`。运行（严格 uv，禁裸 python）：
   `uv run --with requests python {SKILL_ROOT}/anysearch-skill/scripts/anysearch_cli.py search "查询" --max_results 5`
-  - 密钥 `ANYSEARCH_API_KEY` 由 `anysearch_cli.py` 自动从 `{SKILL_ROOT}/.env` 加载（脚本已向上探测父技能 .env）；亦可 `--api_key` 或环境变量覆盖。
+  - 密钥 `ANYSEARCH_API_KEY` 由父层 `orchestrate.py` 在拉起 `anysearch_cli.py` 时注入子进程 env（读取 `{SKILL_ROOT}/.env`）；亦可 `--api_key` 或环境变量覆盖。
   - vertical 域（finance/academic/travel/legal 等）查询：**必须先** `get_sub_domains` 发现 `sub_domain`，再 `search --domain --sub_domain --sdp`，否则可能漏检；通用查询可直接 `search`。
   - **中文政策/国标检索特别规则（须固化）**：AnySearch 垂直域多为美国/国际向（如 `legal`=US Congress、`environment`=aqi），无中国国策/标准类垂直域。中文政策文件（HJ/GB 编号、国发令、环发令、生态环境部令）、中国国家标准/行业标准的检索，**不走垂直域**，直接 `search "关键词" --max_results 10`（omit `--domain`）；仅主题确属国际向（跨国企业财报、美股代码、国际学术文献）时才走 `get_sub_domains` → 垂直搜索。
 - 轨道2 Firecrawl：见 `{SKILL_ROOT}/firecrawl/SKILL.md`。调用官方 CLI（全局 `firecrawl` 命令，PATH 已注册）：
