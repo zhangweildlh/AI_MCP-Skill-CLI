@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# =============================================================================
+# 文件名: gpm-regression/fakebin/gh
+# 中文名: 离线 fake gh（对抗式桩，专测 --repo 隐含推断缺陷）
+#
+# 【设计目的】
+#   模拟 GitHub CLI 的关键子命令，使全部 sop_*.sh 可在无网络、无鉴权下回归。
+#   关键对抗逻辑：凡 `gh` 子命令**缺失 --repo** 时，刻意返回「依赖 cwd 推断会得到的
+#   失败结果」（即真实 gh 在 fork 内部 PR / 跨目录调用下的行为），从而让被测脚本
+#   若未显式传 --repo 就暴露缺陷；传了 --repo 则正常返回。这正是审计文档所述
+#   失效面 A/B 的最小复现。
+#
+#   每次调用把完整 argv 写入 $GH_CALL_LOG（一行），供测试断言“是否传了 --repo”。
+# =============================================================================
+
+log="${GH_CALL_LOG:-/tmp/gh_calls.log}"
+echo "gh $*" >> "$log"
+
+# 提取 --repo 之后的值（若有）
+repo=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  if [ "${args[i]}" = "--repo" ]; then
+    j=$((i + 1))
+    [ "$j" -lt ${#args[@]} ] && repo="${args[j]}"
+    break
+  fi
+done
+
+case "$1" in
+  pr)
+    case "$2" in
+      checks)
+        # 失效面 B 复现：无 --repo → gh 隐含推断对 fork 内部 PR 漏判
+        if [ -n "$repo" ]; then
+          echo "✔ All checks have passed"
+        else
+          echo "no pull requests found"
+        fi
+        exit 0
+        ;;
+      create)
+        if [ -n "$repo" ]; then
+          echo "✅ Created pull request (fake) -> $repo"
+        else
+          echo "✅ Created pull request (fake) -> (no --repo)"
+        fi
+        exit 0
+        ;;
+      list)
+        # 返回空列表（够用：sync_upstream 仅检查是否存在 open PR）
+        if printf '%s' "$*" | grep -q -- "--json"; then
+          echo "[]"
+        else
+          echo ""
+        fi
+        exit 0
+        ;;
+      view|close|reopen|edit|ready|review|comment|diff|merge|checks)
+        exit 0
+        ;;
+    esac
+    exit 0
+    ;;
+  run)
+    case "$2" in
+      list)
+        if printf '%s' "$*" | grep -q -- "--json"; then
+          # ci_failed_log / ci_rerun 用 JSON 取 databaseId
+          if [ -n "$repo" ]; then
+            echo '[{"databaseId":123456,"status":"completed","conclusion":"success"}]'
+          else
+            echo '[]'
+          fi
+        else
+          echo "123456  success  main  fake-workflow"
+        fi
+        exit 0
+        ;;
+      view|rerun|watch|cancel)
+        exit 0
+        ;;
+    esac
+    exit 0
+    ;;
+  release)
+    case "$2" in
+      view|download|create|upload|list|delete) exit 0 ;;
+    esac
+    exit 0
+    ;;
+  api)
+    # 分支保护核验：worktree_merge 期望 404 表示“无保护可直推”
+    # 任何 api 调用均返回 404（fail-safe 放行分支），并 rc!=0
+    echo "HTTP 404: Not Found"
+    exit 1
+    ;;
+  auth|search|repo|issue|label|variable|secret)
+    exit 0
+    ;;
+  *)
+    # 防御性告警：收到未显式覆盖的 gh 子命令。若这是技能新增能力（如 gh issue / gh secret / gh workflow），
+    # 须同步扩展本 fake 桩与对应回归断言，否则新能力将无回归保护（见报告 6.2 残差建议 #3）。
+    echo "⚠️ fake gh: 收到未显式覆盖的子命令 '$1 ${2:-}'，按默认放行(rc=0)。如为新能力请扩展桩与断言。" >&2
+    exit 0
+    ;;
+esac
+exit 0
