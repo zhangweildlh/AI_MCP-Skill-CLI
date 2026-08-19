@@ -46,3 +46,9 @@ node_modules/
 /MCP-MemPalace-memory-data/chroma.sqlite3
 /MCP-MemPalace-memory-data/.blob_seq_ids_migrated
 /MCP-MemPalace-memory-data/.collection_type_fixed
+
+# ---------- 运行时二进制 / 含密钥配置（绝不入库）----------
+# codebase-memory-mcp 运行时 exe 约 282MB，超 GitHub 单文件 100MB 硬上限，不入库（以占位符文件名提示下载）
+codebase-memory/codebase-memory-mcp/codebase-memory-mcp.exe
+# code-review-combo 本地 provider 配置含真实 API key（nvidia/sensenova），仅本地保留、绝不入库
+code-review-combo/config/providers.json
