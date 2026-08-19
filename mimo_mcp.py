@@ -210,14 +210,10 @@ def get_api_key() -> Tuple[str, str]:
 # 顺序即优先级：靠前优先；当某 Key 鉴权失败（过期/无效/无权限/限流）时，
 # 自动切下一个，直到命中可用 Key，或全部耗尽（均失效/无用）。
 # 仍可用环境变量 MIMO_API_KEY / MIMO_API_KEYS 覆盖或扩展（见 get_api_key_pool）。
-# 安全提示：内置明文 Key 仅作"开箱即用"兜底；生产环境建议改用环境变量注入，避免密钥落地文件。
-BUILTIN_API_KEYS = [
-    "sk-sztt1j7hbjgi5vtgnov3c45pt10s004wyh595m7bpdzd4ah1",
-    "sk-sgbc2vz7wy5ce6wj681egimvnm0ca2njphsc2hbztloard5i",
-    "sk-s53skynm2bittxlu9mueoim0ds03as051joo7bdxkx8gqrz4",
-    "sk-stnpb3ryb6duemsz11unr94frrvamhjgqn19x97gug84usza",
-    "sk-cjwxkuw850hl83oftxmx6s0lxah0yc1t5vofo5trtu4flxfa",
-]
+# 安全提示（2026-08-19 转公开决策 D-2026-0819-02）：内置明文 Key 已全部移除（原 5 个
+# Key 已失效作废，且公开仓库严禁密钥落地文件）。运行必须经环境变量 MIMO_API_KEY /
+# MIMO_API_KEYS 注入，或本地 auth.json（不入库）；无任何内置明文兜底。
+BUILTIN_API_KEYS: List[str] = []
 
 
 def get_api_key_pool() -> List[Tuple[str, str]]:
