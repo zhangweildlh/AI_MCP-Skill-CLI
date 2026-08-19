@@ -62,7 +62,11 @@ class TestAuditFixes(unittest.TestCase):
         # 若 F2 修复被回退（删掉第三探测项），web-search/.env 不会被加载，ANYSEARCH_API_KEY 为空 → 本测试 FAIL。
         # C11/D9 加固：快照 os.environ 与 sys.stdout/stderr，finally 中差分复原，
         # 避免 anysearch_cli.py 模块级副作用（_load_env 注入、sys.stdout/stderr 替换）污染后续用例。
-        self.assertTrue(os.path.isfile(DOTENV), "web-search/.env 应存在，供 _load_env 解析")
+        # CI 安全化：web-search/.env 按 2026-08-11 安全决议被 .gitignore 永久忽略、绝不入库，
+        # CI 干净检出无此文件 → 本用例必然失败，导致全仓库 smoke 红灯（历史遗留缺陷）。
+        # 改为：.env 缺失时跳过（CI 场景），仅在本机存在 .env 时做真实密钥解析校验。
+        if not os.path.isfile(DOTENV):
+            self.skipTest("web-search/.env 缺失（git-ignored，仅本机集成校验，CI 跳过）")
         snapshot = dict(os.environ)
         saved_out, saved_err = sys.stdout, sys.stderr  # D9：复原模块级 sys.stdout/stderr 替换
         try:
