@@ -37,17 +37,20 @@ jobs:
           else
             BASE_SHA="${{ github.event.before }}"
           fi
-          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
-            BASE_SHA="origin/main"
-          fi
           # 健壮性（2026-08-19 修复）：历史改写（filter-branch/强推）后 github.event.before
-          # 可能指向已不存在的旧 SHA，git diff 会 fatal 使 job 失败。此处 diff 失败即回退
-          # origin/main（保守全量），确保 CI 不被陈旧基准卡死。
-          CHANGED=$(git diff --name-only "${BASE_SHA}"...HEAD 2>/dev/null || git diff --name-only "origin/main"...HEAD 2>/dev/null || true)
+          # 可能指向已不存在的旧 SHA，git diff 会 fatal 使 job 失败。此处先在 diff 前校验
+          # 基准可解析：不可用（空/全0/对象不存在）→ 置 meta=1 保守全量 CI，绕开 diff。
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            CHANGED=""
+            meta=1
+          else
+            CHANGED=$(git diff --name-only "${BASE_SHA}"...HEAD || true)
+          fi
 
           # ---- 逐个变更路径判定 scope ----
           scopes=""
-          meta=0
+          meta=${meta:-0}   # 基准不可用时上方已置 meta=1（保守全量），此处保留不覆盖
           for f in $CHANGED; do
             case "$f" in
               scripts/*|.github/*|Memory-Data/*)
