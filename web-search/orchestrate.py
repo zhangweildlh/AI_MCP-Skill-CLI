@@ -102,11 +102,43 @@ def _index(track: dict) -> dict:
 # ---------------------------------------------------------------------------
 # 阶段 A（双轨运行封装）
 # ---------------------------------------------------------------------------
+def _load_parent_api_key(skill_root) -> str | None:
+    """从父级 web-search/.env 读取 ANYSEARCH_API_KEY（解耦后的密钥注入点）。
+
+    这是原 anysearch_cli.py::_load_env「父级 .env 探测补丁」的上移版本：上游脚本恢复为
+    纯上游副本后不再探测祖父目录，密钥改由父层在拉起子进程时注入。使用 utf-8-sig 自动
+    去除 Windows 记事本保存的 BOM；就近优先——命中即返回。
+
+    返回密钥明文或 None（文件不存在 / 无该键 / 为空）。绝不抛异常。
+    """
+    try:
+        env_path = Path(skill_root).resolve() / ".env"
+        if not env_path.is_file():
+            return None
+        with open(env_path, encoding="utf-8-sig") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                k = k.strip().lstrip("﻿").strip()
+                v = v.strip().strip("\"'").strip()
+                if k == "ANYSEARCH_API_KEY" and v:
+                    return v
+    except (OSError, ValueError):
+        return None
+    return None
+
+
 def run_track1(query, max_results: int = 5, skill_root=None, subprocess_run=None):
     """轨道1 AnySearch：uv 运行 anysearch_cli.py search。
 
     网络一律走 subprocess（默认 subprocess.run，允许 monkeypatch 注入）。
     非 0 退出 / 异常 / 空查询 -> 返回 None（不抛、不崩）。
+
+    密钥注入：解耦后 anysearch_cli.py 为纯上游副本，不探测父级 .env；本函数在拉起子进程前
+    把父级 web-search/.env 的 ANYSEARCH_API_KEY 注入子进程 env（尊重 --api_key / 显式环境变量
+    优先）。这取代了上游脚本里曾有的本地补丁。
 
     返回规范化 track dict：{"ok": bool, "facts": [...], "authoritative": bool, "source": "AnySearch"}
     或 None。
@@ -121,9 +153,14 @@ def run_track1(query, max_results: int = 5, skill_root=None, subprocess_run=None
         "uv", "run", "--with", "requests", "python",
         str(cli), "search", str(query), "--max_results", str(m),
     ]
+    # 密钥注入：父级 .env 优先于子进程继承的环境，但低于 --api_key / 显式 env
     run = subprocess_run or subprocess.run
+    env = dict(os.environ)
+    parent_key = _load_parent_api_key(sr)
+    if parent_key and "ANYSEARCH_API_KEY" not in env:
+        env["ANYSEARCH_API_KEY"] = parent_key
     try:
-        proc = run(cmd, capture_output=True, text=True)
+        proc = run(cmd, capture_output=True, text=True, env=env)
     except Exception:
         return None
     if getattr(proc, "returncode", 1) != 0:
