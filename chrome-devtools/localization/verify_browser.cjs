@@ -11,7 +11,9 @@ const readline = require('readline');
 const REPO = path.resolve(__dirname, '..');
 const cfgPath = path.join(REPO, 'local-config.json');
 const isWin = process.platform === 'win32';
-// 本机 360Chromex 常见安装根（可用环境变量覆盖，避免源码写死机器路径）。
+// 本机 360Chromex 常见安装根。
+// 可用环境变量 CHROME_DEVTOOLS_360_DIR 覆盖（避免源码写死机器路径）；**仅本机有效**——
+// 跨机部署须由部署方设置该变量，或依赖 verify_browser.cjs 的注册表/PATH 自动检测，切勿假定此缺省路径存在。
 // 惰性读取（F3 修复：便于测试经环境变量覆盖，且保持运行时可被环境覆盖的一致性），而非模块加载时定死。
 function local360Dir() { return process.env['CHROME_DEVTOOLS_360_DIR'] || 'D:\\Tools\\360Chrome'; }
 
