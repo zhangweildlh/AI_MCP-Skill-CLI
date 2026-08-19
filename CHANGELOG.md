@@ -9,6 +9,28 @@
 
 ---
 
+## [2026-08-19]
+
+### Added
+- **codebase-memory/**：将此前被 .gitignore 整体忽略的目录骨架、文档与脚本纳入仓库跟踪（顶层 README/SKILL + codebase-memory-mcp 的 Readme/权限修复脚本/下载说明，以及 data/logs 空目录 .gitkeep 占位）；codebase-memory-mcp.exe 真实体积约 282MB，超过 GitHub 单文件 100MB 硬上限，未入库，改以占位文件（文件名提示自行下载）+ 下载说明.md 替代；.gitignore 同步忽略该 exe 与 code-review-combo/config/providers.json（含真实 API key，仅本地保留、绝不上库）。
+
+---
+
+## [2026-08-14]
+
+### Fixed
+- **github-personal-manager/scripts/**：收敛 P-GPM 系列缺陷——P-GPM-1/2（`gh` 调用缺 `--repo`，5 个脚本补显式 `--repo` 传递，消除 fork 内部 PR / 跨目录调用误判）、P-GPM-3（`_sop_resolve_remotes` 改用 `git config --get` 替代 `git remote -v`，避免 insteadOf 重写污染 owner/repo 解析）、P-GPM-4（`sop_worktree_add.sh` 补 worktree 路径 Windows 形态归一化 `cygpath -m`，与 cleanup 一致，修复 Git Bash 下错建到 `D:/d/...`）；**github-personal-manager/workflows/wf_branch_clean.sh**：`gh pr list` 越层直调缺 `--repo` 已补显式 `--repo`（与 scripts 统一约定一致，修复一致性缺口）。
+
+### Added
+- **github-personal-manager/regression/**：离线回归框架纳入技能仓库（三层夹具 upstream/origin/local + fake gh 对抗桩，67 用例覆盖 17 个脚本）；`run.sh` 自定位化（按「框架与 scripts/ 平级」解析技能根，不写死安装路径）+ `TEST_TMP` 可写性断言；`fakebin/gh` 未覆盖子命令改防御性告警并默认放行；`.gitignore` 加 `regression/tmp/`；`github-personal-manager/.github/workflows/regression.yml` 作为技能独立仓库的便携 CI 门禁参考（GitHub 仅扫描仓库根 `.github/workflows/`，子目录不触发，monorepo 内仅作参考）。
+- **github-personal-manager/workflows/**：补全 GUI 工作流脚本通道（`wf_common.sh` 公共库 + `wf_ci.sh`/`wf_pr.sh`/`wf_release.sh`/`wf_sync.sh`/`wf_worktree.sh`/`wf_workspace_clean.sh` 7 个父脚本，均为 SourceGit / Git Extensions 图形客户端「点一下就办」的按钮，统一 `--confirm` 二次授权 + 只推 origin/绝不碰 upstream 安全边界）；`workflows/README.md` 同步给出目录地图、挂接配置与 Windows 环境约束（与 `scripts/` 平行双通道，落点同为 `scripts/` 底层 SOP）。
+
+### Docs
+- **github-personal-manager/SKILL.md**：补「⚠️ Windows 环境约束」注记（worktree 路径归一化依赖 Git Bash `cygpath`）。
+- **github-personal-manager/workflows/README.md**：补「⚠️ 工作树 Windows 环境约束」段。
+
+---
+
 ## [2026-08-12]
 
 ### Fixed

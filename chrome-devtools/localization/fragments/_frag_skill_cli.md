@@ -8,25 +8,25 @@
 
 **步骤 2：以 CLI 模式运行（全局 bin，严禁 npx -y）**
 
-全局 bin 路径：`$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js`
+全局 bin 路径：`$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js`
 
 - macOS / Linux / Git Bash：
   ```bash
-  node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js" --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
+  node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
   ```
 - Windows (cmd.exe)：
   ```bat
-  for /f "delims=" %i in ('npm root -g') do node "%i\chrome-devtools-mcp\build\src\bin\chrome-devtools-mcp.js" --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
+  for /f "delims=" %i in ('npm root -g') do node "%i\chrome-devtools-mcp\build\src\bin\chrome-devtools.js" --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
   ```
 - Windows (PowerShell)：
   ```powershell
-  $g = npm root -g; node "$g/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js" --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
+  $g = npm root -g; node "$g/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
   ```
 
 **替代：用 --executablePath 直接拉起（会生成临时 profile，登录态不保留）**
 
 ```
-node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js" --executablePath="<浏览器路径>" --user-data-dir="<浏览器用户数据目录>" --no-usage-statistics
+node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" --executablePath="<浏览器路径>" --user-data-dir="<浏览器用户数据目录>" --no-usage-statistics
 ```
 
 或等价使用 CLI 辅助脚本（仅 CLI 模式、可被删除）：`node localization/cli_run.cjs <tool> [参数]`。

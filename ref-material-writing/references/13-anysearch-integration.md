@@ -86,3 +86,82 @@ uv run --project <UV_PROJECT> python scripts/anysearch_cli.py <子命令> [选�
 
 > 上述文件**只引用不定义**：命令文本的唯一权威是本文件 §1，任何变更只改 §1 一处。
 > 本技能现已内嵌 AnySearch CLI 副本，所有接口疑问以本技能 `<ANYSEARCH_CMD> doc` 输出为权威；当命令变更或 `doc` 输出与脚本不一致时重跑 `doc` 子命令获取最新接口说明。
+
+---
+
+## 6. 上游解耦架构（vendored 父目录 / patches 子补丁 / MANIFEST 门禁）
+
+> 自 2026-08-18 起，本技能内嵌的 AnySearch 副本（派生自 `anysearch-ai/anysearch-skill`，Apache-2.0，见技能根 `NOTICE`）采用**父子解耦架构**，将「上游纯净代码」与「本地化补丁」物理隔离，降低后续跟随上游演进的维护成本。
+> 权威事实源：`vendored/anysearch-skill/MANIFEST.json`。
+
+### 6.1 三层目录职责
+
+| 层 | 路径 | 角色 | 运行时直接调用 |
+|----|------|------|----------------|
+| 父（纯净上游快照） | `vendored/anysearch-skill/scripts/...` | 上游在锚定 commit 下的**原样副本**（blob 级一致），仅作比对基准 | 否 |
+| 子（本地补丁） | `vendored/anysearch-skill/patches/*.patch` | 本地化定制差异统一存此，便于重放 / 丢弃 | 否 |
+| 运行时工作副本 | `scripts/anysearch_cli.py`、`scripts/shared/*` | 已打补丁、实际被调用的版本（**迁移不改动，零回归**） | 是 |
+
+- 锚定 commit：`69b3088fd36f20e3501951ec3826a208d0b085a4`（MANIFEST `anchor_commit`）。
+- 设计红线：**运行时工作副本 `scripts/` 永不被迁移脚本覆盖**；`vendored/` 与 `patches/` 仅作比对与重放依据。
+
+### 6.2 MANIFEST.json 门禁（blob SHA 指纹）
+
+`MANIFEST.json` 逐文件登记三重指纹（内容为完整 40 位 SHA 指纹）：
+
+```json
+{
+  "upstream": "anysearch-ai/anysearch-skill",
+  "anchor_commit": "69b3088fd36f20e3501951ec3826a208d0b085a4",
+  "fetched_at": "2026-08-18",
+  "files": [
+    {"rel":"scripts/anysearch_cli.py","upstream_blob":"0b24517af558192e6eb877eb98513800ca2f8de1","patched_local_blob":"920487140fce52e81e03619aa4c453ecd7b8bba7","patch":"patches/anysearch_cli.py.patch"},
+    {"rel":"scripts/shared/constants.json","upstream_blob":"e2a80d5da99190c98ba474945788c388afe2f4ce","patched_local_blob":"e26fa5f8b5db1e74f09c8fe37a36e0fee1cc4d88","patch":"patches/constants.json.patch"},
+    {"rel":"scripts/shared/doc_spec.md","upstream_blob":"08c34c284f31c88a7c0360193f451ac4fe3659e0","patched_local_blob":"08c34c284f31c88a7c0360193f451ac4fe3659e0","patch":null}
+  ]
+}
+```
+
+- `upstream_blob`：上游纯净副本在 vendored 中的 blob SHA（内容指纹）。
+- `patched_local_blob`：本地补丁版在 `scripts/` 中的 blob SHA。
+- `patch`：`null` 表示该文件本地未改动（doc_spec.md 与上游一致，无需补丁）。
+- blob SHA 与 GitHub contents API 的 `.sha` 同构，可用 `git hash-object` 在本地复算验证。
+
+### 6.3 跟进上游演进的标准流程
+
+当 `check_anysearch_upstream.py` 报「上游有更新」时：
+
+1. **更新父**：`gh api repos/anysearch-ai/anysearch-skill/contents/<rel> --jq .sha` 取新 blob，下载新纯净副本覆盖 `vendored/anysearch-skill/scripts/...`。
+2. **重放子**：从技能根执行 `git apply vendored/anysearch-skill/patches/<file>.patch` 将本地补丁重放到新纯净副本。
+3. **刷新工作副本**：将重放结果写回 `scripts/...`（或评估上游是否已原生包含该定制，移除 / 缩减补丁）。
+4. **更新门禁**：重新计算并更新 MANIFEST.json 的 `upstream_blob` / `patched_local_blob`，刷新 `fetched_at`。
+5. **复验**：重跑 `check_anysearch_upstream.py` 应回 `[OK]`。
+
+### 6.4 校验脚本
+
+`scripts/check_anysearch_upstream.py`（blob 级，已替换旧版 commit 级软锚点 `LOCAL_ANCHOR_SHA`）：
+
+```bash
+uv run --project "${REF_MATERIAL_UV_PROJECT:-D:/Tools/Assembly/python/myenv}" python scripts/check_anysearch_upstream.py
+```
+
+- 逻辑：逐文件比对「上游当前 blob vs MANIFEST.upstream_blob」「本地工作副本 blob vs MANIFEST.patched_local_blob」。
+- 输出四态（纯 ASCII，无 emoji）：`[OK] 一致（补丁完好）` / `[WARN] 上游有更新` / `[WARN] 本地补丁漂移` / `[HINT] 无法获取上游状态`。
+- 退出码语义：0=全部一致（补丁完好、上游无更新）；1=存在真实差异（上游有更新 或 本地补丁漂移），需人工处理；2=上游状态不可达（gh 未认证 / 网络异常 / API 404），**绝不臆断"上游有更新"**，仅提示检查 gh 登录态后重跑。
+- gh 失败隔离：gh 调用异常时 `upstream_moved` 恒为假，仅标记 `[HINT] 无法获取上游状态`（exit 2），避免旧逻辑 `cur_up=None` 导致"上游有更新"误报。
+- gh 路径外置：优先 `REF_MATERIAL_GH`，否则 `shutil.which("gh")`，最后回退 `gh`（消除旧版 `D:/Tools/Assembly/gh.exe` 机器硬编码）。
+- 测试：`scripts/smoke/test_check_anysearch_upstream.py`（标准库 unittest + mock，覆盖四态与 blob 计算，无真实网络）。
+
+### 6.5 七类本地化解耦审计结论（2026-08-18）
+
+| 类别 | 解耦状态 | 说明 |
+|------|----------|------|
+| ① 自动安装 | 已解耦（无需） | 原创脚本，无上游对应物 |
+| ② Win11 路径处理 | 部分解耦 | `gh.exe` 硬编码已通过 `REF_MATERIAL_GH` / `shutil.which` 外置；其余路径经 `REF_MATERIAL_UV_PROJECT` 参数化 |
+| ③ 本地程序 / 软件调用（360chromex） | N/A | 技能内不存在该调用 |
+| ④ 全面功能覆盖表 | 已解耦（原创） | 无上游对应物 |
+| ⑤ 激活关键词 | 部分解耦 | SKILL.md frontmatter `allowed-tools` 含机器专属工具名，不可外置，仅能文档化约束 |
+| ⑥ 内容修改 / 增减 | 已解耦 | 原内联补丁沉淀为 `patches/*.patch`，与上游快照物理隔离 |
+| ⑦ 新增文件 / 脚本 | 已解耦（原创） | 无上游对应物 |
+
+> 总体：已建成成熟父子解耦骨架（vendored 父 + patches 子 + MANIFEST 门禁）；剩余「部分解耦」项（② 路径、⑤ 激活关键词）属结构硬约束，无法进一步外置。
