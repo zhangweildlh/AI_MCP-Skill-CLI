@@ -40,7 +40,10 @@ jobs:
           if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
             BASE_SHA="origin/main"
           fi
-          CHANGED=$(git diff --name-only "${BASE_SHA}"...HEAD || true)
+          # 健壮性（2026-08-19 修复）：历史改写（filter-branch/强推）后 github.event.before
+          # 可能指向已不存在的旧 SHA，git diff 会 fatal 使 job 失败。此处 diff 失败即回退
+          # origin/main（保守全量），确保 CI 不被陈旧基准卡死。
+          CHANGED=$(git diff --name-only "${BASE_SHA}"...HEAD 2>/dev/null || git diff --name-only "origin/main"...HEAD 2>/dev/null || true)
 
           # ---- 逐个变更路径判定 scope ----
           scopes=""
