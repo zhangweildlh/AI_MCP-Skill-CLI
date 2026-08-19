@@ -2,7 +2,9 @@
 # AI_MCP-Skill-CLI 仓库级 .gitignore
 # 用途：私有仓库，用于日常生产环境 + 云端备份。
 # 规则依据：用户 2026-07-17 需求
-#   - Memory-Data 目录内「非 .md 文件」不入库（.md 文件保留入库）
+#   - Memory-Data 直接子级「非 .md 文件」不入库（直接子级 .md 保留入库）；
+#     Memory-Data/task-methodology/（p1/p2 方法论文档）有意不入库
+#     （2026-08-19 决策：仅本地知识沉淀，不随仓库分发）
 #   - .workbuddy 为本地项目配置，不入库（仅本地读取）
 #   - Syncfolders 同步数据库、*.7z 压缩包不入库
 #   - 用户明确允许入库（含真实 API Key 与隐私，仅限私有仓库、绝不外推）：
