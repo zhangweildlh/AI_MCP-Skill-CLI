@@ -314,3 +314,73 @@ _sop_resolve_remotes() {
     UPSTREAM_REPO="$SOP_UPSTREAM_OWNER_REPO"
   fi
 }
+
+# ============================================================================
+# 分支保护核验（直推 main 前的 fail-safe 闸门）
+# ----------------------------------------------------------------------------
+# 用途：sop_sync_pull_ff.sh / sop_sync_upstream.sh / 其它可能直推 main 的脚本，
+#       在 push 到 main 前检测目标仓库主线是否受保护（旧式分支保护 或 ruleset），
+#       受保护 → 提示改走 PR（sop_pr_create.sh --base main）并暂停，不硬推。
+# 模式（复用 sop_worktree_merge.sh 的 fail-safe 语义）：
+#   0  可直推（确认无保护）或保护存在但被当前账号豁免（admin bypass）
+#   1  主线受保护且当前账号不可绕过 → 应走 PR（调用方据此暂停）
+#   2  核验失败（非 404 错误 / 无法确认），fail-safe 暂停
+# 同时检查两类保护：
+#   a. 旧式分支保护  GET repos/{owner}/{repo}/branches/{main}/protection
+#   b. ruleset        GET repos/{owner}/{repo}/rulesets            （2026-08-19 转公开后生效）
+# 任一命中保护 → 走 PR。调用前须已 _sop_load_config 且已 cd 进目标仓库。
+# ============================================================================
+_sop_check_main_protection() {
+  local repo_id prot_out prot_rc rs_out rs_rc protected=0
+  # 自包含：内部解析远端三元组（不依赖调用方预先调用 _sop_resolve_remotes）
+  if [ -z "${SOP_ORIGIN_OWNER:-}" ] || [ -z "${SOP_ORIGIN_REPO:-}" ]; then
+    _sop_resolve_remotes 2>/dev/null || true
+  fi
+  repo_id="${SOP_ORIGIN_OWNER:-}/${SOP_ORIGIN_REPO:-}"
+  if [ -z "$repo_id" ] || [ "$repo_id" = "/" ]; then
+    echo "⚠️ 无法解析仓库标识，跳过分支保护核验；若 main 受保护请改走 PR。" >&2
+    return 0
+  fi
+
+  # a. 旧式分支保护
+  prot_out="$("$GH_BIN" api "repos/$repo_id/branches/$MAIN_BRANCH/protection" 2>&1)"
+  prot_rc=$?
+  if [ "$prot_rc" -eq 0 ]; then
+    protected=1   # 旧式保护开启
+  elif printf '%s' "$prot_out" | grep -qiE 'HTTP 404|Not Found|Branch not protected'; then
+    :             # 确认无旧式保护
+  else
+    echo "⛔ 分支保护核验失败（非 404）：无法确认主线保护状态，fail-safe 暂停。原始返回：" >&2
+    printf '%s\n' "$prot_out" | head -5 >&2
+    return 2
+  fi
+
+  # b. ruleset 保护（转公开后可能用 ruleset 而非旧式 API）
+  if [ "$protected" -eq 0 ]; then
+    rs_out="$("$GH_BIN" api "repos/$repo_id/rulesets" 2>&1)"
+    rs_rc=$?
+    if [ "$rs_rc" -eq 0 ]; then
+      if printf '%s' "$rs_out" | grep -qiE '"name"[[:space:]]*:[[:space:]]*"' ; then
+        # 有 ruleset 即视为保护（含 non_fast_forward/update/deletion/required_status_checks 等）
+        # 命中保护但当前账号可能是 admin（bypass 生效），需进一步确认能否绕过：
+        # 无 bypass 信息时保守按「受保护」处理，提示改走 PR（fail-safe，宁严勿宽）。
+        if printf '%s' "$rs_out" | grep -qi "main"; then
+          protected=1
+        fi
+      fi
+    elif ! printf '%s' "$rs_out" | grep -qiE 'HTTP 404|Not Found'; then
+      echo "⚠️ ruleset 核验失败（非 404），按 fail-safe 保守视为受保护。" >&2
+      protected=1
+    fi
+  fi
+
+  if [ "$protected" -eq 1 ]; then
+    echo "⚠️ 主线 [$MAIN_BRANCH] 已开启分支保护（旧式保护 或 ruleset），直推 main 会被拒。"
+    echo "   请改走 PR：在 feat 分支提交后运行 bash scripts/sop_pr_create.sh <仓库> --base $MAIN_BRANCH --confirm。"
+    echo "   （若你确认为仓库管理员且 ruleset 已设 bypass，可忽略此提示；否则请勿直推。）"
+    return 1
+  fi
+  echo "✅ 分支保护核验：主线 [$MAIN_BRANCH] 未受保护，可直推。"
+  return 0
+}
+

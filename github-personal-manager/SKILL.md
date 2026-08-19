@@ -194,6 +194,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 （前提：阶段 0 工具可用，已完成路径核验。先 `cd` 到技能根目录。）
 1. 阶段 0 闸门：完整性（无 WIP/TODO/空实现）、正确性（逐文件 Read + `git diff` 复核）、静态校验（仅可跑不触发本地编译的格式化类检查；编译型 lint/test 一律交 CI）。未过则先修复。
 2. 同步与建分支（手动 `git`，无专门脚本）：`git switch main && git pull upstream main && git push origin main`；`git switch -c feat/[topic]`（先建分支再提交(commit)）。
+   - **分支保护提示（2026-08-19）**：若目标仓库 main 已开启分支保护（旧式保护或 ruleset，如已转公开的 AI_MCP-Skill-CLI），`git push origin main` 直推会被拒；应改走 PR——在 `feat/[topic]` 分支提交后运行 `bash scripts/sop_pr_create.sh <仓库路径> --base main --confirm`（同步 main 基线则改为 `git pull --ff-only origin main`，勿直推）。
    - **born 检查（防根提交异常）**：建分支后、首次 `git commit` 前，务必 `git rev-parse HEAD` 确认当前分支已 born（解析出有效 SHA、有父提交）；若报 `unknown revision` → 先 `git reset --mixed main` 修复，绝不直接 `git add -A && git commit`。
 3. **提交前文档同步门禁（分层检查清单，提交(commit)动作之前必须过）**：
    - **流程**：先 `bash scripts/sop_docs_sync_check.sh <仓库路径>`（只读 dry-run，无需 `--confirm`），脚本按 `references/docs-sync-checklist.md` 的「分层检查清单」——① 取本次真实变化（`git status`/`git diff`/`ls-files`）；② 推导改动类型；③ 查仓库是否存在清单中的 Tier 1/2/3 文件；④ 分析是否已纳入变更；输出 `【文档同步状态】已同步 / 未同步` 及分层明细（Tier 1 阻断 / Tier 2 强建议 / Tier 3 提示）。
@@ -215,6 +216,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 8. 对齐上游并强推（仅功能分支(feat)，非 main）：`git fetch upstream && git rebase upstream/main feat/[topic]`；冲突就地解决 → `git rebase --continue` → `git push --force-with-lease origin feat/[topic]`（绝不强推 main）。重跑 CI 至绿。
 9. 合并(merge)：贡献上游仓库(upstream) 由维护者合并(merge)，你仅监控；自有/自测 PR 用 `gh pr merge`；fork 内部 PR 用 `gh pr merge --squash`。
 10. 收尾：`git switch main && git pull upstream main && git push origin main`；`git branch -d feat/[topic]` + `git push origin --delete feat/[topic]`。
+    - **分支保护提示（2026-08-19）**：若目标仓库 main 已开启分支保护，直推被拒时改为在 `feat/[topic]` 分支走 PR 合并后再同步本地：`git pull --ff-only origin main`；不要硬推 main。
 11. 硬约束：本地 main 跟踪 origin/main；`git push` 只推 origin；fork Actions 需一次性手动启用；给上游建 PR 用 `gh`（免 403）。
 12. 临时抽屉（stash）：开发到一半被打断时 `git stash push -m "feat A 做到一半"` 暂存，恢复时 `git stash pop`；stash 后仍需合适时机 pop 回来继续，巡检遇工作区脏会硬停止。
 
@@ -238,7 +240,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
   `bash scripts/sop_worktree_merge.sh <仓库路径> --branch feat/<topic>`
   `bash scripts/sop_worktree_merge.sh <仓库路径> --branch feat/<topic> --confirm`
   可选 `--verify-rollback`：合并后做一次非破坏性回滚演练并立即撤销，验证整段可回滚。
-  脚本四步：① 预检（**先 `git fetch` 同步远端，再解析引用与取 Tip**——顺序不可颠倒，否则刚推送的分支会被误判为不存在，且合并碑提交信息会记录陈旧尖端哈希、破坏回滚溯源；随后校验须在 main、工作区干净、分支可解析）；② 冲突预测（merge-tree，命中冲突列出文件并暂停，绝不自动解）；③ 分支保护核验（**fail-safe**：仅 HTTP 404 明确判定为无保护并放行；已开启保护则提示改走 PR 并暂停；核验失败且非 404——网络不通 / gh 未认证 / 无权限读取保护配置(403)——一律暂停退出(rc=1)，绝不放行直推）；④ 合并碑验证（父提交数=2、Tip 是祖先才算成功）。合并后**必须补变更文档(CHANGELOG)**（走工作流四 文档门禁 `bash scripts/sop_docs_sync_check.sh <仓库路径>`），再 `git push origin main` 触发 CI。冲突一律人工 Edit 解决，**禁止 `git checkout --ours/--theirs` 全量覆盖**。
+  脚本四步：① 预检（**先 `git fetch` 同步远端，再解析引用与取 Tip**——顺序不可颠倒，否则刚推送的分支会被误判为不存在，且合并碑提交信息会记录陈旧尖端哈希、破坏回滚溯源；随后校验须在 main、工作区干净、分支可解析）；② 冲突预测（merge-tree，命中冲突列出文件并暂停，绝不自动解）；③ 分支保护核验（**fail-safe**：仅 HTTP 404 明确判定为无保护并放行；已开启保护则提示改走 PR 并暂停；核验失败且非 404——网络不通 / gh 未认证 / 无权限读取保护配置(403)——一律暂停退出(rc=1)，绝不放行直推）；④ 合并碑验证（父提交数=2、Tip 是祖先才算成功）。合并后**必须补变更文档(CHANGELOG)**（走工作流四 文档门禁 `bash scripts/sop_docs_sync_check.sh <仓库路径>`），再 `git push origin main` 触发 CI。**分支保护提示（2026-08-19）**：若目标仓库 main 已开启分支保护（含 ruleset），`git push origin main` 会被拒——`sop_worktree_merge.sh` 的保护核验已识别并暂停，此时改走 PR：把合并碑所在分支（或新开 `feat/post-merge`）推送到远端后 `bash scripts/sop_pr_create.sh <仓库路径> --base main --confirm`。冲突一律人工 Edit 解决，**禁止 `git checkout --ours/--theirs` 全量覆盖**。
 - **阶段四：整段回滚验证（可选）**：合并时加 `--verify-rollback` 已由脚本完成；或手动 `git revert --no-commit -m 1 <合并碑>` 验证后 `git revert --abort` 恢复。
 - **阶段五/六：清理工作树 + 清理分支（按要求 / 条件）**
   运行（先 dry-run 预览，再加 `--confirm` 真正回收）：
@@ -298,7 +300,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 - **阶段 5 — PR 审查意见回应（含多轮）**：① 拉取评审 `gh pr view <编号> --comments` / `gh pr diff <编号>` / `gh api .../pulls/<编号>/reviews`；② 先对齐分支（当前分支须等于 PR 源分支 `feat/<topic>`，`gh pr view <编号> --json headRefName` 核对）；③ 以**真实代码**为唯一基准（用 `gh pr diff`/`Read` 实际文件当前行），逐条对照避免悬空/错误回应；④ **代码修改标准（完整裁决器 + 全局契约面）**：动手前先定统一优先级裁决器（契约保真 > 正确性 > 覆盖完整 > 最小作用域 > 可验证）、画出全局契约面（既有语义/调用点/文档声明/评审共识/耦合模块/全仓库影响面），根因修复而非仅消红灯；同 diff 一次性收口所有 A 类（真问题）+ 联动项，绝不叠补丁、绝不只改被点名项；⑤ 文案回答逐条引用裁决/契约结论（A 改了哪如何验证 / B 文档澄清 / C 误判有理有据驳回）；⑥ user-facing 改动在 Evidence 段附截图（Web UI 直接粘贴，或 CLI 兜底放 `assets/pr-evidence/` 后引用公开 URL）；⑦ 推送更新 `git push origin feat/<topic>`，重跑 CI 至绿；⑧ 多轮迭代回到阶段 5 开头整体重画方案，不叠补丁。
 - **阶段 6 — PR 合并**：贡献 upstream 由维护者合并，你仅监控；自有仓库/自测 PR 用 `gh pr merge`；fork 内部 PR 用 `gh pr merge --squash`。合并前冲突/分支保护见工作流三冲突决策树或工作流五多工作树。
 - **阶段 7 — 其他 PR 操作**：关闭 `gh pr close`、重开 `gh pr reopen`、编辑 `gh pr edit --body-file`、标 ready `gh pr ready`、作为评审人 `gh pr review --approve|--request-changes|--comment`、评论 `gh pr comment`。
-- **阶段 8 — 收尾与清理**：合并后 `git switch main && git pull upstream main && git push origin main`；分支清理走工作流八（删前确认 PR 非 open）；工区清理走工作流十。
+- **阶段 8 — 收尾与清理**：合并后 `git switch main && git pull upstream main && git push origin main`；分支清理走工作流八（删前确认 PR 非 open）；工区清理走工作流十。**分支保护提示（2026-08-19）**：若目标仓库 main 已开启分支保护，直推被拒时改为 `git pull --ff-only origin main` 同步即可（PR 已在阶段 6 合并，本地无需再推 main）。
 - **强门禁总述**：仅「路径核验通过 + 分支/对齐通过 + 重复 PR 已排除 + 上游规范已遵循 + 正文合规 + CI 全绿」的 PR 可开/可合；一切冲突、公开动作（强推 feat 需 `--force-with-lease` 二次确认、合并受保护分支走 PR、删分支前 PR 状态核验）一律大白话 + 后果 + 暂停等指令。
 
 ### 工作流十：清理工区维护
@@ -373,7 +375,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 3. 分别在两棵工作树内开发、测试（阶段二），全绿后回到主仓库：
    `bash scripts/sop_worktree_merge.sh <路径> --branch feat/login --confirm`
    `bash scripts/sop_worktree_merge.sh <路径> --branch feat/export --confirm`
-   各补 CHANGELOG 后 `git push origin main`。
+   各补 CHANGELOG 后 `git push origin main`。（若目标仓库 main 已开启分支保护，直推被拒 → 改走 PR：`bash scripts/sop_pr_create.sh <路径> --base main --confirm`。）
 4. 确认无 open PR 后清理：`bash scripts/sop_worktree_cleanup.sh <路径> --branch feat/login --confirm`、`--branch feat/export --confirm`。
 
 ### 示例五（异常场景）

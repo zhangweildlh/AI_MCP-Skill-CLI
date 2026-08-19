@@ -135,6 +135,17 @@ if [ "$K" -gt 0 ]; then
     fi
   fi
   if [ "$CONFIRM" -eq 1 ]; then
+    # 分支保护核验（仅 --confirm 真正 push 前执行；dry-run 不推送故跳过，避免夹具/无远端场景误暂停）
+    _sop_check_main_protection
+    prot_rc=$?
+    if [ "$prot_rc" -eq 1 ]; then
+      echo "已暂停：主线受保护，请改走 PR 流程（sop_pr_create.sh --base $MAIN_BRANCH）。"
+      echo "   注：upstream/main 已合并到本地，改动保留在本地，可开 feat 分支推送后开 PR。"
+      exit 0
+    elif [ "$prot_rc" -eq 2 ]; then
+      echo "已暂停：无法确认分支保护状态，fail-safe 停止直推。"
+      exit 1
+    fi
     echo "➡️ 执行: git merge $UPSTREAM_REMOTE/$MAIN_BRANCH --no-edit"
     if "$GIT_BIN" merge "$UPSTREAM_REMOTE/$MAIN_BRANCH" --no-edit; then
       echo "➡️ 执行: git push $ORIGIN_REMOTE $MAIN_BRANCH"
