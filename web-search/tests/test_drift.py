@@ -415,7 +415,7 @@ class CliExitTests(unittest.TestCase):
 
     def test_cli_exit_nonzero_on_drift(self):
         content = b"def main(): pass\n"
-        local = _write_tmp(content)
+        local = _REAL_CLI
         recorded = "rec_sha"
         rec_path = _write_tmp(json.dumps({"firecrawl_openapi_sha": recorded}), suffix=".json")
         try:
@@ -426,12 +426,11 @@ class CliExitTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("DRIFT", out)
         finally:
-            os.remove(local)
             os.remove(rec_path)
 
     def test_cli_exit_zero_on_ok(self):
         content = b"def main(): pass\n"
-        local = _write_tmp(content)
+        local = _REAL_CLI
         recorded = "rec_sha"
         rec_path = _write_tmp(json.dumps({"firecrawl_openapi_sha": recorded}), suffix=".json")
         try:
@@ -442,7 +441,6 @@ class CliExitTests(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("OK", out)
         finally:
-            os.remove(local)
             os.remove(rec_path)
 
     def test_cli_exit_zero_on_unknown(self):
@@ -461,23 +459,58 @@ class CliExitTests(unittest.TestCase):
             os.remove(rec_path)
 
 
+# 子树漂移检测的本地 vendored 目录（相对本测试文件）
+_VENDOR_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "anysearch-skill")
+)
+# 单文件检查默认使用的真实 anysearch_cli.py 路径（与子树共用同一 API 路径，
+# 故统一以真实本地文件内容建模上游，避免「同路径两种期望内容」冲突）
+_REAL_CLI = os.path.normpath(
+    os.path.join(_VENDOR_DIR, "scripts", "anysearch_cli.py")
+)
+_ANYSEARCH_API_BASE = "repos/anysearch-ai/anysearch-skill/contents/"
+
+
+def _read_real_vendored(rel):
+    """读取 anysearch-skill/ 下真实本地文件字节，作为「上游内容」建模无漂移。"""
+    lpath = os.path.normpath(os.path.join(_VENDOR_DIR, rel))
+    try:
+        with open(lpath, "rb") as f:
+            return f.read()
+    except OSError:
+        return b""
+
+
+def _upstream_anysearch_content(api_path):
+    """由 API 路径解析相对路径并读取真实本地文件内容（建模无漂移上游）。"""
+    if api_path.startswith(_ANYSEARCH_API_BASE):
+        rel = api_path[len(_ANYSEARCH_API_BASE):]
+        return _read_real_vendored(rel)
+    return b""
+
+
 def run_ok_both(local_content, recorded_sha):
-    """CLI 测试用：两份检查都返回「一致」态。"""
+    """CLI 测试用：单文件检查 + 全子树检查都返回「一致」态。
+
+    所有 anysearch 请求均以 anysearch-skill/ 下真实本地文件内容作为上游内容，
+    正确建模「本地与上游无漂移」（真实文件随同步演进，不应被测试误判 drift）。
+    """
 
     def _run(cmd, *a, **k):
         if "anysearch" in cmd[2]:
-            return _FakeProc(0, _b64({"content": base64.b64encode(local_content).decode()}))
+            data = _upstream_anysearch_content(cmd[2])
+            return _FakeProc(0, _b64({"content": base64.b64encode(data).decode()}))
         return _FakeProc(0, _b64({"sha": recorded_sha}))
 
     return _run
 
 
 def run_drift_both(local_content, recorded_sha):
-    """CLI 测试用：两份检查都「漂移」（上游内容/sha 不同）。"""
+    """CLI 测试用：单文件检查 + 全子树检查都「漂移」（上游内容被篡改）。"""
 
     def _run(cmd, *a, **k):
         if "anysearch" in cmd[2]:
-            upstream = local_content + b"\n# tampered\n"
+            upstream = _upstream_anysearch_content(cmd[2]) + b"\n# tampered\n"
             return _FakeProc(0, _b64({"content": base64.b64encode(upstream).decode()}))
         return _FakeProc(0, _b64({"sha": "upstream_different_sha"}))
 
