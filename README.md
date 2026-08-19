@@ -247,3 +247,4 @@
 - `multi-worktree-parallel-merge-sop.md`：原 2026-08-03 新增的总体方案文档已于 2026-08-06 移除，能力内聚至 `github-personal-manager` 的 `sop_worktree_add.sh` / `sop_worktree_cleanup.sh` / `sop_worktree_merge.sh` 三件套。
 - `Memory-Data/`：用户记忆/知识库（仅 `.md` 入库；非 `.md` 文件经 `.gitignore` 排除，本地保留）。本批新增 `协作方式约定_四象限_定制版.md` / `协作方式约定_四象限_通用版.md`，并将 `用户画像分析报告_土木工程主业版.md` 重命名为 `用户画像分析报告.md`；新增 `MEMORY.md` 索引文件（逐日工作日志与跨会话记忆，仅 `.md` 入库）。
 - `Workbuddy专属/`：归置与 WorkBuddy 紧密耦合的专属技能/文件（`workbuddy-workspace-migration`、`Skill-memory-consolidate.md`、`Skill-workflow-distill.md`）。
+- `codebase-memory/`：codebase-memory-mcp 运行时工具的目录骨架、文档与脚本（已被仓库跟踪）；真实的 `codebase-memory-mcp.exe`（约 282MB，超 GitHub 单文件 100MB 上限）不入库，以占位文件 + 下载说明提示自行获取；该目录被 .gitignore 部分忽略（仅 exe 与含密钥的 provider 配置不入库）——注意它不属于「活跃技能」，是工具运行时资源。
