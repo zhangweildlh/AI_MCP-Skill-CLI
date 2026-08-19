@@ -6,6 +6,20 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const net = require('node:net');
+
+// 动态分配空闲端口，避免硬编码端口偶发占用导致 T11 探针 flake（审计发现）
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.on('error', reject);
+    srv.listen(0, () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+  });
+}
 
 const { inject, strip, localizeDescription, SENTINEL } = require('../apply_localize.cjs');
 const { mergeNpmrc } = require('../compat.cjs');                       // F3：并集合并测试
@@ -279,7 +293,7 @@ function test(name, fn) {
 
   // --- T11: probePort（F3 单测，真实端口探针）---
   test('probePort：未占用端口返回 false', async () => {
-    const free = 65432; // 期望未被占用；ECONNREFUSED → false（真实探针）
+    const free = await freePort(); // 动态空闲端口，避免硬编码端口偶发占用导致 flake（审计发现）
     const r = await probePort(free);
     assert.strictEqual(r, false, '未占用端口应返回 false');
   });
@@ -322,6 +336,34 @@ function test(name, fn) {
       if (saved360 === undefined) delete process.env['CHROME_DEVTOOLS_360_DIR']; else process.env['CHROME_DEVTOOLS_360_DIR'] = saved360;
       if (savedLa === undefined) delete process.env['LOCALAPPDATA']; else process.env['LOCALAPPDATA'] = savedLa;
     }
+  });
+
+  // --- T13: 根 SKILL.md 注入断言（审计发现：根 SKILL.md 现由 apply_localize 从 _frag_skill_main 重建，应被单测守护）---
+  test('根 SKILL.md 注入：哨兵 + 主片段 + 中文 description（幂等）', () => {
+    // 用与根 SKILL.md 同构的 scratch 文件验证注入路径（不污染真实根 SKILL.md）
+    const scratchRel = 'localization/test/_scratch_root_skill.md';
+    const scratchRoot = path.join(REPO, scratchRel);
+    extraCleanup.push(scratchRoot);
+    fs.writeFileSync(scratchRoot,
+      '---\nname: chrome-devtools\nversion: 1\ndescription: "English root description"\n---\n根 SKILL.md 原始正文\n');
+    inject(scratchRel, '_frag_skill_main.md');
+    localizeDescription(scratchRel, '_frag_skill_main_desc.txt');
+    let out = fs.readFileSync(scratchRoot, 'utf8');
+    assert.ok(out.includes(SENTINEL), '根 SKILL.md 应含本地化哨兵');
+    const fragMain = fs.readFileSync(path.join(FRAG, '_frag_skill_main.md'), 'utf8');
+    const firstLine = fragMain.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0];
+    assert.ok(out.includes(firstLine), '根 SKILL.md 应含主片段内容');
+    const newDesc = fs.readFileSync(path.join(FRAG, '_frag_skill_main_desc.txt'), 'utf8').trim();
+    assert.ok(out.includes(newDesc), '根 SKILL.md description 应被中文化');
+    assert.ok(!out.includes('English root description'), '根 SKILL.md 英文原 description 应被替换');
+    // 幂等：二次注入不重复哨兵
+    inject(scratchRel, '_frag_skill_main.md');
+    out = fs.readFileSync(scratchRoot, 'utf8');
+    assert.strictEqual(out.split(SENTINEL).length - 1, 1, '根 SKILL.md 注入应幂等（哨兵仅一次）');
+    // 剥离还原
+    strip(scratchRel);
+    out = fs.readFileSync(scratchRoot, 'utf8');
+    assert.ok(!out.includes(SENTINEL), '根 SKILL.md 剥离后应无哨兵');
   });
 
   // 顺序执行全部收集到的测试（支持 async，如 probePort 真实端口探针），任一失败即中止并清理。

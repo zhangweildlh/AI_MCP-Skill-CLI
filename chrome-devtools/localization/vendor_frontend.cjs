@@ -79,6 +79,14 @@ if (fs.existsSync(TARGET) && fs.readdirSync(TARGET).length > 0) {
 }
 
 fs.mkdirSync(TARGET, { recursive: true });
+// B3 修复（2026-08-18）：弱网大体积 tarball 的健壮下载。
+//   原实现将 dtf.tar.gz 落在 tmp 且 finally 清理 tmp，导致「下载失败即丢弃、重试从零」，且 --max-time 900
+//   在弱网下仅够下约 40MB 便超时(28)。本次改进：
+//   (1) 落盘位置改为 UPSTREAM/devtools-frontend.tar.gz（持久化，不因 tmp 清理而丢失），支撑跨调用断点续传；
+//   (2) --max-time 提高到 1800，给弱网单段更充裕时长；
+//   (3) 保留 -C - 续传与 --retry-all-errors，配合持久化文件形成「中断→重跑→续拉」闭环；
+//   (4) catch 中清理半截 TARGET 与解包目录，保留 DTF_FILE（持久化 tarball）以支持重跑续传，避免幂等误判跳过。
+const DTF_FILE = path.join(UPSTREAM, 'devtools-frontend.tar.gz');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dtf-frontend-'));
 try {
   const repoBase = repo.replace(/\.git$/, '');
@@ -87,20 +95,21 @@ try {
   //   "git clone --filter=blob:none --no-checkout" + "checkout <commit> -- front_end"
   //   与 "sparse-checkout set front_end + checkout <commit>" 两种方式均会导致 front_end/ 整树为空
   //   （tsc 构建时缺 third_party/acorn/package/dist/acorn.mjs）。故改用 tarball 方案。
-  // 注意：Git Bash 的 tar/curl 会把 Windows 绝对路径（含 D:）误判为远程主机，故统一用相对名 + cwd=tmp。
+  // 注意：Git Bash 的 tar/curl 会把 Windows 绝对路径（含 D:）误判为远程主机，故统一用相对名 + cwd=UPSTREAM。
   const tarUrl = repoBase + '/archive/' + commit + '.tar.gz';
   console.log('[vendor] 下载钉版本 tarball: ' + tarUrl);
-  // B1 修复（2026-08-17）：bootstrap 曾因 curl 无超时在单连接停滞时无限挂死（实测得 18–25 分钟 0 字节）。
-  // 加 --connect-timeout 建连超时、--max-time 总时限、--retry 重试，杜绝挂死。
-  sh('curl -fsSL --connect-timeout 30 --max-time 900 --retry 5 --retry-delay 3 "' + tarUrl + '" -o dtf.tar.gz', tmp);
+  console.log('[vendor] 落盘: ' + DTF_FILE + '（持久化，支持中断后续传）');
+  // B1+B2+B3 修复：建连超时 30s；单段总时限 1800s（弱网更充裕）；--retry-all-errors 强制重试错误 18/28；
+  // -C - 断点续传（从上次已落盘字节续拉），配合 DTF_FILE 持久化实现跨调用续传闭环。
+  sh('curl -fsSL --connect-timeout 30 --max-time 1800 --retry 8 --retry-all-errors --retry-delay 3 -C - "' + tarUrl + '" -o devtools-frontend.tar.gz', UPSTREAM);
   // B1 修复：解包前校验 tarball 已落地且非空，避免空文件导致后续 tar 静默空转。
-  const _st = fs.statSync(path.join(tmp, 'dtf.tar.gz'));
+  const _st = fs.statSync(DTF_FILE);
   if (!_st.size) { console.error('[错误] devtools-frontend tarball 下载为空，已中止，未解包。'); process.exit(1); }
   // F4 修复：解包前校验 tarball SHA256（钉版本哈希，防御传输损坏 / 供应链篡改）。
   // 仅当 UPSTREAM_REF 配置 DEVTOOLS_FRONTEND_SHA256 时强制校验；未配置则告警跳过，保持跨机可用性
   // （GitHub archive 按 commit 生成的 tarball 内容可重现，建议 deliberate 跟版时钉定哈希）。
   const expected = ref.DEVTOOLS_FRONTEND_SHA256;
-  const actual = sha256File(path.join(tmp, 'dtf.tar.gz'));
+  const actual = sha256File(DTF_FILE);
   if (expected) {
     if (actual.toLowerCase() !== expected.toLowerCase()) {
       console.error('[错误] tarball SHA256 不匹配（期望 ' + expected + '，实际 ' + actual + '）—— 传输损坏或供应链被篡改，已中止，未解包。');
@@ -111,9 +120,9 @@ try {
     console.log('[vendor] 未配置 DEVTOOLS_FRONTEND_SHA256，跳过完整性校验（建议 deliberate 跟版时钉定哈希以防御传输损坏/篡改）');
   }
   console.log('[vendor] 解包 tarball...');
-  sh('tar -xzf dtf.tar.gz', tmp); // 解包到 tmp（生成 devtools-frontend-<commit>/）
+  sh('tar -xzf devtools-frontend.tar.gz', UPSTREAM); // 解包到 UPSTREAM（生成 devtools-frontend-<commit>/）
   const baseName = path.basename(repoBase) + '-' + commit; // 如 devtools-frontend-b0a8253...
-  const extractedRoot = path.join(tmp, baseName); // 解包后整棵 devtools-frontend 仓库（含 front_end/、mcp/ 等顶层目录）
+  const extractedRoot = path.join(UPSTREAM, baseName); // 解包后整棵 devtools-frontend 仓库（含 front_end/、mcp/ 等顶层目录）
   if (!fs.existsSync(extractedRoot)) { console.error('[错误] 解包产物中无 devtools-frontend/ 根目录（repo=' + repo + ' commit=' + commit + '，期望目录 ' + baseName + '）'); process.exit(1); }
   // 注意：上游 v1.7.0 既在 tsconfig 的 include/files 引用 devtools-frontend/front_end/...（顶层路径），
   // 其源码 src/third_party/index.ts 又相对导入 devtools-frontend/mcp/mcp.js（提供 LanguageExtensionPlugin 等类型）。
@@ -121,10 +130,16 @@ try {
   // "Cannot find module '../../devtools-frontend/mcp/mcp.js'" 并引发下游 implicitly any / unknown 级联错误。
   copyFrontend(extractedRoot, TARGET);
   console.log('[vendor] 已 vendoring devtools-frontend -> ' + TARGET + '（commit ' + commit + '，含 front_end/ 与 mcp/ 等顶层目录）');
+  // 成功：清理解包临时目录与 tarball（省空间；下次如需刷新会重新下载）
+  fs.rmSync(extractedRoot, { recursive: true, force: true });
+  fs.rmSync(DTF_FILE, { force: true });
 } catch (e) {
   console.error('[错误] devtools-frontend vendoring 失败：' + e.message);
+  // B3 修复：清理半截 TARGET 与解包目录，保留 DTF_FILE（持久化 tarball）以支持重跑续传。
+  try { fs.rmSync(TARGET, { recursive: true, force: true }); } catch (_) {}
+  try { fs.rmSync(path.join(UPSTREAM, path.basename(repo.replace(/\.git$/, '')) + '-' + commit), { recursive: true, force: true }); } catch (_) {}
   process.exit(1);
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
-  console.log('[已清理] 临时下载目录');
+  console.log('[已清理] 临时解包目录（tarball 持久保留于 ' + DTF_FILE + ' 以支持续传）');
 }

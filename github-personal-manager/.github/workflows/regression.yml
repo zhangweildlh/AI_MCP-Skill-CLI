@@ -1,0 +1,27 @@
+name: gpm-regression
+
+# 离线回归门禁：每次改动 scripts/ 或 workflows/ 时自动跑全套回归，
+# 保证 github-personal-manager 的关键契约（gh --repo 传递、远端解析、worktree 路径归一化等）
+# 不被破坏。框架位于仓库内 regression/，不触网、不依赖真实 GitHub 鉴权。
+on:
+  push:
+    paths:
+      - 'scripts/**'
+      - 'workflows/**'
+      - 'regression/**'
+      - '.github/workflows/regression.yml'
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'workflows/**'
+      - 'regression/**'
+      - '.github/workflows/regression.yml'
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: 运行离线回归套件
+        run: bash regression/run.sh
