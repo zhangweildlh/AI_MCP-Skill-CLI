@@ -9,6 +9,13 @@
 
 ---
 
+## [2026-08-19]
+
+### Added
+- **codebase-memory/**：将此前被 .gitignore 整体忽略的目录骨架、文档与脚本纳入仓库跟踪（顶层 README/SKILL + codebase-memory-mcp 的 Readme/权限修复脚本/下载说明，以及 data/logs 空目录 .gitkeep 占位）；codebase-memory-mcp.exe 真实体积约 282MB，超过 GitHub 单文件 100MB 硬上限，未入库，改以占位文件（文件名提示自行下载）+ 下载说明.md 替代；.gitignore 同步忽略该 exe 与 code-review-combo/config/providers.json（含真实 API key，仅本地保留、绝不上库）。
+
+---
+
 ## [2026-08-12]
 
 ### Fixed
