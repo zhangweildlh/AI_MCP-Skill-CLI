@@ -8,6 +8,9 @@ skill-checker 共 11 维度，其中多数（如术语一致性、示例逻辑�
 
 说明：description 五要素、触发短语多样性等以启发式代理检查，命中即 WARN，供人工复核；
 完整 11 维度交互式校验仍可由 skill-checker 技能完成。
+
+支持 scope 过滤（方案 Y）：run(scope=dir/<目录名> / file/<name> / meta) 时
+仅检查匹配该 scope 的 Skill；scope 为空时全量检查（向后兼容）。
 """
 from __future__ import annotations
 
@@ -26,9 +29,37 @@ NEG_MARKERS = ["不适用", "不用于", "不适用于", "不适用场景"]
 FUZZY_ENDINGS = ["等场景", "等需求", "等情境", "等相关"]
 
 
-def run(rep: Report = None) -> Report:
+def _filter_by_scope(skills, scope: str):
+    """按 scope 过滤 Skill 列表（方案 Y scope 纪律）。
+
+    - scope 为空 / "all"：不过滤（全量，向后兼容）
+    - dir/<目录名>：仅保留目录型且目录名匹配的 Skill
+    - file/<name> ：仅保留根级单文件且 name 字段匹配的 Skill
+    - meta        ：无技能级检查，返回空列表（由调用方跳过技能检查）
+    """
+    if not scope or scope == "all":
+        return skills
+    if scope.startswith("dir/"):
+        name = scope[len("dir/"):]
+        return [s for s in skills if s.ftype == "dir" and s.dir_name == name]
+    if scope.startswith("file/"):
+        name = scope[len("file/"):]
+        return [s for s in skills if s.ftype == "single" and s.name_field == name]
+    return []   # meta 及其它无法映射到技能的值：无技能级检查
+
+
+def run(rep: Report = None, scope: str = None) -> Report:
     rep = rep or Report("Tier2")
-    skills = discover_skills()
+    skills = _filter_by_scope(discover_skills(), scope)
+    if not skills:
+        if scope and scope.startswith(("dir/", "file/")):
+            # 具体 scope 却无匹配：说明 scope 判定与清单/结构脱节，需暴露
+            rep.fatal("__repo__", "discovery",
+                      f"scope {scope} 未匹配任何 Skill（清单与结构不一致？）")
+        elif scope == "meta":
+            rep.info("__repo__", "discovery",
+                     "meta scope 无技能级检查，跳过 Tier2 合规检查")
+        return rep
     for sk in skills:
         text = sk.path.read_text(encoding="utf-8", errors="replace")
         meta, body, has_fm, _ = parse_frontmatter(text)

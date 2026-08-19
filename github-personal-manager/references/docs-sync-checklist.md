@@ -63,6 +63,8 @@
 | **Tier 3** | 测试与构建清单（测试文件、包清单、锁文件） | **提示**：行为/依赖变化建议补测试或同步锁文件；不阻断 | 仅报告（`exit 0`） |
 
 > 说明：Tier 1/2 的"文档类"文件（README、CHANGELOG、docs/*.md、CONTRIBUTING）**自身被改动时**，不视为"触发门禁的真实变化"——即只改文档不算"代码未同步文档"。Tier 2 的"制品类"文件（配置样例、接口契约、i18n、examples）被改动时，仍视为真实变化（它们常与代码/接口耦合）。
+>
+> **Tier 1 补充（AGENTS.md，方案 Y）**：对**存在 AGENTS.md** 的仓库，凡本次改动涉及「新增 / 删除 / 重命名一级子目录，或新增 / 删除 / 重命名根级 Skill 文件」（改动类型含 `rename`，或新增了一级目录）时，`AGENTS.md` 的 scope 清单段（第 2 章）必须同步更新并纳入本次提交，否则**阻断提交**。本规则**仅对存在 AGENTS.md 的仓库生效**——其它仓库自动跳过，与脚本「先查仓库是否存在该文件」的逻辑一致，不存在时不强制新建、不报阻断。
 
 ---
 
@@ -75,7 +77,7 @@
 | `feature` | README（功能列表）、CHANGELOG | 接口契约、docs（接口/架构）、CONTRIBUTING、examples、i18n | 测试（接口变更需测） |
 | `behavior` | README（若影响使用）、CHANGELOG | docs | 测试 |
 | `dependency` | README（若影响安装/使用） | docs | 包清单、锁文件 |
-| `rename` | README（路径/引用） | docs（路径）、examples | — |
+| `rename` | README（路径/引用）、AGENTS.md（scope 清单，仅存在时） | docs（路径）、examples | — |
 | `copy` | README（若提及） | i18n（对应文案） | — |
 | `example` | — | examples、README（示例段） | — |
 | `docs` | README/CHANGELOG（若相关） | docs | — |
@@ -95,6 +97,7 @@
 1|README.md|*|doc|根级说明文档（项目门面：命令/配置/依赖/接口/功能/目录结构）
 1|README_EN.md|*|doc|英文说明文档
 1|CHANGELOG*.md|*|doc|版本变更日志（功能性/可见行为变化）
+1|AGENTS.md|rename|doc|仓库级纪律文件（方案 Y）：涉及新增/删除/重命名一级子目录或根级 Skill 文件时（改动类型含 rename；脚本判为 UNKNOWN 时经同触发）须同步其 scope 清单段（第 2 章），否则阻断；仅对存在 AGENTS.md 的仓库生效，缺失仓库自动跳过、不强制新建
 2|docs/**/*.md|command,feature,dependency,rename,behavior|doc|架构与使用文档目录
 2|CONTRIBUTING*.md|feature,dependency,rename|doc|贡献指南
 2|*.example.*;.env.example|command,config|artifact|配置样例

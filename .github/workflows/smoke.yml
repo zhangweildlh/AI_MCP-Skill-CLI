@@ -5,8 +5,98 @@ on:
     branches: [main]
   pull_request:
 
+# ============================================================
+# 方案 Y「多 Agent 并发 scope 纪律」CI：
+#   - job scope-map：计算本次变更涉及的 scope 集合（meta / dir/<名> / file/<名>）
+#   - job smoke      ：仅当变更触及 meta（scripts/ .github/ README/CHANGELOG/
+#                       AGENTS.md Memory-Data/）或无可判定 scope 时跑全量 tier0-3（+tier5 纪律一致性）
+#   - job smoke-scoped：仅当变更可判定到具体 skill scope 时，按 matrix 跑
+#                       对应 scope 的 tier1/tier2（+tier5 校验该 scope 条目）
+# 行为约定（与 AGENTS.md 第 5 章 5.3 一致）：
+#   meta 变更 → 全量 CI；目录型/根级文件变更 → 按 scope 触发对应检查。
+# ============================================================
+
 jobs:
+  scope-map:
+    runs-on: ubuntu-latest
+    outputs:
+      scopes: ${{ steps.scope.outputs.scopes }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # 需要完整历史计算变更集
+
+      - name: 计算变更 scope 集合
+        id: scope
+        run: |
+          # ---- 变更基准 ----
+          # PR：以目标分支 base SHA 为基准；push：以提交前 SHA 为基准。
+          # 基准不可用（如首次推送）时回退 origin/main；结果为空差异即视为全量。
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+          fi
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            BASE_SHA="origin/main"
+          fi
+          CHANGED=$(git diff --name-only "${BASE_SHA}"...HEAD || true)
+
+          # ---- 逐个变更路径判定 scope ----
+          scopes=""
+          meta=0
+          for f in $CHANGED; do
+            case "$f" in
+              scripts/*|.github/*|Memory-Data/*)
+                meta=1 ;;                                   # meta 基础设施
+              README.md|CHANGELOG.md|AGENTS.md)
+                meta=1 ;;                                   # meta 根级文档
+              Skill-*.md)
+                # 根级单文件 Skill：提取 frontmatter name → file/<name>
+                name=$(head -25 "$f" | grep -E '^name:' | head -1 \
+                       | sed 's/^name:[[:space:]]*//; s/[",`]//g')
+                if echo "$name" | grep -qE '^[a-z0-9-]+$'; then
+                  scopes="$scopes file/$name"
+                else
+                  meta=1                                    # 无法判定 name → 保守全量
+                fi
+                ;;
+              *)
+                # 顶层目录 / 其它根级文件
+                top="${f%%/*}"
+                case "$top" in
+                  scripts|.github|Memory-Data) meta=1 ;;
+                  *)
+                    if [ -f "$top/SKILL.md" ]; then
+                      scopes="$scopes dir/$top"             # 目录型 Skill
+                    else
+                      meta=1                                # 其它根级文件/未登记目录 → 保守全量
+                    fi
+                    ;;
+                esac
+                ;;
+            esac
+          done
+
+          # ---- 去重并输出 JSON 数组 ----
+          uniq_scopes=$(printf '%s\n' $scopes | sort -u | grep -v '^$')
+          if [ "$meta" = "1" ] || [ -z "$uniq_scopes" ]; then
+            json='["meta"]'                                 # meta / 无可判定 scope → 全量
+          else
+            json=$(printf '%s\n' "$uniq_scopes" | python3 -c \
+              'import sys,json; print(json.dumps([l for l in sys.stdin.read().splitlines() if l]))')
+          fi
+          echo "scopes=$json" >> "$GITHUB_OUTPUT"
+
+      - name: 展示 scope 集合
+        run: echo "本次变更 scope 集合：${{ steps.scope.outputs.scopes }}"
+
+  # ----------------------------------------------------------
+  # 全量冒烟：meta 变更 或 无可判定 scope
+  # ----------------------------------------------------------
   smoke:
+    needs: scope-map
+    if: contains(fromJSON(needs.scope-map.outputs.scopes), 'meta') || needs.scope-map.outputs.scopes == '[]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -19,8 +109,10 @@ jobs:
       - name: Install skill CLI dependencies
         run: python -m pip install --quiet requests
 
-      - name: Run smoke tiers 0-3
-        run: python scripts/smoke/run_all.py --tier 0,1,2,3 --json smoke-report.json
+      - name: Run smoke tiers 0-3 + tier5
+        env:
+          github.repository_visibility: ${{ github.repository_visibility }}
+        run: python scripts/smoke/run_all.py --tier 0,1,2,3,5 --json smoke-report.json
 
       - name: Upload report
         if: always()
@@ -29,7 +121,46 @@ jobs:
           name: smoke-report
           path: smoke-report.json
 
+  # ----------------------------------------------------------
+  # 按 scope 过滤的冒烟：变更仅触及具体 skill（matrix 每 scope 一 job）
+  # ----------------------------------------------------------
+  smoke-scoped:
+    needs: scope-map
+    if: needs.scope-map.outputs.scopes != '[]' && !contains(fromJSON(needs.scope-map.outputs.scopes), 'meta')
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: ${{ fromJSON(needs.scope-map.outputs.scopes) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install skill CLI dependencies
+        run: python -m pip install --quiet requests
+
+      - name: Run scoped smoke tiers 1/2 + tier5
+        env:
+          github.repository_visibility: ${{ github.repository_visibility }}
+        run: |
+          SAFE_SCOPE=$(echo "${{ matrix.scope }}" | tr '/' '_')
+          python scripts/smoke/run_all.py --tier 1,2,5 --scope "${{ matrix.scope }}" \
+            --json "smoke-report-${SAFE_SCOPE}.json"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-report-scoped
+          path: smoke-report-*.json
+
 # 说明：
 # - Tier4（行为级触发）依赖 LLM 运行时，不在 CI 中自动跑。
 # - 接口探活（Tier3 api_probe）默认关闭，需设置仓库 Secret/变量 SMOKE_PROBE_API=1 才启用。
-# - 任一 Tier 出现致命(FATAL)问题，本 job 标红并阻断合并(merge)。
+# - scope-map 判定规则：meta 基础设施/根级文档 → meta（全量）；根级 Skill-*.md → file/<name>；
+#   含 SKILL.md 的顶层目录 → dir/<目录名>；其余无法判定的路径 → 保守全量。
+# - 任一 Tier 出现致命(FATAL)问题，对应 job 标红并阻断合并(merge)。

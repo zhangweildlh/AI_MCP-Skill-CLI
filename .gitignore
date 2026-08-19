@@ -25,6 +25,9 @@ Syncfolders_Database_db
 *.7z
 *.zip
 
+# 方案 Y：worktree 统一挂载目录（仓库内一级子目录，不入库）
+worktrees/
+
 # ---------- 标准构建 / 运行时产物 ----------
 __pycache__/
 *.pyc

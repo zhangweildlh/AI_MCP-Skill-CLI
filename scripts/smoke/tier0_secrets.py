@@ -7,14 +7,20 @@
   2. .gitignore 策略校验：确保敏感目录被忽略、按策略应入库的文件未被忽略。
 
 关于 ANYSEARCH_API_KEY：
-  ref-material-writing/.env 中的真实 ANYSEARCH_API_KEY 按用户明确决策（#10）已授权入库，
-  故列入 ALLOW_PATTERNS，扫描命中不报致命。
+  ref-material-writing/.env 中的真实 ANYSEARCH_API_KEY 按用户明确决策（#10 / D-2026-0811-01）已授权入库，
+  故列入 ALLOW_PATTERNS + 路径级豁免（EXEMPT_SCAN_PATHS），扫描命中不报致命。
   web-search/.env 中的同类真实密钥已于 2026-08-11 改判为「绝不入库」（密钥已落历史、
   须轮换作废，见 .gitignore），故从 MUST_TRACK 移除并归入 MUST_IGNORE，与 .gitignore 一致。
-  若日后希望收紧 ref-material-writing，移除 ALLOW_PATTERNS 中对应条目即可。
+  若日后希望收紧 ref-material-writing，移除 EXEMPT_SCAN_PATHS 与 ALLOW_PATTERNS 中对应条目即可。
+
+可见性守卫（方案 Y）：
+  所有路径级豁免（EXEMPT_SCAN_PATHS）仅当仓库为 private 时生效（_repo_is_private）；
+  CI 通过环境变量 github.repository_visibility 判定（smoke.yml 显式透传），
+  本地默认按 private 放行。仓库若转为 public，豁免自动失效、密钥文件恢复扫描阻断。
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -43,12 +49,31 @@ ALLOW_PATTERNS = [
     re.compile(r"[<>\[]"),                          # 占位符包裹的伪值
 ]
 
-# ---- 路径级扫描豁免 ----
-# 私人仓库（zhangweildlh/AI_MCP-Skill-CLI 为私有）场景下，用户于 2026-08-17 明确授权：
-# mimo_mcp.py 中的真实 OpenAI 密钥不参与密钥扫描阻断（泄露风险由私有可见性兜底）。
-# 与 ref-material-writing/.env 的 #10 授权同属「用户显式决策豁免」，故加入路径豁免而非
-# ALLOW_PATTERNS——避免把真实密钥伪装成「占位符误判」，保持值级语义干净。
-EXEMPT_SCAN_PATHS = {"mimo_mcp.py"}
+# ---- 路径级扫描豁免（仅私有仓库生效，方案 Y 密钥文件豁免）----
+# 判定：仓库可见性为 private 时豁免生效；public 下豁免全部失效（防密钥外泄）。
+#   mimo_mcp.py                          2026-08-17 授权：真实 OpenAI 密钥，私有可见性兜底
+#   ref-material-writing/.env            决策 D-2026-0811-01 授权：真实 ANYSEARCH_API_KEY 入库
+# 与 ALLOW_PATTERNS 的关系：此处为「已知密钥文件」级豁免，避免把真实密钥伪装成
+# 「占位符误判」，保持值级语义干净。
+# 注意：web-search/.env（2026-08-11 决议「绝不入库」）与
+# code-review-combo/config/providers.json（仅本地保留、绝不入库）均属「绝不入库」类，
+# 一律不豁免、保持扫描阻断（误暂存时仍会被拦截，防外泄双保险）。
+EXEMPT_SCAN_PATHS = {"mimo_mcp.py", "ref-material-writing/.env"}
+
+
+def _repo_is_private() -> bool:
+    """仓库是否 private（豁免生效的前提）。
+
+    CI：由环境变量 ``github.repository_visibility`` 判定（smoke.yml 中显式透传
+    ``github.repository_visibility``，见 .github/workflows/smoke.yml）。
+    本地：未设置该变量时默认按 private 放行（本地仓库本身即私有备份，且历史豁免
+    依赖此默认值）；如需强制收紧可设置 ``REPO_VISIBILITY=public``。
+    """
+    for key in ("github.repository_visibility", "REPO_VISIBILITY"):
+        vis = os.environ.get(key, "").strip().lower()
+        if vis:
+            return vis == "private"
+    return True
 
 # ---- .gitignore 策略 ----
 # 必须被忽略（保护私有数据）
@@ -109,8 +134,8 @@ def run(files=None, rep: Report = None) -> Report:
         # 口令类、令牌类等敏感字面值被误报（chrome-devtools 方案A落地 G6）。
         if rel.startswith("chrome-devtools/upstream/"):
             continue
-        # 路径级豁免：私人仓库授权跳过的文件（见 EXEMPT_SCAN_PATHS），不参与密钥扫描
-        if rel in EXEMPT_SCAN_PATHS:
+        # 路径级豁免：仅私有仓库下生效（见 EXEMPT_SCAN_PATHS 与 _repo_is_private）
+        if rel in EXEMPT_SCAN_PATHS and _repo_is_private():
             continue
         p = REPO_ROOT / rel
         if not p.is_file():
