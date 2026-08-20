@@ -51,17 +51,17 @@
 - 4.1 worktree 挂载根：`<仓库根>/worktrees/<name>-<topic>-<YYYYMMDDHHMMSS>/`（已在 .gitignore 统一忽略，不入库）；分支 `feat/<name>-<topic>-<YYYYMMDDHHMMSS>`；**目录名 + `feat/` 前缀 = 分支名**（时间戳一致）；`<name>` 为该 Skill 的 name 字段；`<topic>` 为简短任务核心目的（英文小写连字符，2–6 词 ≤30 字符，禁 B1/B2/b3 类序号）；时间戳由脚本一次 `date +%Y%m%d%H%M%S` 生成、目录与分支复用同一值。
 - 4.2 标准流程（引用脚本而非手写 git worktree add）：
   1. 读取本文件（尤其第 2 章 scope）确认归属；
-  2. 运行 `bash scripts/sop_worktree_add.sh <仓库> --scope <name> --branch <topic> --confirm`（自动建 worktree 目录与分支，时间戳一致，四道守卫）；`--scope <name>` 传入 Skill 的 name 字段，脚本自动生成 `feat/<name>-<topic>-<TS>` 分支与 `worktrees/<name>-<topic>-<TS>/` 目录（时间戳一次生成、目录+`feat/` 前缀=分支名）；
+  2. 运行 `bash github-personal-manager/scripts/sop_worktree_add.sh <仓库> --scope <name> --branch feat/<topic> --confirm`（自动建 worktree 目录与分支，时间戳一致，四道守卫；脚本位于 github-personal-manager 技能目录 `scripts/` 下，须在仓库根执行）；`--scope <name>` 传入 Skill 的 name 字段，脚本自动生成 `feat/<name>-<topic>-<TS>` 分支与 `worktrees/<name>-<topic>-<TS>/` 目录（时间戳一次生成、目录+`feat/` 前缀=分支名）；
   3. 在 worktree 内修改对应 Skill 内容并提交；
-  4. 提交与 PR 遵循第 5 章约定（`sop_pr_create.sh`）；
-  5. 合并后运行 `bash scripts/sop_worktree_cleanup.sh <仓库> --branch feat/<name>-<topic>-<YYYYMMDDHHMMSS> --confirm` 清理（本地自动，远端分支删除须 --confirm）。
+  4. 提交与 PR 遵循第 5 章约定（`github-personal-manager/scripts/sop_pr_create.sh`）；
+  5. 合并后运行 `bash github-personal-manager/scripts/sop_worktree_cleanup.sh <仓库> --branch feat/<name>-<topic>-<YYYYMMDDHHMMSS> --confirm` 清理（本地自动，远端分支删除须 --confirm）。
 - 4.3 禁止事项：禁止在主工作树改动他单元内容；禁止跨 worktree 混改；禁止在 worktree 内改动不属于该 Skill 的文件。
 
 ## 5 提交 / PR / CI 约定
 - 5.1 提交信息：遵循仓库既有惯例（前缀 + 简述，如 `docs:`、`feat:`、`fix:`），并标注本次变更的 scope（`dir/<目录名>` / `file/<name>` / `meta`）。
 - 5.2 PR 纪律：目录型 Skill 改动从对应 worktree 分支发 PR；根级 Skill 文件与一般根级文件走标准分支+PR；PR 描述须列明影响范围与验证方式。
 - 5.3 CI 约定：所有 PR 触发 CI 检查；基础门禁 `smoke` 恒运行（meta/无可判定 scope 变更升级全量 run_all，其余跑 tier0 密钥/忽略门禁）；目录型/根级文件变更另按 scope 触发 `smoke-scoped`（`--scope`，tier1/2+5）；`meta` 变更触发全量 CI。main 分支保护（classic protected branch）required checks 仅含 `smoke`（smoke-scoped 对 meta 变更 skipping，不得列入 required）。
-- 5.4 测试约定：本仓库自动化冒烟集中在 `scripts/smoke/`（tier0-5，`run_all.py` 支持 `--scope` 按 scope 过滤）；提交前可本地运行 `python scripts/smoke/run_all.py --tier 0,1 --staged`；CI 按变更 scope 触发对应检查，meta 变更触发全量；各 Skill 自带测试（如 `github-personal-manager/smoke`、`web-search/tests` 等）保留在各自 Skill 目录内自包含，调度统一收拢到 `scripts/smoke` 入口。
+- 5.4 测试约定：本仓库自动化冒烟集中在 `scripts/smoke/`（tier0-5，`run_all.py` 支持 `--scope` 按 scope 过滤）；提交前可本地运行 `uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 0,1 --staged`（本机禁裸 python，一律经 uv 调用，工程路径为本机环境事实，其他机器按各自环境调整）；CI 按变更 scope 触发对应检查，meta 变更触发全量；各 Skill 自带测试（如 `github-personal-manager/smoke`、`web-search/tests` 等）保留在各自 Skill 目录内自包含，调度统一收拢到 `scripts/smoke` 入口。
 
 ## 6 本文件的维护
 - 6.1 唯一事实源：本文件为仓库纪律唯一权威；任何纪律变更必须先更新本文件，再更新引用方。

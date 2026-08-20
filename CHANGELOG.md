@@ -22,6 +22,7 @@
 
 ### Docs
 - **Memory-Data/**：系统提示词文档整理，将 `Deepseek++系统提示词-2.md` 重命名为 `Deepseek++系统提示词.md`（内容合并为新文件名，便于统一引用）；清理 `codebase-memory/codebase-memory-mcp/data/logs/.gitkeep` 空占位文件。
+- **AGENTS.md / README.md**：修复纪律文档断链——AGENTS.md 4.2 worktree 脚本引用路径补 `github-personal-manager/scripts/` 前缀（原 `scripts/` 在仓库根不存在，陌生 Agent 按字面执行必失败）、`--branch` 参数统一为 `feat/<topic>` 写法、5.4 本地冒烟命令改为 `uv run`（本机禁裸 python）；README 移除已不存在的 `md-crossref-audit`（`Skill-文档引用调用有效性检验.md`）条目，活跃技能数更正为 17（9 目录型 + 8 根级单文件型）。
 
 ---
 
