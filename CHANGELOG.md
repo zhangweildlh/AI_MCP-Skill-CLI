@@ -9,6 +9,13 @@
 
 ---
 
+## [2026-08-20]
+
+### Docs
+- **Memory-Data/**：系统提示词文档整理，将 `Deepseek++系统提示词-2.md` 重命名为 `Deepseek++系统提示词.md`（内容合并为新文件名，便于统一引用）；清理 `codebase-memory/codebase-memory-mcp/data/logs/.gitkeep` 空占位文件。
+
+---
+
 ## [2026-08-19]
 
 ### Added
