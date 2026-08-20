@@ -391,7 +391,7 @@ STUB
   local rc=0
   "$ROOT_DIR/scripts/sop_ci_rerun.sh" "$local" --confirm >/dev/null 2>&1; rc=$?
   if [ "$rc" -ne 0 ]; then fail "脚本异常退出 rc=$rc"; return 1; fi
-  if ! grep -q "run rerun 555 --failed" "$log"; then fail "confirm 未触发 gh run rerun --failed: $(cat "$log")"; return 1; fi
+  if ! grep -qE "run rerun 555 .*--failed" "$log"; then fail "confirm 未触发 gh run rerun --failed: $(cat "$log")"; return 1; fi
   pass "ci_rerun --confirm: 真实触发 gh run rerun <id> --failed"
 }
 
