@@ -70,10 +70,25 @@ while [ $# -gt 0 ]; do
     -h|--help) _sop_print_help "${BASH_SOURCE[0]}"; exit 0 ;;
     *)
       # 位置参数：支持「单仓库路径」模式（与其他 sop_*.sh 契约一致）。
-      # 是 git 仓库根 → 以该目录为 REPO_ROOT 扫描；非 git → 提示并 rc=1。
-      if [ -d "$1/.git" ] || git -C "$1" rev-parse --show-toplevel >/dev/null 2>&1; then
-        REPO_ROOT="$1"
-        shift
+      # 判定：传入目录【自身】是 git 仓库根（--show-toplevel 输出 == 传入目录），
+      #       而非仅能向上解析到父仓库——否则仓库内任意子目录会被误判为仓库根
+      #       （契约：其他 sop_*.sh 均拒绝子目录，此处保持同口径）。
+      # 注意：用子 shell cd 而非 git -C —— Windows git.exe 无法识别 POSIX 形态(/tmp/...)
+      #       路径参数，cd 由 bash 内建处理则无此问题（与 _sop_require_repo 同口径）。
+      _sop_status_abs="$(cd "$1" 2>/dev/null && pwd -P)" || _sop_status_abs=""
+      _sop_status_toplevel=""
+      if [ -n "$_sop_status_abs" ]; then
+        _sop_status_toplevel="$(cd "$1" 2>/dev/null && "$GIT_BIN" rev-parse --show-toplevel 2>/dev/null)" || _sop_status_toplevel=""
+      fi
+      if [ -n "$_sop_status_toplevel" ] && [ -n "$_sop_status_abs" ]; then
+        if command -v cygpath >/dev/null 2>&1; then _sop_status_toplevel="$(cygpath -u "$_sop_status_toplevel")"; fi
+        if [ "$_sop_status_abs" = "$_sop_status_toplevel" ]; then
+          REPO_ROOT="$1"
+          shift
+        else
+          echo "错误：不是 git 仓库根：$1（其 git 仓库根为 $_sop_status_toplevel）。如需扫描目录树请用 --root <目录>。" >&2
+          exit 1
+        fi
       else
         echo "错误：不是 git 仓库：$1（请传入含 .git 的仓库根目录，或用 --root 指定目录树）。" >&2
         exit 1
@@ -187,9 +202,31 @@ process_repo() {
 }
 
 # 若 REPO_ROOT 本身是 git 仓库（单仓库模式），直接扫描它自身，不遍历子目录。
-# 判定：REPO_ROOT 含 .git 目录，或 git -C 能解析到其自身为仓库根。
-if [ -d "$REPO_ROOT/.git" ] || git -C "$REPO_ROOT" rev-parse --show-toplevel >/dev/null 2>&1; then
-  process_repo "$REPO_ROOT"
+# 判定：REPO_ROOT【自身】是仓库根（--show-toplevel 输出 == REPO_ROOT 规范化路径），
+#       而非仅能向上解析到父仓库（否则目录树内子仓库会被误判进单仓库模式）。
+# 注意：用子 shell cd 而非 git -C —— Windows git.exe 无法识别 POSIX 形态路径参数。
+_sop_status_abs="$(cd "$REPO_ROOT" 2>/dev/null && pwd -P)" || _sop_status_abs=""
+_sop_status_toplevel=""
+if [ -n "$_sop_status_abs" ]; then
+  _sop_status_toplevel="$(cd "$REPO_ROOT" 2>/dev/null && "$GIT_BIN" rev-parse --show-toplevel 2>/dev/null)" || _sop_status_toplevel=""
+fi
+if [ -n "$_sop_status_toplevel" ] && [ -n "$_sop_status_abs" ]; then
+  if command -v cygpath >/dev/null 2>&1; then _sop_status_toplevel="$(cygpath -u "$_sop_status_toplevel")"; fi
+  if [ "$_sop_status_abs" = "$_sop_status_toplevel" ]; then
+    process_repo "$REPO_ROOT"
+  else
+    # 遍历 REPO_ROOT 下第一级子目录（含点目录，再用排除列表过滤）
+    while IFS= read -r -d '' sub; do
+      name="$(basename "$sub")"
+      # 排除 .mimocode / .workbuddy
+      case ",$EXCLUDE," in
+        *",$name,"*) continue ;;
+      esac
+      # 仅处理目录
+      [ -d "$sub" ] || continue
+      process_repo "$sub"
+    done < <(find "$REPO_ROOT" -maxdepth 1 -mindepth 1 -print0)
+  fi
 else
   # 遍历 REPO_ROOT 下第一级子目录（含点目录，再用排除列表过滤）
   while IFS= read -r -d '' sub; do

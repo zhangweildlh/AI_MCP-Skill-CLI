@@ -168,8 +168,10 @@ test_contract_ci_rerun() {
   fail "重跑 CI gate 异常: $out"; return 1
 }
 
-# 重跑 CI 真实调用路径：拦截 gh，验证「不再把完整 remote URL 当作 --repo 传入」
-# （此前 BUG：gh run list --repo <完整URL> 可能查不到 run；修复后依赖 gh 当前仓库自动探测）
+# 重跑 CI 真实调用路径：拦截 gh，验证「显式携带 --repo owner/repo」（审计契约）
+# （历史 BUG1：gh run list --repo <完整URL> 可能查不到 run；已改为 owner/repo 形态。
+#   历史 BUG2：依赖 gh 当前仓库自动探测（不传 --repo）在多远端/非仓库目录下误探测；
+#   已改为显式 --repo（P-GPM-5 / --repo 审计）。）
 test_contract_ci_rerun_realpath() {
   local pair; pair="$(setup_origin_and_local)"
   local local="${pair#*|}"
@@ -195,8 +197,9 @@ STUB
   rc=$?
   if [ "$rc" -ne 0 ]; then fail "脚本异常退出 rc=$rc"; return 1; fi
   if ! grep -q "run list" "$log"; then fail "未触发真实 gh run list 调用: $(cat "$log")"; return 1; fi
-  if grep -Eq -- "--repo" "$log"; then fail "gh 调用仍携带 --repo（修复 regression）: $(cat "$log")"; return 1; fi
-  pass "重跑 CI 真实调用路径：触发 gh run list 且未误传 --repo（依赖当前仓库自动探测）"
+  if ! grep -q -- "--repo" "$log"; then fail "gh 调用未显式携带 --repo（审计契约，防多远端/非仓库目录误探测）: $(cat "$log")"; return 1; fi
+  if grep -Eq -- "--repo https?://" "$log"; then fail "gh 调用把完整 remote URL 当作 --repo 传入: $(cat "$log")"; return 1; fi
+  pass "重跑 CI 真实调用路径：触发 gh run list 且显式 --repo（owner/repo 形态，非完整 URL）"
 }
 
 # A 档只读 CI 查询：需真实仓库+gh 登录，手工验收（此处不自动断言）
