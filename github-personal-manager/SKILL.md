@@ -64,7 +64,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
   - **否则**（不在强制列表中的其它仓库）→ **静默跳过**，不提示、不报错，视为普通仓库继续。
   > 脚本层对应实现为 `scripts/lib/sop-common.sh` 的 `_sop_probe_agents_md`，双层防护一致。
 
-- **脚本可用性核验（强制，D4 修复）**：进入本技能后（阶段 0 工具探测通过即执行），先 `ls "<技能根目录>/scripts/sop_*.sh"` 确认脚本已部署；若不存在 → **立即暂停**，提示「github-personal-manager 脚本未部署，请先部署 `scripts/` 后再用本技能」。所有 git/gh 写操作**必须**走 `bash scripts/sop_*.sh`，严禁手写等价命令绕过（脚本内含路径守卫 / dry-run / 暂停门禁，手写即绕过安全网）。脚本缺失时按本核验暂停，不降级为手写命令。
+- **脚本可用性核验（强制，D4 修复）**：进入本技能后（阶段 0 工具探测通过即执行），先 `find "<技能根目录>/scripts" -name "sop_*.sh" | head` 确认脚本已部署（**注意：含 `*` 的模式禁止整体放进双引号**——Git Bash 下引号会抑制 shell 的 `*` 展开，导致误报「脚本不存在」并错误触发暂停；推荐 `find -name` 或去引号写法）；若不存在 → **立即暂停**，提示「github-personal-manager 脚本未部署，请先部署 `scripts/` 后再用本技能」。所有 git/gh 写操作**必须**走 `bash scripts/sop_*.sh`，严禁手写等价命令绕过（脚本内含路径守卫 / dry-run / 暂停门禁，手写即绕过安全网）。脚本缺失时按本核验暂停，不降级为手写命令。
 
 ## 脚本调用约定（关键：明确告诉你要跑哪个脚本、怎么跑）
 - **强制走脚本（最高优先级，D4 修复）**：凡涉及 git/gh 写操作（提交 / 推送 / 开 PR / 合并 / 打标签 / 发版 / 删分支 / 清理工区），**一律调用 `bash scripts/sop_*.sh`，禁止手写等价命令**。未走脚本的写操作一律视为违反本技能。脚本缺失时按阶段 0「脚本可用性核验」暂停，不降级为手写命令。（应急通道：仅在脚本确缺失且用户显式要求时，才可手写等价命令作为降级，且仍须遵守全部顶级全局禁令与暂停门禁。）
@@ -203,6 +203,8 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
    - **Tier 3（测试、包清单、锁文件，提示）**：行为/依赖变动建议补测试或同步锁文件，仅提示不阻断。
    - 适用范围、"免触发"边界与完整分层定义见 `references/docs-sync-checklist.md`；本门禁不绕过任何顶级全局禁令/路径核验。
 4. 提交/推送/触发 CI（手动 `git`）：`git add [文件]` → `git commit -m "type: 简述"` → **推送(push) 前先运行 `bash scripts/sop_privacy_gate.sh <仓库路径>`（见顶级全局禁令第 6 条），命中即暂停处理再 push** → `git push -u origin feat/[topic]`。
+  - **4.5 提交前置排雷（.gitignore 预置，防 pre-commit 拦截）**：若工作区存在**未跟踪的含密钥文件 / 超大文件**（如 `providers.json` 含真实 key、数百 MB 的 exe），而目标分支的 `.gitignore` 无对应忽略规则 → 隐私/体积门禁（Tier0）会扫描未忽略的未跟踪文件并 **FATAL 拦截提交**。对策：每个要提交的分支**先补 `.gitignore` 忽略规则**（与含规则分支用**相同文本、相同位置**追加 → 多 PR 合并时大概率自动合并）；提交前 `git status --short` 确认只暂存预期文件。
+  - **推送后须核验（防漏推）**：`git push -u origin feat/[topic]` 后，必须 `git branch -vv` 确认该分支显示 `ahead 0`（远端已更新）；`gh run list --branch <b>` 应有新 run（headSha=新提交）。漏推时 PR head 不更新、无新 CI run，极易漏检。
    - **提交信息建议采用 conventional commits 类型前缀（规范引导，非强制校验）**：`type` 取 `feat:`（新功能）/ `fix:`（修复）/ `chore:`（杂务）/ `docs:`（文档）/ `refactor:`（重构）/ `test:`（测试）/ `style:`（格式），格式为 `type: 简述`（如 `fix: 修正 CI 路径核验误报`）。此举仅为提交信息约定，便于审阅与生成 CHANGELOG，工具层不强制校验；仍须坚持"一 PR 一主题"。注意：这是提交信息约定，与合并纪律（顶级禁令第 8 条 `--no-ff`）无关，互不替代。
 5. **CI 触发条件核查（开 PR / 轮询 CI 前强制，D2 修复）**：读取 `<仓库>/.github/workflows/*.yml`，确认 `on:` 下的 `push.branches` 与 `pull_request.branches`：
    - 若当前功能分支(feat) 不在 `push.branches` 列表 → **明确告知用户**：「feature 分支 push 不会自动触发 CI，须开 PR（或合并 main）才能验证」；直接走「开 PR 触发 PR 的 CI」路径，不浪费一轮 push 后空等。
@@ -255,6 +257,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 ### 工作流六：CI 失败排错
 （前提：阶段 0 工具可用，完成路径核验。先 `cd` 到技能根目录。）
 - **前置核查 · CI 触发条件核查（轮询 CI 前强制，D2 修复）**：同工作流四第 5 步——读取 `<仓库>/.github/workflows/*.yml` 的 `push.branches` / `pull_request.branches`，确认当前分支的 CI 是否被触发；若 feature 分支不在 `push.branches`，明确知晓「须开 PR 才能验证」，不空等 push 后的 run。进入本工作流通常已在 PR 中，此核查用于避免误判「CI 没跑」。
+  - **红灯归属诊断（避免对历史遗留红灯空折腾）**：合并/修复前先看 main 自身 CI 历史 `gh run list --workflow <wf> --branch main`——若 main 最近多次全 failure，说明红灯是**历史遗留、与 PR 内容无关**，不要试图逐个 PR 找原因；再用 `git show main:<测试文件>` 确认 main 同样含该断言、`git ls-tree` 确认被忽略文件确不在 main 树内，坐实后按「测试缺陷修复」处理（见工作流四 4.5 提交前置排雷），而非改业务代码。
 1. **下载失败日志（脚本，只读）**：运行 `bash scripts/sop_ci_failed_log.sh <仓库路径>`，自动取最近一次 workflow run 并打印失败步骤日志，无需打开网页。
 2. **轮询 CI 状态（脚本，只读）**：运行 `bash scripts/sop_pr_checks.sh <仓库路径>`。
 3. 按现象对号入座（详见 references/fork-ci-pitfalls.md）：fmt 失败 → 格式化；clippy `-D warnings` → 改 feat 重验；`action_required` → 等维护者；整 CI 红且无关代码 → 取消 pinned SHA 勾选；发布 job 失败 → 给发布 job 加 `if: github.repository == '<upstream>'` 守卫（⚠️ actionlint 拒绝纯常量 `if: false`，须用非常量仓库名比较）；CHANGELOG 缺段 → 补段。
@@ -299,6 +302,11 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
   - 触发并轮询 CI：`bash scripts/sop_pr_checks.sh <仓库路径>`，`gh pr checks` / `gh run list` 必须全绿。
 - **阶段 5 — PR 审查意见回应（含多轮）**：① 拉取评审 `gh pr view <编号> --comments` / `gh pr diff <编号>` / `gh api .../pulls/<编号>/reviews`；② 先对齐分支（当前分支须等于 PR 源分支 `feat/<topic>`，`gh pr view <编号> --json headRefName` 核对）；③ 以**真实代码**为唯一基准（用 `gh pr diff`/`Read` 实际文件当前行），逐条对照避免悬空/错误回应；④ **代码修改标准（完整裁决器 + 全局契约面）**：动手前先定统一优先级裁决器（契约保真 > 正确性 > 覆盖完整 > 最小作用域 > 可验证）、画出全局契约面（既有语义/调用点/文档声明/评审共识/耦合模块/全仓库影响面），根因修复而非仅消红灯；同 diff 一次性收口所有 A 类（真问题）+ 联动项，绝不叠补丁、绝不只改被点名项；⑤ 文案回答逐条引用裁决/契约结论（A 改了哪如何验证 / B 文档澄清 / C 误判有理有据驳回）；⑥ user-facing 改动在 Evidence 段附截图（Web UI 直接粘贴，或 CLI 兜底放 `assets/pr-evidence/` 后引用公开 URL）；⑦ 推送更新 `git push origin feat/<topic>`，重跑 CI 至绿；⑧ 多轮迭代回到阶段 5 开头整体重画方案，不叠补丁。
 - **阶段 6 — PR 合并**：贡献 upstream 由维护者合并，你仅监控；自有仓库/自测 PR 用 `gh pr merge`；fork 内部 PR 用 `gh pr merge --squash`。合并前冲突/分支保护见工作流三冲突决策树或工作流五多工作树。
+  - **规则集跳过检查绕过（GitHub ruleset 场景）**：若仓库启用 ruleset 且其 required checks 含「因 PR 变更范围(scope)而 skipping」的检查（如 `smoke-scoped` 对 meta 变更跳过），默认 `gh pr merge` 会因「该 required check 虽 skipping 仍视为未满足」被拒（提示 `the base branch policy prohibits the merge`）。
+    - 前置：PR 的 CI **实际已通过**（smoke / scope-map pass，skipping 属正常）；`--admin` **仅绕过「跳过的 check」**，若 smoke / scope-map **真红须先修 CI 再合并**。
+    - 你是 repo admin 且 ruleset 已配 `bypass_actors`（方向 B：`bypass_mode: always`）时，用 `gh pr merge <PR> --admin -m`（须带 `-m/-s/-r` 之一，非交互缺省会报「缺合并方式标志」）。
+    - **禁止用 `--auto` 替代**：skipping 的 required check 永不满足条件，`--auto` 会让 PR 永远等不到自动合并。
+    - 若 ruleset 未配 admin bypass，`--admin` 仍被拒 → 须先配 `bypass_actors` 或调整 ruleset 的 required checks。本绕过**不扩展到**删 main / 强推 / 推 upstream 等绝对红线（见顶级禁令第 2/4/5 条与 D6 特例）。
 - **阶段 7 — 其他 PR 操作**：关闭 `gh pr close`、重开 `gh pr reopen`、编辑 `gh pr edit --body-file`、标 ready `gh pr ready`、作为评审人 `gh pr review --approve|--request-changes|--comment`、评论 `gh pr comment`。
 - **阶段 8 — 收尾与清理**：合并后 `git switch main && git pull upstream main && git push origin main`；分支清理走工作流八（删前确认 PR 非 open）；工区清理走工作流十。**分支保护提示（2026-08-19）**：若目标仓库 main 已开启分支保护，直推被拒时改为 `git pull --ff-only origin main` 同步即可（PR 已在阶段 6 合并，本地无需再推 main）。
 - **强门禁总述**：仅「路径核验通过 + 分支/对齐通过 + 重复 PR 已排除 + 上游规范已遵循 + 正文合规 + CI 全绿」的 PR 可开/可合；一切冲突、公开动作（强推 feat 需 `--force-with-lease` 二次确认、合并受保护分支走 PR、删分支前 PR 状态核验）一律大白话 + 后果 + 暂停等指令。
