@@ -8,12 +8,16 @@ on:
 # ============================================================
 # 方案 Y「多 Agent 并发 scope 纪律」CI：
 #   - job scope-map：计算本次变更涉及的 scope 集合（meta / dir/<名> / file/<名>）
-#   - job smoke      ：仅当变更触及 meta（scripts/ .github/ README/CHANGELOG/
-#                       AGENTS.md Memory-Data/）或无可判定 scope 时跑全量 tier0-3（+tier5 纪律一致性）
+#   - job smoke      ：基础门禁，**任何变更恒运行**（main 规则集 required check，保证 PR 可正常合并）。
+#                      触及 meta（scripts/ .github/ README/CHANGELOG/ AGENTS.md Memory-Data/）
+#                      或无可判定 scope 时升级跑全量 tier0-3（+tier5 纪律一致性）；
+#                      其余按 scope 变更仅跑 tier0 密钥/忽略门禁（快速基础门禁）。
 #   - job smoke-scoped：仅当变更可判定到具体 skill scope 时，按 matrix 跑
-#                       对应 scope 的 tier1/tier2（+tier5 校验该 scope 条目）
+#                       对应 scope 的 tier1/tier2（+tier5 校验该 scope 条目）——附加深化，不进规则集。
 # 行为约定（与 AGENTS.md 第 5 章 5.3 一致）：
-#   meta 变更 → 全量 CI；目录型/根级文件变更 → 按 scope 触发对应检查。
+#   meta 变更 → 全量 CI；目录型/根级文件变更 → 基础门禁 + 按 scope 触发对应检查。
+# 规则集（main ruleset）required checks 仅含 smoke（2026-08-21 修复：smoke-scoped 对 meta 变更
+# 会 skipping，若列为 required 则任何 PR 都无法满足合并条件，只能 --admin 绕过）。
 # ============================================================
 
 jobs:
@@ -106,11 +110,12 @@ jobs:
         run: echo "本次变更 scope 集合：${{ steps.scope.outputs.scopes }}"
 
   # ----------------------------------------------------------
-  # 全量冒烟：meta 变更 或 无可判定 scope
+  # 基础门禁（恒运行，规则集 required check）：
+  #   meta 变更 / 无可判定 scope → 全量 tier0-3 + tier5
+  #   具体 scope 变更 → tier0 密钥/忽略门禁（快速，保证每个 PR 至少一条通过的 smoke）
   # ----------------------------------------------------------
   smoke:
     needs: scope-map
-    if: contains(fromJSON(needs.scope-map.outputs.scopes), 'meta') || needs.scope-map.outputs.scopes == '[]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -123,10 +128,20 @@ jobs:
       - name: Install skill CLI dependencies
         run: python -m pip install --quiet requests
 
-      - name: Run smoke tiers 0-3 + tier5
+      - name: 选择冒烟范围（meta/空 → 全量；scope 变更 → tier0 基础门禁）
+        id: tiers
+        run: |
+          SCOPES='${{ needs.scope-map.outputs.scopes }}'
+          if echo "$SCOPES" | grep -q '"meta"'; then
+            echo "tiers=0,1,2,3,5" >> "$GITHUB_OUTPUT"
+          else
+            echo "tiers=0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run smoke tiers
         env:
           github.repository_visibility: ${{ github.repository_visibility }}
-        run: python scripts/smoke/run_all.py --tier 0,1,2,3,5 --json smoke-report.json
+        run: python scripts/smoke/run_all.py --tier ${{ steps.tiers.outputs.tiers }} --json smoke-report.json
 
       - name: Upload report
         if: always()
@@ -140,7 +155,7 @@ jobs:
   # ----------------------------------------------------------
   smoke-scoped:
     needs: scope-map
-    if: needs.scope-map.outputs.scopes != '[]' && !contains(fromJSON(needs.scope-map.outputs.scopes), 'meta')
+    if: ${{ !contains(fromJSON(needs.scope-map.outputs.scopes), 'meta') }}
     strategy:
       fail-fast: false
       matrix:
