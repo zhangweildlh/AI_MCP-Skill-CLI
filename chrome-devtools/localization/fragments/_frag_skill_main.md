@@ -15,7 +15,7 @@
    - WorkBuddy：`~/.workbuddy/mcp.json` 含 `chrome-devtools` 条目（command 指向全局 bin、`--browserUrl=http://127.0.0.1:9222`）且连接器已信任；工具名形如 `mcp__<server>__<tool>`（如 `mcp__chrome-devtools__list_pages`），若为延迟工具（deferred tools）须先加载工具 schema 再调用，**不得因加载步骤繁琐而降级 CLI**。
    - DeepSeek++（DeepSeek-pp 扩展）：侧边栏「能力 > MCP」新增服务（传输选 Streamable HTTP 或 Native）；工具名由平台生成，形如 `mcp_<server>_<tool>` 或 `mcp_t_<uuid>_<tool>`，经 `mcp_discover`/`mcp_describe`/`mcp_invoke` 间接调用，不能直接传工具名。
    - 其他 Agent：按其平台暴露的 MCP 工具命名与调用方式使用。
-   **判定标准（必须实测，不可仅凭配置）**：实际调用一次页面列表类工具成功返回（如取页面列表）→ 形态一可用，**全程使用 MCP，禁止降级 CLI**。
+   **判定标准（必须实测，不可仅凭配置）**：**先按步骤 1 确保浏览器调试端口就绪**，再实际调用一次页面列表类工具成功返回（如取页面列表）→ 形态一可用，**全程使用 MCP，禁止降级 CLI**。
 3. **形态二：MCP 中转（经 HTTP 桥接，次选）**：本机存在把本地 stdio MCP 暴露为 HTTP 端点的聚合/桥接服务（如 dynamic-mcp 门面 `http://127.0.0.1:8082/dynamic-mcp`，或 DeepSeek++「新增 MCP 服务」填写的「桥接端点 URL」），且**该端点已聚合 chrome-devtools 后端**时使用（端点未聚合该后端则形态二不可用，如 dynamic-mcp.json 无 chrome-devtools 条目时不得强行使用）。调用方式按平台暴露的工具名（形如 `mcp_<server>_<tool>`/`mcp_t_<uuid>_<tool>` 或平台变体），**同样先实测验证可用**。
 4. **形态三：CLI 兜底（仅当形态一、二均不可用时）**：MCP 通道完全不可用，才走 CLI 常驻服务两段式（见步骤 3）。
 5. 任何形态下，浏览器调试端口是硬前置。**360 极速浏览器（360Chromex）注意**：若已有实例占用 `User Data` profile，新起带调试端口实例会被单实例机制静默吞掉（端口无响应），**切勿关闭用户日常浏览器**，改用独立临时 profile（`--user-data-dir=<新空目录>`）启动调试实例。
