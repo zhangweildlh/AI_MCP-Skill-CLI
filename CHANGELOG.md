@@ -16,6 +16,9 @@
 
 ### Changed
 - **main 分支保护机制切换（ruleset → classic）**：实证发现 GitHub **ruleset 的 `required_status_checks` 评估存在平台缺陷**——required check `smoke` 已 success 且 context/integration 完全匹配，PR 仍 `mergeable_state=blocked`（#30-#34 多轮：改 strict、重建规则集、去 integration_id 均无效；禁用规则集后普通合并立即成功）。切换为 classic branch protection（`branches/main/protection`：required checks 仅 `smoke`、strict=false、enforce_admins=true），普通合并恢复正常、无需 `--admin`；ruleset 已删除，`smoke` 恒运行门禁不变。
+
+### Added
+- **github-personal-manager**：新增 `workflows/wf_branch_clean.sh`（一键回收已合入 main 的本地分支，SourceGit / Git Extensions 图形客户端封装）；补齐 `workflows/README.md` 已声明但缺失的脚本断链。
 ---
 
 ## [2026-08-20]
