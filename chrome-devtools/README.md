@@ -30,6 +30,7 @@
 - **父技能（本目录根，可改）**：承载本地化逻辑与运行时说明，包括 `SKILL.md`、`.gitignore`、`localization/`。
 - **子技能（`upstream/`，vendored 快照 + 流水线就地注入，非手工编辑区）**：垂直存放 `ChromeDevTools/chrome-devtools-mcp` 的源码 / 构建 / 文档基线；本地化约束（zod 钉版本、allow-scripts 白名单、puppeteer 跳过下载，由 `compat.cjs` 注入）与本地化片段（`SKILL.md` / `README.md` 注入段、`description` 中文改写，由 `apply_localize.cjs` 注入）**均由流水线在克隆后就地注入到 `upstream/` 文件内**，而非手工预先编辑。
   - ⚠️ 虽然 `upstream/` 会被流水线就地修改（这与其「vendored 快照」身份不冲突，恰是方案 A 的注入机制），但**严禁人工直接改 `upstream/` 内文件**——任何本地化改动都应改 `localization/` 与 `fragments/` 后由流水线注入，否则会在下次 `upstream.cjs` 刷新时丢失或冲突。
+- **加载规范（强制）**：部署后，宿主 Agent 必须且只能加载部署副本**根级 `SKILL.md`**（主 Skill 定义文件）；`upstream/skills/` 下所有子 Skill 已被注入 frontmatter 门禁（`disable-model-invocation: true` + `user-invocable: false`），只能由主 Skill 内部引用，**禁止 Agent 直接加载/调用/手动触发**（门禁由 `apply_localize.cjs` 在部署时幂等注入，见第 6.1 节）。
 
 ### 2.2 本地化注入机制（哨兵幂等）
 
@@ -178,8 +179,9 @@ DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 
   - `upstream/skills/chrome-devtools-cli/SKILL.md`（片段 `_frag_skill_cli.md` + 描述 `_frag_skill_cli_desc.txt`）
   - `upstream/README.md`（片段 `_frag_readme_local.md`）
   - 生成 `mcp-local-config.json`。根 `SKILL.md` 与上游 `skills/chrome-devtools/SKILL.md` 是不同文件、不同用途，但**同源**于同一 `_frag_skill_main.md`（单一事实源）。
-- **`--check`（无副作用自检）**：仅校验守卫（`upstream/package.json` 存在）与全部注入目标存在性，不修改任何文件。通过输出 `[CHECK] 通过`。供 CI / 测试使用，防回归。
-- **`--strip`（剥离）**：移除已注入的本地化段（哨兵行到文件末尾），用于上游更新后「刷新」重注入。剥离后需再无参重跑本脚本重新注入。
+  - **子 Skill frontmatter 门禁（方案③）**：对 `upstream/skills/` 下**全部**子 Skill 的 `SKILL.md` 幂等注入 `disable-model-invocation: true` + `user-invocable: false`。目的：使宿主 Agent（WorkBuddy / DeepSeek++ 等）**不得**将子 Skill 注册为可自动/手动调用的独立技能，仅允许主 Skill 内部引用；`--check` 会校验门禁存在性，缺失即 `[CHECK-FAIL]`。
+- **`--check`（无副作用自检）**：仅校验守卫（`upstream/package.json` 存在）、全部注入目标存在性与子 Skill 门禁，不修改任何文件。通过输出 `[CHECK] 通过`。供 CI / 测试使用，防回归。
+- **`--strip`（剥离）**：移除已注入的本地化段（哨兵行到文件末尾），用于上游更新后「刷新」重注入。剥离后需再无参重跑本脚本重新注入。**注意**：门禁字段位于 frontmatter（哨兵之前），`--strip` 不会移除；上游重新 clone 后由默认注入重新补齐。
 
 注入目标清单在脚本内 `KNOWN_TARGETS` 写死；若某目标缺失，视为「主副本 → 部署副本失同步」，会**明确告警**（而非静默跳过）。
 
