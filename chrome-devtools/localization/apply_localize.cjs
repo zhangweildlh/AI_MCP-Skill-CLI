@@ -21,6 +21,58 @@ const KNOWN_TARGETS = new Set([
   'SKILL.md',
 ]);
 
+// 子 Skill frontmatter 门禁（方案③）：upstream/skills/ 下所有子 Skill 注入
+// disable-model-invocation: true + user-invocable: false，使宿主 Agent（WorkBuddy/
+// DeepSeek++ 等）不得将其注册为可自动/手动调用的独立技能，仅允许主 Skill 内部引用。
+// 幂等：frontmatter 已含全部门禁键则跳过。
+const SUB_SKILL_GATE = {
+  'disable-model-invocation': 'true',
+  'user-invocable': 'false',
+};
+
+// 幂等判定：frontmatter 行数组是否已含全部门禁键（applyGate 与 --check 共用，避免逻辑漂移）。
+function isGated(fmLines) {
+  return Object.keys(SUB_SKILL_GATE).every((k) => fmLines.some((l) => l.startsWith(k + ':')));
+}
+
+// 幂等注入门禁字段到单个 SKILL.md 的 frontmatter（追加到 frontmatter 末尾键后）。
+// 行尾沿用源文件 frontmatter 的 EOL（CRLF/LF），避免混合行尾（审计发现）。
+function applyGate(file) {
+  const content = fs.readFileSync(file, 'utf8');
+  const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fm) { console.log('[跳过] 无 frontmatter: ' + file); return false; }
+  const fmLines = fm[1].split(/\r?\n/);
+  if (isGated(fmLines)) return false; // 已全量存在（幂等）
+  const has = new Set();
+  for (const l of fmLines) { const m = l.match(/^([A-Za-z0-9_-]+):/); if (m) has.add(m[1]); }
+  const outLines = fmLines.slice();
+  for (const k of Object.keys(SUB_SKILL_GATE)) {
+    if (!has.has(k)) outLines.push(k + ': ' + SUB_SKILL_GATE[k]);
+  }
+  const eol = /\r\n/.test(fm[0]) ? '\r\n' : '\n';
+  const newFm = outLines.join(eol);
+  const newContent = content.slice(0, fm.index) + '---' + eol + newFm + eol + '---' + content.slice(fm.index + fm[0].length);
+  fs.writeFileSync(file, newContent, 'utf8');
+  return true;
+}
+
+// 枚举 upstream/skills/ 下全部子 Skill 目录，幂等应用门禁；返回处理数量。
+function gateSubskills() {
+  const skillsDir = path.join(UPSTREAM, 'skills');
+  if (!fs.existsSync(skillsDir)) { console.log('[跳过] upstream/skills 不存在: ' + skillsDir); return 0; }
+  const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+  let handled = 0;
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue;
+    const skillFile = path.join(skillsDir, ent.name, 'SKILL.md');
+    if (!fs.existsSync(skillFile)) continue;
+    const rel = path.relative(REPO, skillFile).replace(/\\/g, '/');
+    if (applyGate(skillFile)) { console.log('[已门禁] ' + rel); handled++; }
+    else { console.log('[门禁已存在] ' + rel); }
+  }
+  return handled;
+}
+
 function readConfig() {
   const p = path.join(REPO, 'local-config.json');
   return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : {};
@@ -145,6 +197,20 @@ function main() {
     const topSkillSrc = path.join(UPSTREAM, 'skills', 'chrome-devtools', 'SKILL.md');
     if (!fs.existsSync(topSkillSrc)) { console.error('[CHECK-FAIL] 顶层 SKILL.md 同步源缺失: ' + topSkillSrc); ok = false; }
     else console.log('[CHECK-OK] 顶层 SKILL.md 同步源存在');
+    // 子 Skill 门禁检查（方案③）：upstream/skills/ 下每个 SKILL.md 须已含门禁字段。
+    const skillsDir = path.join(UPSTREAM, 'skills');
+    if (fs.existsSync(skillsDir)) {
+      for (const ent of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+        if (!ent.isDirectory()) continue;
+        const sf = path.join(skillsDir, ent.name, 'SKILL.md');
+        if (!fs.existsSync(sf)) continue;
+        const c = fs.readFileSync(sf, 'utf8');
+        const fm = c.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+        const hasGate = fm && isGated(fm[1].split(/\r?\n/));
+        if (!hasGate) { console.error('[CHECK-FAIL] 子 Skill 门禁缺失: upstream/skills/' + ent.name + '/SKILL.md'); ok = false; }
+        else console.log('[CHECK-OK] 门禁存在: upstream/skills/' + ent.name + '/SKILL.md');
+      }
+    } else { console.warn('[CHECK-WARN] upstream/skills 不存在（未部署 upstream/，跳过门禁检查）'); }
     if (!ok) { console.error('[CHECK] 失败：存在缺失的注入目标，本地化注入将静默跳过（F-01/F-02 回归）。'); process.exit(1); }
     console.log('[CHECK] 通过：守卫与全部注入目标就绪，本地化注入可正常落地。');
     process.exit(0);
@@ -174,6 +240,10 @@ function main() {
   inject('SKILL.md', '_frag_skill_main.md');
   localizeDescription('SKILL.md', '_frag_skill_main_desc.txt');
 
+  // 子 Skill frontmatter 门禁（方案③）：幂等注入，使宿主 Agent 不将 upstream/skills/
+  // 下子 Skill 注册为可自动/手动调用的独立技能，仅允许主 Skill 内部引用。
+  gateSubskills();
+
   genMcpConfig();
 
   // 注：根 SKILL.md 与上游 skills/chrome-devtools/SKILL.md 是不同文件、不同用途，
@@ -197,5 +267,5 @@ function main() {
 }
 
 // 支持作为模块被测试 require（不触发副作用执行）
-module.exports = { inject, strip, localizeDescription, genMcpConfig, SENTINEL };
+module.exports = { inject, strip, localizeDescription, genMcpConfig, gateSubskills, applyGate, isGated, SUB_SKILL_GATE, SENTINEL };
 if (require.main === module) main();
