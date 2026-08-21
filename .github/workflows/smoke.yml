@@ -8,16 +8,17 @@ on:
 # ============================================================
 # 方案 Y「多 Agent 并发 scope 纪律」CI：
 #   - job scope-map：计算本次变更涉及的 scope 集合（meta / dir/<名> / file/<名>）
-#   - job smoke      ：基础门禁，**任何变更恒运行**（main 规则集 required check，保证 PR 可正常合并）。
+#   - job smoke      ：基础门禁，**任何变更恒运行**（main 分支保护 required check，保证 PR 可正常合并）。
 #                      触及 meta（scripts/ .github/ README/CHANGELOG/ AGENTS.md Memory-Data/）
 #                      或无可判定 scope 时升级跑全量 tier0-3（+tier5 纪律一致性）；
 #                      其余按 scope 变更仅跑 tier0 密钥/忽略门禁（快速基础门禁）。
 #   - job smoke-scoped：仅当变更可判定到具体 skill scope 时，按 matrix 跑
-#                       对应 scope 的 tier1/tier2（+tier5 校验该 scope 条目）——附加深化，不进规则集。
+#                       对应 scope 的 tier1/tier2（+tier5 校验该 scope 条目）——附加深化，不列入分支保护。
 # 行为约定（与 AGENTS.md 第 5 章 5.3 一致）：
 #   meta 变更 → 全量 CI；目录型/根级文件变更 → 基础门禁 + 按 scope 触发对应检查。
-# 规则集（main ruleset）required checks 仅含 smoke（2026-08-21 修复：smoke-scoped 对 meta 变更
-# 会 skipping，若列为 required 则任何 PR 都无法满足合并条件，只能 --admin 绕过）。
+# main 分支保护（classic protected branch，2026-08-21 由 ruleset 切换：ruleset required_status_checks
+# 评估存在平台缺陷）required checks 仅含 smoke（smoke-scoped 对 meta 变更会 skipping，若列为
+# required 则任何 PR 都无法满足合并条件）。
 # ============================================================
 
 jobs:
@@ -110,7 +111,7 @@ jobs:
         run: echo "本次变更 scope 集合：${{ steps.scope.outputs.scopes }}"
 
   # ----------------------------------------------------------
-  # 基础门禁（恒运行，规则集 required check）：
+  # 基础门禁（恒运行，分支保护 required check）：
   #   meta 变更 / 无可判定 scope → 全量 tier0-3 + tier5
   #   具体 scope 变更 → tier0 密钥/忽略门禁（快速，保证每个 PR 至少一条通过的 smoke）
   # ----------------------------------------------------------
