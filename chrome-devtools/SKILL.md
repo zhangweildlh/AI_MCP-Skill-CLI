@@ -1,6 +1,6 @@
 ---
 name: chrome-devtools
-description: "通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome / 360Chromex 等）进行网页调试、浏览器自动化、性能分析与网络检查的中文本地化技能。服务器以全局方式安装（npm install -g，位于 $(npm root -g)），可任选 MCP 服务模式或 CLI 模式使用。激活关键词：Chrome DevTools、浏览器自动化、网页调试、页面快照(take_snapshot)、元素交互(点击/填写/拖拽)、性能分析(Lighthouse/Performance Insight)、内存泄漏排查、网络请求检查、控制台日志、网页截图。适用场景：调试网页或 Web 应用、自动化点击/填写/导航、分析 LCP/内存/可访问性、抓取页面结构与控制台、连接已登录浏览器复用登录态。不适用场景：纯后端或 CLI 任务、无需浏览器的数据处理、本机无可用浏览器且未用 verify_browser 指定路径的情况。"
+description: "通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome / 360Chromex 等）进行网页调试、浏览器自动化、性能分析与网络检查的中文本地化技能。服务器以全局方式安装（npm install -g，位于 $(npm root -g)），可任选 MCP 直连/中转或 CLI 兜底使用。激活关键词：Chrome DevTools、浏览器自动化、网页调试、页面快照(take_snapshot)、元素交互(点击/填写/拖拽)、性能分析(Lighthouse/Performance Insight)、内存泄漏排查、网络请求检查、控制台日志、网页截图。适用场景：调试网页或 Web 应用、自动化点击/填写/导航、分析 LCP/内存/可访问性、抓取页面结构与控制台、连接已登录浏览器复用登录态。不适用场景：纯后端或 CLI 任务、无需浏览器的数据处理、本机无可用浏览器且未用 verify_browser 指定路径的情况。"
 ---
 
 ---
@@ -13,23 +13,23 @@ description: "通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome
 
 **前置**：Node.js ≥ 20.19（或 ≥ 22.12）；全局 bin 的 `node` 即系统 Node。
 
-### 步骤 0：模式检测（MCP 服务模式 / CLI 模式 二选一，每次使用初始执行）
+### 步骤 0：接入形态检测（MCP 直连 / MCP 中转 / CLI 兜底，三选一互斥；每次使用初始执行）
 
-激活本技能后、调用任何浏览器能力之前，请**先判断当前使用模式**（不要默认 CLI，也不要默认 MCP）：
+**加载规范（强制）**：本技能**部署副本的根级 `SKILL.md`** 是唯一主 Skill 定义文件，任何 Agent **必须且只能**加载它；`upstream/skills/` 下所有子 Skill（含上游官方 skill）已被注入 frontmatter 门禁（`disable-model-invocation: true` + `user-invocable: false`），**只能由本主 Skill 内部引用，禁止 Agent 直接加载、直接调用或手动触发**。
 
-1. **检测是否已配置 MCP 服务模式**：读取 WorkBuddy 的 `~/.workbuddy/mcp.json`（或当前 Agent 的 MCP 配置），若其中已包含名为 `chrome-devtools` 的服务器条目（其 `command` 指向本全局包 bin），即视为"MCP 服务模式已安装"。
-   - **若已安装 MCP 服务模式**：
-     - 全程使用 MCP 工具，**禁止**走 CLI 子命令模式。
-     - 询问用户："已检测到 MCP 服务模式配置。是否删除 CLI 模式相关的辅助脚本（本文件夹 `localization/cli_run.cjs`，仅 CLI 模式使用）？"
-       - 用户明确回答"删除" → 删除 `localization/cli_run.cjs`（此文件仅为 CLI 模式辅助，删除不影响 MCP 模式）。
-       - 用户回答"不删除"或忽略 → 保留，继续。
-   - **若未检测到 MCP 服务模式**：
-     - 询问用户："未检测到 MCP 服务模式。是否采用全局安装以使用 chrome-devtools CLI 模式（`npm install -g .`，位于 $(npm root -g)）？"
-       - 用户明确回答"安装" → 执行 `node localization/deploy.cjs`（会全局安装并构建），随后以 CLI 模式继续（见步骤 3）。
-       - 用户明确回答"不安装" → **立即终止本次任务**，不再继续任何浏览器操作。
-2. 无论哪种模式，若全局 bin 不存在（未安装），均需先 `node localization/deploy.cjs` 完成全局安装与构建。
+激活本技能后、调用任何浏览器能力之前，请**先判断当前接入形态**。不同机器、不同 Agent 上形态不同，**三选一、互斥，不是并存**；不要默认 CLI，也不要默认某一种 MCP 形态：
 
-> 严禁使用 `npx -y chrome-devtools-mcp`。MCP 服务模式用 `node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js"`；CLI 模式（见步骤 3）用 `node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js"`（Windows 见下方 `for /f` 形式）。
+1. **通用前置（所有形态共用）**：确认全局 bin 存在（`node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js"`，不存在则先部署安装）；确认浏览器已以远程调试端口运行（见步骤 1）。
+2. **形态一：MCP 直连（最高优先）**：当前 Agent 平台已把 chrome-devtools 的 MCP 工具暴露为可直接调用的工具时使用。判定与调用方式**随平台而异，严禁硬编码任何平台命名**：
+   - WorkBuddy：`~/.workbuddy/mcp.json` 含 `chrome-devtools` 条目（command 指向全局 bin、`--browserUrl=http://127.0.0.1:9222`）且连接器已信任；工具名形如 `mcp__<server>__<tool>`（如 `mcp__chrome-devtools__list_pages`），若为延迟工具（deferred tools）须先加载工具 schema 再调用，**不得因加载步骤繁琐而降级 CLI**。
+   - DeepSeek++（DeepSeek-pp 扩展）：侧边栏「能力 > MCP」新增服务（传输选 Streamable HTTP 或 Native）；工具名由平台生成，形如 `mcp_<server>_<tool>` 或 `mcp_t_<uuid>_<tool>`，经 `mcp_discover`/`mcp_describe`/`mcp_invoke` 间接调用，不能直接传工具名。
+   - 其他 Agent：按其平台暴露的 MCP 工具命名与调用方式使用。
+   **判定标准（必须实测，不可仅凭配置）**：**先按步骤 1 确保浏览器调试端口就绪**，再实际调用一次页面列表类工具成功返回（如取页面列表）→ 形态一可用，**全程使用 MCP，禁止降级 CLI**。
+3. **形态二：MCP 中转（经 HTTP 桥接，次选）**：本机存在把本地 stdio MCP 暴露为 HTTP 端点的聚合/桥接服务（如 dynamic-mcp 门面 `http://127.0.0.1:8082/dynamic-mcp`，或 DeepSeek++「新增 MCP 服务」填写的「桥接端点 URL」），且**该端点已聚合 chrome-devtools 后端**时使用（端点未聚合该后端则形态二不可用，如 dynamic-mcp.json 无 chrome-devtools 条目时不得强行使用）。调用方式按平台暴露的工具名（形如 `mcp_<server>_<tool>`/`mcp_t_<uuid>_<tool>` 或平台变体），**同样先实测验证可用**。
+4. **形态三：CLI 兜底（仅当形态一、二均不可用时）**：MCP 通道完全不可用，才走 CLI 常驻服务两段式（见步骤 3）。
+5. 任何形态下，浏览器调试端口是硬前置。**360 极速浏览器（360Chromex）注意**：若已有实例占用 `User Data` profile，新起带调试端口实例会被单实例机制静默吞掉（端口无响应），**切勿关闭用户日常浏览器**，改用独立临时 profile（`--user-data-dir=<新空目录>`）启动调试实例。
+
+> 严禁使用 `npx -y chrome-devtools-mcp`。MCP 直连/中转用 `node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js"`；CLI 兜底（见步骤 3）用 `node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js"`（Windows 见下方 `for /f` 形式）。
 
 ### 步骤 1：浏览器自动检测与启动（Agent 自主执行，复用登录态，无需用户手动操作）
 
@@ -45,7 +45,7 @@ description: "通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome
 
 > 浏览器路径与用户数据目录由 `verify_browser.cjs` 写入 `local-config.json`。注意：必须用 `--user-data-dir` 指向本机 User Data（或 `--browserUrl` 连接已运行的登录实例）以保留登录态；**切勿用 `--isolated`**（会生成临时 profile 丢登录态）。每次激活本技能都应先检测端口、仅在无响应时才启动，避免重复启动冲突。
 
-### 步骤 2：MCP 服务模式连接（已信任 mcp.json 条目时）
+### 步骤 2：MCP 直连配置参考（形态一；WorkBuddy 示例，实际以当前平台配置为准）
 
 MCP 服务器（stdio）配置示例（全局路径，仓库根指本主副本目录，仅作参考；实际以 `mcp-local-config.json` 为准）：
 
@@ -67,7 +67,7 @@ MCP 服务器（stdio）配置示例（全局路径，仓库根指本主副本�
   - Windows (PowerShell)：`(npm root -g) + '\chrome-devtools-mcp\build\src\bin\chrome-devtools-mcp.js'`
 - 在 WorkBuddy 连接器管理页"信任" chrome-devtools 服务器即可使用29 个原生工具。
 
-### 步骤 3：CLI 模式运行（二选一，未装 MCP 时使用）
+### 步骤 3：CLI 模式运行（形态三兜底，仅 MCP 直连/中转均不可用时使用）
 
 CLI 采用「常驻服务（daemon）+ 工具命令」两段式。首参数必须是子命令名（`start` / `status` / `stop` 或工具名）；**`--browserUrl` 与 `--no-usage-statistics` 仅属于 `start` 子命令（常驻服务的连接参数），不能跟在工具命令后面**，否则报 `Unknown argument`。
 
