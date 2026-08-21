@@ -60,7 +60,7 @@
 ## 5 提交 / PR / CI 约定
 - 5.1 提交信息：遵循仓库既有惯例（前缀 + 简述，如 `docs:`、`feat:`、`fix:`），并标注本次变更的 scope（`dir/<目录名>` / `file/<name>` / `meta`）。
 - 5.2 PR 纪律：目录型 Skill 改动从对应 worktree 分支发 PR；根级 Skill 文件与一般根级文件走标准分支+PR；PR 描述须列明影响范围与验证方式。
-- 5.3 CI 约定：所有 PR 触发 CI 检查；基础门禁 `smoke` 恒运行（meta/无可判定 scope 变更升级全量 run_all，其余跑 tier0 密钥/忽略门禁）；目录型/根级文件变更另按 scope 触发 `smoke-scoped`（`--scope`，tier1/2+5）；`meta` 变更触发全量 CI。main 规则集 required checks 仅含 `smoke`（smoke-scoped 对 meta 变更 skipping，不得列入 required）。
+- 5.3 CI 约定：所有 PR 触发 CI 检查；基础门禁 `smoke` 恒运行（meta/无可判定 scope 变更升级全量 run_all，其余跑 tier0 密钥/忽略门禁）；目录型/根级文件变更另按 scope 触发 `smoke-scoped`（`--scope`，tier1/2+5）；`meta` 变更触发全量 CI。main 分支保护（classic protected branch）required checks 仅含 `smoke`（smoke-scoped 对 meta 变更 skipping，不得列入 required）。
 - 5.4 测试约定：本仓库自动化冒烟集中在 `scripts/smoke/`（tier0-5，`run_all.py` 支持 `--scope` 按 scope 过滤）；提交前可本地运行 `python scripts/smoke/run_all.py --tier 0,1 --staged`；CI 按变更 scope 触发对应检查，meta 变更触发全量；各 Skill 自带测试（如 `github-personal-manager/smoke`、`web-search/tests` 等）保留在各自 Skill 目录内自包含，调度统一收拢到 `scripts/smoke` 入口。
 
 ## 6 本文件的维护
