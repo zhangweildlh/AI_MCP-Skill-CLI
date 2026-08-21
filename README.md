@@ -245,7 +245,7 @@
 
 - `scripts/smoke/`：五层冒烟测试框架（Tier0 密钥扫描 / Tier1 结构 / Tier2 合规 / Tier3 运行时 / Tier4 触发）+ `run_all.py` 编排器，用于对技能 Definition 做质量门禁；2026-08-03 新增 `test_worktree.sh`（多工作树并行开发 SOP 契约测试）。
 - `.githooks/pre-commit`：提交时自动跑 Tier0+1。
-- `.github/workflows/smoke.yml`：云端 CI（Tier5），push 到 main 与开 PR 时触发；2026-08-03 升级 actions 至 v7（消除 Node.js 20 弃用警告）。CI 门禁：`smoke` 为**恒运行基础门禁**（meta/无可判定 scope 变更升级全量 tier0-3+5，其余跑 tier0 密钥/忽略门禁），`smoke-scoped` 按 scope 附加深化（tier1/2+5，不列入 main 规则集）；main 规则集 required checks 仅含 `smoke`。
+- `.github/workflows/smoke.yml`：云端 CI（Tier5），push 到 main 与开 PR 时触发；2026-08-03 升级 actions 至 v7（消除 Node.js 20 弃用警告）。CI 门禁：`smoke` 为**恒运行基础门禁**（meta/无可判定 scope 变更升级全量 tier0-3+5，其余跑 tier0 密钥/忽略门禁），`smoke-scoped` 按 scope 附加深化（tier1/2+5，不列入 main 分支保护）；main 分支保护（classic protected branch，2026-08-21 由 ruleset 切换）required checks 仅含 `smoke`。
 - `multi-worktree-parallel-merge-sop.md`：原 2026-08-03 新增的总体方案文档已于 2026-08-06 移除，能力内聚至 `github-personal-manager` 的 `sop_worktree_add.sh` / `sop_worktree_cleanup.sh` / `sop_worktree_merge.sh` 三件套。
 - `Memory-Data/`：用户记忆/知识库（仅 `.md` 入库；非 `.md` 文件经 `.gitignore` 排除，本地保留）。本批新增 `协作方式约定_四象限_定制版.md` / `协作方式约定_四象限_通用版.md`，并将 `用户画像分析报告_土木工程主业版.md` 重命名为 `用户画像分析报告.md`；新增 `MEMORY.md` 索引文件（逐日工作日志与跨会话记忆，仅 `.md` 入库）。
 - `Workbuddy专属/`：归置与 WorkBuddy 紧密耦合的专属技能/文件（`workbuddy-workspace-migration`、`Skill-memory-consolidate.md`、`Skill-workflow-distill.md`）。

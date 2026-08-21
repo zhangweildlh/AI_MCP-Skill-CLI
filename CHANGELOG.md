@@ -13,6 +13,9 @@
 
 ### Fixed
 - **CI/ruleset 矛盾修复**：main 规则集 required_status_checks 原要求 `smoke` + `smoke-scoped`，但 smoke.yml 对非 meta 变更设计为跳过 `smoke`、对 meta 变更跳过 `smoke-scoped`，导致任何 PR 都有一条 required check 为 skipping、永远无法正常合并（只能 `--admin` 绕过）。修复：`smoke` 改为**恒运行基础门禁**（meta/无可判定 scope 升级全量 tier0-3+5，其余跑 tier0 密钥/忽略门禁），`smoke-scoped` 保持按 scope 深化但**不列入规则集**；规则集 required checks 仅保留 `smoke`；顺带清理 smoke-scoped 的 `!= '[]'` 死条件。
+
+### Changed
+- **main 分支保护机制切换（ruleset → classic）**：实证发现 GitHub **ruleset 的 `required_status_checks` 评估存在平台缺陷**——required check `smoke` 已 success 且 context/integration 完全匹配，PR 仍 `mergeable_state=blocked`（#30-#34 多轮：改 strict、重建规则集、去 integration_id 均无效；禁用规则集后普通合并立即成功）。切换为 classic branch protection（`branches/main/protection`：required checks 仅 `smoke`、strict=false、enforce_admins=true），普通合并恢复正常、无需 `--admin`；ruleset 已删除，`smoke` 恒运行门禁不变。
 ---
 
 ## [2026-08-20]
