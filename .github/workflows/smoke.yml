@@ -155,7 +155,7 @@ jobs:
   # ----------------------------------------------------------
   smoke-scoped:
     needs: scope-map
-    if: !contains(fromJSON(needs.scope-map.outputs.scopes), 'meta')
+    if: ${{ !contains(fromJSON(needs.scope-map.outputs.scopes), 'meta') }}
     strategy:
       fail-fast: false
       matrix:
