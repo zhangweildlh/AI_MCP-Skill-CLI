@@ -30,24 +30,28 @@ const SUB_SKILL_GATE = {
   'user-invocable': 'false',
 };
 
+// 幂等判定：frontmatter 行数组是否已含全部门禁键（applyGate 与 --check 共用，避免逻辑漂移）。
+function isGated(fmLines) {
+  return Object.keys(SUB_SKILL_GATE).every((k) => fmLines.some((l) => l.startsWith(k + ':')));
+}
+
 // 幂等注入门禁字段到单个 SKILL.md 的 frontmatter（追加到 frontmatter 末尾键后）。
+// 行尾沿用源文件 frontmatter 的 EOL（CRLF/LF），避免混合行尾（审计发现）。
 function applyGate(file) {
   const content = fs.readFileSync(file, 'utf8');
   const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!fm) { console.log('[跳过] 无 frontmatter: ' + file); return false; }
   const fmLines = fm[1].split(/\r?\n/);
-  const keys = Object.keys(SUB_SKILL_GATE);
-  if (keys.every((k) => fmLines.some((l) => l.match(new RegExp('^' + k.replace(/[-]/g, '\\-') + ':'))))) {
-    return false; // 已全量存在（幂等）
-  }
+  if (isGated(fmLines)) return false; // 已全量存在（幂等）
   const has = new Set();
   for (const l of fmLines) { const m = l.match(/^([A-Za-z0-9_-]+):/); if (m) has.add(m[1]); }
   const outLines = fmLines.slice();
-  for (const k of keys) {
+  for (const k of Object.keys(SUB_SKILL_GATE)) {
     if (!has.has(k)) outLines.push(k + ': ' + SUB_SKILL_GATE[k]);
   }
-  const newFm = outLines.join('\n');
-  const newContent = content.slice(0, fm.index) + '---\n' + newFm + '\n---' + content.slice(fm.index + fm[0].length);
+  const eol = /\r\n/.test(fm[0]) ? '\r\n' : '\n';
+  const newFm = outLines.join(eol);
+  const newContent = content.slice(0, fm.index) + '---' + eol + newFm + eol + '---' + content.slice(fm.index + fm[0].length);
   fs.writeFileSync(file, newContent, 'utf8');
   return true;
 }
@@ -202,7 +206,7 @@ function main() {
         if (!fs.existsSync(sf)) continue;
         const c = fs.readFileSync(sf, 'utf8');
         const fm = c.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-        const hasGate = fm && Object.keys(SUB_SKILL_GATE).every((k) => fm[1].split(/\r?\n/).some((l) => l.match(new RegExp('^' + k.replace(/[-]/g, '\\-') + ':'))));
+        const hasGate = fm && isGated(fm[1].split(/\r?\n/));
         if (!hasGate) { console.error('[CHECK-FAIL] 子 Skill 门禁缺失: upstream/skills/' + ent.name + '/SKILL.md'); ok = false; }
         else console.log('[CHECK-OK] 门禁存在: upstream/skills/' + ent.name + '/SKILL.md');
       }
@@ -263,5 +267,5 @@ function main() {
 }
 
 // 支持作为模块被测试 require（不触发副作用执行）
-module.exports = { inject, strip, localizeDescription, genMcpConfig, gateSubskills, applyGate, SUB_SKILL_GATE, SENTINEL };
+module.exports = { inject, strip, localizeDescription, genMcpConfig, gateSubskills, applyGate, isGated, SUB_SKILL_GATE, SENTINEL };
 if (require.main === module) main();

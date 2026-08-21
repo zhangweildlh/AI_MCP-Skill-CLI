@@ -21,7 +21,7 @@ function freePort() {
   });
 }
 
-const { inject, strip, localizeDescription, SENTINEL } = require('../apply_localize.cjs');
+const { inject, strip, localizeDescription, gateSubskills, applyGate, isGated, SENTINEL } = require('../apply_localize.cjs');
 const { mergeNpmrc } = require('../compat.cjs');                       // F3：并集合并测试
 const { mergeIntoMcpJson } = require('../merge_mcp_json.cjs');         // F3：深度合并 env 测试
 const { probePort, profileLocked } = require('../start_helpers.cjs');  // F3：profileLocked/probePort 测试
@@ -364,6 +364,53 @@ function test(name, fn) {
     strip(scratchRel);
     out = fs.readFileSync(scratchRoot, 'utf8');
     assert.ok(!out.includes(SENTINEL), '根 SKILL.md 剥离后应无哨兵');
+  });
+
+  // --- T14: applyGate 门禁注入（方案③ 回归：全量注入/幂等/补缺/CRLF 行尾保留，审计发现）---
+  test('applyGate：全量注入、幂等跳过、部分键补缺、CRLF 行尾保留', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdt-gate-'));
+    extraCleanup.push(dir);
+    const f = path.join(dir, 'SKILL.md');
+    // 1) 全量注入（LF 源）
+    fs.writeFileSync(f, '---\nname: sub\n---\n正文\n', 'utf8');
+    assert.strictEqual(applyGate(f), true, '首次注入应返回 true');
+    let out = fs.readFileSync(f, 'utf8');
+    assert.ok(out.includes('disable-model-invocation: true'), '应注入 disable-model-invocation');
+    assert.ok(out.includes('user-invocable: false'), '应注入 user-invocable');
+    assert.ok(out.includes('name: sub'), '不应破坏既有 frontmatter 键');
+    // 2) 幂等跳过（全量存在返回 false，且不重复）
+    assert.strictEqual(applyGate(f), false, '全量存在应跳过返回 false');
+    out = fs.readFileSync(f, 'utf8');
+    assert.strictEqual(out.split('disable-model-invocation').length - 1, 1, '幂等：不重复注入');
+    // 3) 部分键补缺（已存在 user-invocable 时仅补 disable-model-invocation，保留原值）
+    fs.writeFileSync(f, '---\nname: sub\nuser-invocable: true\n---\n正文\n', 'utf8');
+    applyGate(f);
+    out = fs.readFileSync(f, 'utf8');
+    assert.ok(out.includes('disable-model-invocation: true'), '应补缺 disable-model-invocation');
+    assert.ok(out.includes('user-invocable: true'), '既有 user-invocable 值应保留');
+    assert.strictEqual(out.split('user-invocable').length - 1, 1, '补缺不应重复 user-invocable');
+    // 4) CRLF 源行尾保留（frontmatter 重建后仍为 CRLF，不产生混合行尾）
+    fs.writeFileSync(f, '---\r\nname: sub\r\n---\r\n正文\r\n', 'utf8');
+    applyGate(f);
+    out = fs.readFileSync(f, 'utf8');
+    const fmBlock = out.slice(0, out.indexOf('正文'));
+    assert.ok(/\r\n/.test(fmBlock), 'frontmatter 应保留 CRLF 行尾');
+    assert.ok(out.includes('disable-model-invocation: true'), 'CRLF 源也应注入门禁');
+    assert.ok(!out.includes('---\n'), 'CRLF 源不应引入 LF 边界（避免混合行尾）');
+  });
+
+  // --- T14b: isGated 幂等判定（抽公共函数后与 --check 共用）---
+  test('isGated：全量存在 true / 缺键 false', () => {
+    assert.strictEqual(isGated(['name: sub', 'disable-model-invocation: true', 'user-invocable: false']), true);
+    assert.strictEqual(isGated(['name: sub', 'disable-model-invocation: true']), false);
+    assert.strictEqual(isGated(['name: sub']), false);
+  });
+
+  // --- T14c: gateSubskills 在 upstream/skills 缺失时安全返回 0（主副本最小化场景，无副作用）---
+  test('gateSubskills：upstream/skills 缺失时安全返回 0', () => {
+    const upstreamSkills = path.join(REPO, 'upstream', 'skills');
+    if (fs.existsSync(upstreamSkills)) { console.log('  · 已部署副本（upstream/skills 存在），跳过 T14c 副作用测试'); return; }
+    assert.strictEqual(gateSubskills(), 0, '主副本无 upstream/ 时应安全返回 0');
   });
 
   // 顺序执行全部收集到的测试（支持 async，如 probePort 真实端口探针），任一失败即中止并清理。
