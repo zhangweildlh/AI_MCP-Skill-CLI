@@ -9,6 +9,12 @@
 
 ---
 
+## [2026-08-21]
+
+### Fixed
+- **CI/ruleset 矛盾修复**：main 规则集 required_status_checks 原要求 `smoke` + `smoke-scoped`，但 smoke.yml 对非 meta 变更设计为跳过 `smoke`、对 meta 变更跳过 `smoke-scoped`，导致任何 PR 都有一条 required check 为 skipping、永远无法正常合并（只能 `--admin` 绕过）。修复：`smoke` 改为**恒运行基础门禁**（meta/无可判定 scope 升级全量 tier0-3+5，其余跑 tier0 密钥/忽略门禁），`smoke-scoped` 保持按 scope 深化但**不列入规则集**；规则集 required checks 仅保留 `smoke`；顺带清理 smoke-scoped 的 `!= '[]'` 死条件。
+---
+
 ## [2026-08-20]
 
 ### Docs
