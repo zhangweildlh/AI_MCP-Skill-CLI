@@ -82,6 +82,30 @@ function ensureGlobalBinLinks() {
   }
 }
 
+// 隐藏 upstream 内嵌套的 SKILL.md 目录，避免 WorkBuddy 递归技能发现时发生同名冲突或污染。
+// chrome-devtools-mcp 服务器仓库自带 skills/ 子目录（含与根级同名的 chrome-devtools 子 Skill，
+// 另有 a11y-debugging / chrome-devtools-cli / debug-optimize-lcp / memory-leak-debugging / troubleshooting 等独立子 Skill）；
+// 其 vendored 的 devtools-frontend 自带 .agents/skills/*。WorkBuddy 对 ~/.workbuddy/skills/<name>/ 递归扫描 SKILL.md，
+// 若出现与根级同名的嵌套 SKILL.md，发现阶段冲突会导致整个 chrome-devtools 技能不被注册（缺席 available_skills）。
+// 将这些目录重命名为下划线前缀，WorkBuddy 跳过 _ 前缀目录，根级 chrome-devtools 成为唯一同名技能。
+// 每次部署（重新 vendoring upstream）都会重现这些嵌套目录，故必须固化为部署步骤（根治跨机复发）。
+function hideNestedSkills() {
+  const targets = [
+    { from: path.join(UPSTREAM, 'skills'),                       to: path.join(UPSTREAM, '_skills_removed') },
+    { from: path.join(UPSTREAM, 'devtools-frontend', '.agents'), to: path.join(UPSTREAM, 'devtools-frontend', '_agents') },
+  ];
+  for (const t of targets) {
+    if (!fs.existsSync(t.from)) { console.log('[hide] 跳过（不存在）: ' + t.from); continue; }
+    if (fs.existsSync(t.to)) { fs.rmSync(t.to, { recursive: true, force: true }); }
+    try {
+      fs.renameSync(t.from, t.to);
+      console.log('[hide] 已隐藏嵌套技能目录: ' + t.from + ' -> ' + t.to);
+    } catch (e) {
+      console.error('[hide] 重命名失败（不影响部署，但需人工检查嵌套 SKILL.md）: ' + t.from + ' : ' + e.message);
+    }
+  }
+}
+
 // 幂等将 chrome-devtools 合并进 WorkBuddy 的 ~/.workbuddy/mcp.json（仅覆盖本服务器条目，保留其它条目）。
 // 实现见 localization/merge_mcp_json.cjs（F2 修复：深度合并嵌套 env，保留用户既有环境变量）。
 // 根治“手工漏配导致 mcp.json 缺 CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS env”的跨机复发。
@@ -144,3 +168,6 @@ console.log('1) 已自动合并 chrome-devtools 到 ~/.workbuddy/mcp.json（如�
 console.log('2) 在 WorkBuddy 连接器管理页"信任" chrome-devtools 服务器。');
 console.log('3) 启动浏览器: node "' + path.join(__dirname, 'start.cjs') + '"');
 console.log('4) 任一 Agent 阅读 README.md 的"上游跟进与本地化更新"即可自行跟进上游并保持本地化特性。');
+
+console.log('=== 6.5) 隐藏 upstream 内嵌套 SKILL.md（防止 WorkBuddy 递归发现冲突/污染） ===');
+hideNestedSkills();
