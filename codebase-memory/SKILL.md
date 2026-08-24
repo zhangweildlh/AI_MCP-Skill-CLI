@@ -1,6 +1,6 @@
 ---
 name: codebase-memory
-description: DeusData 纯本地、离线、只读代码知识图谱引擎。激活原则按任务语义而非术语关键词：当用户要做的研发活动是「分析代码/程序/项目（含 GitHub 仓库、多级目录嵌套的若干代码文件与技术文档）、阅读代码/程序/项目、修改代码/程序、定位 BUG、修复 BUG、查找 BUG、审计代码、审查代码、基于 PR 审查意见核查或定位问题、回应 PR 审查意见、接手代码/程序/项目、重构代码/程序/项目」等，且目标代码位于本地工作树（如 D:\Documents\AI_Work_Temp 等已索引目录）时，应默认激活本 Skill，把 DeusData 的图能力（理解代码结构、评估改动影响面、追踪调用链、定位死代码、本地未提交改动 impact 自检）作为认知与导航的第一手段——替代盲目全仓 grep 与逐文件 Read。注意：用户通常只会表达上述研发活动、不会显式说出「调用链/影响面」等术语，Agent 须由任务语义推断并主动默认激活，不要等关键词出现。不适用（不激活）：纯新增代码（从零写新文件、无既有图可查）；Write/Edit 写入动作本体；git 写动作（add/commit/push/branch/rebase/merge）；纯远程 GitHub（未克隆的远端仓库浏览、PR/CI/远端 diff，走 gh + github-personal-manager）；运行时调试（断点/日志/profiler）。细分：分析未克隆的远程 GitHub 仓库内容不激活，已克隆到本地的仓库内容分析激活。DeusData 是纯本地只读图引擎（无 LLM、无 API key、无网络），只建图与读图，不写代码、不执行 git、不连远程。本 Skill 给出 15 工具权威路由表、会话启动对账例程、openCypher 速查。
+description: DeusData 纯本地、离线、只读代码知识图谱引擎，15 工具：index_repository（建/刷新索引）、list_projects（列已索引项目）、delete_project（删项目图数据）、index_status（索引状态与覆盖报告）、check_index_coverage（文件级覆盖可信度）、search_graph（符号/定义/关系搜索，含语义向量）、trace_path（调用链与影响面追踪）、detect_changes（git 改动爆炸半径）、query_graph（openCypher 只读查询）、get_graph_schema（节点边 schema）、get_code_snippet（按限定名读源码）、get_architecture（架构概览/热点/循环依赖）、search_code（图增强 grep）、manage_adr（架构决策记录）、ingest_traces（运行时追踪验证）。激活按任务语义而非术语关键词：凡研发活动是「分析/阅读/修改/重构本地代码或项目、定位 BUG、修复 BUG、查找 BUG、审计代码、审查代码、回应 PR 审查意见、接手代码/项目」，且目标位于本地已索引工作树（如 D:\Documents\AI_Work_Temp、D:\Documents\AI_MCP-Skill-CLI），必须默认激活本 Skill，把图能力（理解结构、评估影响面、追踪调用链、定位死代码、改动 impact 自检）作为认知第一手段，替代盲目全仓 grep 与逐文件 Read；用户通常只会表达研发活动、不会说出「调用链/影响面」等术语，Agent 须由任务语义推断并主动激活。不激活：纯新增代码（从零写新文件）；Write/Edit 与 git 写动作本体；未克隆的远程 GitHub 浏览/PR/CI（走 gh + github-personal-manager）；运行时调试。纯本地只读图引擎（无 LLM、无 API key、无网络），只建图读图；经 dmcp 分组 codebase-memory-mcp 或原生 stdio 直连调用。
 ---
 
 # codebase-memory-mcp 调用与运维指南（DeusData，经 dynamic-mcp）— Agent 操作参考
@@ -10,6 +10,8 @@ description: DeusData 纯本地、离线、只读代码知识图谱引擎。激�
 ## 0. 定位与接入
 - DeusData = **纯本地、只读**代码知识图谱/影响面分析引擎（纯 C 单二进制、零运行时、无 API key、158 语言、15 MCP 工具）。
 - 接入：经 dynamic-mcp 的 `codebase-memory-mcp` backend 暴露为 dmcp 分组 `codebase-memory-mcp`（即 `call_dynamic_tool` 的 group 值）。
+- 直连形态：若平台已通过 `~/.workbuddy/mcp.json` 等以 stdio 原生注册 codebase-memory（可执行文件如 `D:/codebase-memory-mcp/codebase-memory-mcp.exe`），其 15 工具即为一等工具、直接调用，无需 dmcp 两跳；两种形态下工具名、参数与路由表完全一致。
+- 首选顺序：原生直连 > dmcp 两跳；两者皆不可用时按 §6.4 退化为文件系统工具。
 - 索引范围：env `CBM_ALLOWED_ROOT=D:/Documents` 限定只能索引 `D:\Documents` 子树（越界 `index_repository` 会被拒）。
 
 ## 1. 监控模型
