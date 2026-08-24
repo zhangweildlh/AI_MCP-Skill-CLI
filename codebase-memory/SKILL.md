@@ -1,6 +1,6 @@
 ---
 name: codebase-memory
-description: DeusData 纯本地、离线、只读代码知识图谱引擎，15 工具：index_repository（建/刷新索引）、list_projects（列已索引项目）、delete_project（删项目图数据）、index_status（索引状态与覆盖报告）、check_index_coverage（文件级覆盖可信度）、search_graph（符号/定义/关系搜索，含语义向量）、trace_path（调用链与影响面追踪）、detect_changes（git 改动爆炸半径）、query_graph（openCypher 只读查询）、get_graph_schema（节点边 schema）、get_code_snippet（按限定名读源码）、get_architecture（架构概览/热点/循环依赖）、search_code（图增强 grep）、manage_adr（架构决策记录）、ingest_traces（运行时追踪验证）。激活按任务语义而非术语关键词：凡研发活动是「分析/阅读/修改/重构本地代码或项目、定位 BUG、修复 BUG、查找 BUG、审计代码、审查代码、回应 PR 审查意见、接手代码/项目」，且目标位于本地已索引工作树（如 D:\Documents\AI_Work_Temp、D:\Documents\AI_MCP-Skill-CLI），必须默认激活本 Skill，把图能力（理解结构、评估影响面、追踪调用链、定位死代码、改动 impact 自检）作为认知第一手段，替代盲目全仓 grep 与逐文件 Read；用户通常只会表达研发活动、不会说出「调用链/影响面」等术语，Agent 须由任务语义推断并主动激活。不激活：纯新增代码（从零写新文件）；Write/Edit 与 git 写动作本体；未克隆的远程 GitHub 浏览/PR/CI（走 gh + github-personal-manager）；运行时调试。纯本地只读图引擎（无 LLM、无 API key、无网络），只建图读图；经 dmcp 分组 codebase-memory-mcp 或原生 stdio 直连调用。
+description: DeusData 纯本地、离线、只读代码知识图谱引擎，15 工具：index_repository（建/刷新索引）、list_projects（列已索引项目）、delete_project（删项目图数据）、index_status（索引状态与覆盖报告）、check_index_coverage（文件级覆盖可信度）、search_graph（符号/定义/关系搜索，含语义向量）、trace_path（调用链与影响面追踪）、detect_changes（git 改动爆炸半径）、query_graph（openCypher 只读查询）、get_graph_schema（节点边 schema）、get_code_snippet（按限定名读源码）、get_architecture（架构概览/热点/循环依赖）、search_code（图增强 grep）、manage_adr（架构决策记录）、ingest_traces（运行时追踪验证）。激活按任务语义而非术语关键词：凡任务涉及「分析/阅读/修改/重构本地代码或项目、定位BUG、修复BUG、查找BUG、审计代码、审查代码、回应 PR 审查意见、接手代码/项目」，且目标位于本地已索引工作树（如 D:\Documents\AI_Work_Temp、D:\Documents\AI_MCP-Skill-CLI），必须默认激活本 Skill，把图能力（理解结构、评估影响面、追踪调用链、定位死代码、改动 impact 自检）作为认知第一手段，替代全仓 grep 与逐文件 Read；用户通常只会表达任务、不会说出「调用链/影响面」等术语，Agent 须由任务语义推断并主动激活。不激活：纯新增代码（从零写新文件）；Write/Edit 与 git 写动作本体；未克隆的远程 GitHub 浏览/PR/CI（走 gh + github-personal-manager）；运行时调试。纯本地只读图引擎（无 LLM、无 API key、无网络），只建图读图；经 dmcp 分组 codebase-memory-mcp 或原生 stdio 直连调用。
 ---
 
 # codebase-memory-mcp 调用与运维指南（DeusData，经 dynamic-mcp）— Agent 操作参考
@@ -10,7 +10,7 @@ description: DeusData 纯本地、离线、只读代码知识图谱引擎，15 �
 ## 0. 定位与接入
 - DeusData = **纯本地、只读**代码知识图谱/影响面分析引擎（纯 C 单二进制、零运行时、无 API key、158 语言、15 MCP 工具）。
 - 接入：经 dynamic-mcp 的 `codebase-memory-mcp` backend 暴露为 dmcp 分组 `codebase-memory-mcp`（即 `call_dynamic_tool` 的 group 值）。
-- 直连形态：若平台已通过 `~/.workbuddy/mcp.json` 等以 stdio 原生注册 codebase-memory（可执行文件如 `D:/codebase-memory-mcp/codebase-memory-mcp.exe`），其 15 工具即为一等工具、直接调用，无需 dmcp 两跳；两种形态下工具名、参数与路由表完全一致。
+- 直连形态：若平台已以 stdio 原生注册 codebase-memory（可执行文件如 `D:/codebase-memory-mcp/codebase-memory-mcp.exe`），其 15 工具即为一等工具、直接调用，无需 dmcp 两跳；两种形态下工具名、参数与路由表完全一致。
 - 首选顺序：原生直连 > dmcp 两跳；两者皆不可用时按 §6.4 退化为文件系统工具。
 - 索引范围：env `CBM_ALLOWED_ROOT=D:/Documents` 限定只能索引 `D:\Documents` 子树（越界 `index_repository` 会被拒）。
 
@@ -45,7 +45,7 @@ DeusData **不会自动发现新子目录**（`auto_index` 仅补齐已知项目
 
 > `CBM_ALLOWED_ROOT=D:/Documents` 兜底：越界 `index_repository` 会被拒。以 `_` 前缀的探针/临时目录（如 `_officecli_probe`）默认不索引，留给用户决定。
 
-## 4. 15 工具路由表（经 dmcp 暴露，已从 DeusData 实时校正）
+## 4. 15 工具路由表
 
 | 工具 | 用途 | 关键参数（必需项加粗） | 典型触发 |
 |---|---|---|---|
