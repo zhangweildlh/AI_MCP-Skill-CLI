@@ -42,7 +42,7 @@
 
 ## 3 红线与强制约束
 - 3.1 git 操作前置：任何 git 操作前必须先读本文件；禁止绕过 `AGENTS.md` 直接改动仓库。
-- 3.2 目录型 Skill 改动纪律：只允许在对应 worktree 中改动，禁止在仓库主工作树直接改目录型 Skill 内容。
+- 3.2 目录型 Skill 改动纪律：只允许在对应 worktree 中改动，禁止在仓库主工作树直接改目录型 Skill 内容。此纪律由 `.githooks/pre-commit` hook 强制拦截——在主工作树（main 分支）提交时，若暂存文件属于目录型 Skill 路径则直接阻断，仅允许 meta scope 文件变更（`.githooks/*`, `scripts/*`, `.github/*`, `README.md`, `CHANGELOG.md`, `AGENTS.md`, `Memory-Data/*`, `.gitignore`, 隐藏文件）。
 - 3.3 密钥与敏感文件：禁止将 `ref-material-writing/.env`、`web-search/.env`、`code-review-combo/config/providers.json` 等密钥文件推入任何公开/远端分支（仅限私有仓库授权例外，见 MEMORY.md 决策 D-2026-0811-01）。
 - 3.4 越权操作：禁止未经授权执行 git push、force push、reset --hard、删除分支等破坏性/共享状态操作；Agent 需在权限范围内工作。
 - 3.5 并发纪律：多 Agent 并发时各守各的 scope，修改不得超出分配范围；发现交叉立即上报协调。
