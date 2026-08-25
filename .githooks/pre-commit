@@ -105,7 +105,7 @@ if [ -z "$SCOPE_NAME" ]; then
     [ -z "$f" ] && continue
     ok=0
     case "$f" in
-      .githooks/*|scripts/*|.github/*|README.md|CHANGELOG.md|AGENTS.md|Memory-Data/*|.gitignore|\..*) ok=1 ;;
+      .githooks/*|scripts/*|.github/*|README.md|CHANGELOG.md|AGENTS.md|Memory-Data/*|.gitignore|\.*|_gsdata_/*|.workbuddy/*|worktrees/*|__pycache__/*|.venv/*|venv/*|env/*|node_modules/*|.sisyphus/*|.vscode/*|.idea/*|*.7z|*.zip|*.pyc|*.pyo|*.bak|*.log|*.swp|ref-material-writing/.env|web-search/.env|code-review-combo/config/providers.json|MCP-MemPalace-memory-data/*) ok=1 ;;
     esac
     if [ "$ok" -eq 0 ]; then
       if [ "$VIOL_COUNT" -eq 0 ]; then
@@ -176,7 +176,7 @@ while IFS= read -r f; do
       ;;
     meta)
       case "$f" in
-        scripts/*|.github/*|README.md|CHANGELOG.md|AGENTS.md|Memory-Data/*) ok=1 ;;
+        .githooks/*|scripts/*|.github/*|README.md|CHANGELOG.md|AGENTS.md|Memory-Data/*) ok=1 ;;
       esac
       ;;
   esac
