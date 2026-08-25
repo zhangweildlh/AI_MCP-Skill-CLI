@@ -22,8 +22,18 @@ function globalBinPath() { return path.join(npmGlobalRoot(), PKG_NAME, 'build', 
 
 const bin = globalBinPath();
 if (!fs.existsSync(bin)) {
-  console.error('[错误] 全局 chrome-devtools-mcp 未安装（预期: ' + bin + '）。请先运行: node localization/deploy.cjs');
-  process.exit(1);
+  console.error('[错误] 全局 chrome-devtools-mcp 未安装（预期: ' + bin + '）。正在尝试自动安装...');
+  try {
+    // 严格遵循永久记忆纪律：npm install -g，禁 npx -y；跳过浏览器内核下载
+    execSync(
+      'npm install -g chrome-devtools-mcp',
+      { env: Object.assign({}, process.env, { PUPPETEER_SKIP_DOWNLOAD: '1' }), stdio: 'inherit' }
+    );
+    console.log('[OK] 安装成功，继续...');
+  } catch (e) {
+    console.error('[失败] 自动安装失败。请手动执行: npm install -g chrome-devtools-mcp');
+    process.exit(1);
+  }
 }
 const cfg = fs.existsSync(path.join(REPO, 'local-config.json'))
   ? JSON.parse(fs.readFileSync(path.join(REPO, 'local-config.json'), 'utf8'))
@@ -32,7 +42,9 @@ const port = cfg.debugPort || 9222;
 const userArgs = process.argv.slice(2);
 
 // 第一段：启动常驻服务并连接已运行的浏览器（仅 start 子命令接受 --browserUrl）
-const startArgs = [bin, 'start', '--browserUrl=http://127.0.0.1:' + port, '--no-usage-statistics'];
+// 注意：上游 chrome-devtools.js 将 --isolated 和 --headless 默认设为 true（仅当 userDataDir 未指定时注入）。
+// 此处必须显式传 --no-isolated --no-headless 覆盖默认值，否则启动临时 profile 丢登录态。
+const startArgs = [bin, 'start', '--browserUrl=http://127.0.0.1:' + port, '--no-usage-statistics', '--no-isolated', '--no-headless'];
 const startR = spawnSync('node', startArgs, { stdio: 'inherit' });
 if (startR.status !== 0) process.exit(startR.status === null ? 1 : startR.status);
 

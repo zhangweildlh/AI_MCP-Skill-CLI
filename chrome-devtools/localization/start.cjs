@@ -6,7 +6,7 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const { probePort, profileLocked } = require('./start_helpers.cjs'); // F3：抽出为独立可测模块
+const { probePort, profileLocked, isBrowserRunning } = require('./start_helpers.cjs'); // F3：抽出为独立可测模块；F10：新增 isBrowserRunning 用于浏览器运行状态检测
 
 const REPO = path.resolve(__dirname, '..');
 const cfgPath = path.join(REPO, 'local-config.json');
@@ -50,6 +50,7 @@ const bin = path.join(npmGlobalRoot(), PKG, 'build', 'src', 'bin', 'chrome-devto
 
 // 端口预检（RC-D）：已占用则复用，避免重复启动导致 --user-data-dir 锁冲突。
 // 统一在探针落定后再打印接入信息，避免异步探针未落定时误报"已启动"（F4）；spawn 增加 error 监听。
+// F10：先检测浏览器进程是否在运行，再决定启动策略。
 (async () => {
   const already = await probePort(port);
   if (already) {
@@ -57,8 +58,16 @@ const bin = path.join(npmGlobalRoot(), PKG, 'build', 'src', 'bin', 'chrome-devto
     const who = ver ? '（占用者: ' + ver + '）' : '（已响应 DevTools 端点，但无法读取标识）';
     console.log('[复用] 调试端口 ' + port + ' 已被占用，确认为 DevTools 端点' + who + '，直接复用，不再启动。');
   } else {
+    // F10：检查浏览器进程是否在运行
+    const browserState = isBrowserRunning(browser);
+    if (browserState.running) {
+      console.error('[提示] 浏览器进程已在运行（PID=' + browserState.pid + '），但未开放调试端口 ' + port + '。');
+      console.error('        请关闭当前浏览器实例后重新运行本脚本，或使用独立临时 profile（--user-data-dir=<新空目录>）。');
+      console.error('        切勿关闭用户正在使用的浏览器——本脚本仅在当前浏览器未开放调试端口时才会启动新实例。');
+      process.exit(1);
+    }
     if (profileLocked(userData)) {
-      console.error('[错误] 用户数据目录 "' + userData + '" 已被一个浏览器实例占用（该实例未开放调试端口，9222 无响应）。');
+      console.error('[错误] 用户数据目录 "' + userData + '" 已被一个浏览器实例占用（该实例未开放调试端口，' + port + ' 无响应）。');
       console.error('        直接启动带调试端口的实例会因 profile 锁冲突失败。请选择其一：');
       console.error('        1) 关闭当前已运行的浏览器实例，再重新运行本脚本启动带调试端口的实例（复用登录态）；');
       console.error('        2) 为已运行实例手动开启远程调试（重启时加 --remote-debugging-port=' + port + '），再用 --browserUrl 连接；');
