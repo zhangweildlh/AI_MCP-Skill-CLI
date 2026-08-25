@@ -91,8 +91,38 @@ if [ "$BRANCH_IS_FEAT" -eq 1 ] && [ -z "$SCOPE_NAME" ]; then
 fi
 
 if [ -z "$SCOPE_NAME" ]; then
-  # 非 worktree 纪律分支（如主仓库 main、普通开发分支），跳过 scope 校验，仅冒烟
-  echo "ℹ️ 分支 '$BRANCH' 非 worktree 纪律分支（feat/<name>-<topic>-<timestamp>），跳过 scope 校验"
+  # 主工作树纪律校验（非 feat 分支专用）
+  echo "ℹ️ 分支 '$BRANCH' 非 worktree 纪律分支，执行主工作树纪律校验"
+  
+  STAGED=$(git diff --cached --name-only)
+  if [ -z "$STAGED" ]; then
+    echo "✅ 主工作树纪律校验通过（无暂存文件）"
+    exit 0
+  fi
+  
+  VIOL_COUNT=0
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    ok=0
+    case "$f" in
+      .githooks/*|scripts/*|.github/*|README.md|CHANGELOG.md|AGENTS.md|Memory-Data/*|.gitignore|\..*) ok=1 ;;
+    esac
+    if [ "$ok" -eq 0 ]; then
+      if [ "$VIOL_COUNT" -eq 0 ]; then
+        echo "❌ 主工作树禁止直接修改非 meta 文件"
+      fi
+      echo "   - $f"
+      VIOL_COUNT=$((VIOL_COUNT + 1))
+    fi
+  done <<< "$STAGED"
+  
+  if [ "$VIOL_COUNT" -gt 0 ]; then
+    echo ""
+    echo "   目录型 Skill 改动请使用 worktree 流程（参见 AGENTS.md 第 4 章）"
+    exit 1
+  fi
+  
+  echo "✅ 主工作树纪律校验通过"
   exit 0
 fi
 
