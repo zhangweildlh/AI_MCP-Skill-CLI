@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const { execSync } = require('child_process');
 
 // 探测调试端口是否已被占用（浏览器可能已在运行）。
 function probePort(p) {
@@ -28,4 +29,40 @@ function profileLocked(userDataDir) {
   }
 }
 
-module.exports = { probePort, profileLocked };
+// F10：检测指定浏览器进程是否在运行（跨平台）。
+// Windows: 通过 tasklist 过滤 exe 名；macOS/Linux: 通过 pgrep。
+// 返回 { running: boolean, pid: number|null }。
+function isBrowserRunning(browserPath) {
+  const exeName = path.basename(browserPath).toLowerCase();
+  if (!exeName) return { running: false, pid: null };
+  try {
+    if (process.platform === 'win32') {
+      // tasklist /FI 支持 Unicode；过滤 IMAGENAME 精确匹配（忽略大小写）
+      // 输出格式：CSV，每行 "名称","PID","会话","会话#","内存","状态"
+      const out = execSync(
+        'tasklist /NH /FO CSV /FI "IMAGENAME eq ' + exeName.replace(/"/g, '""') + '"',
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }
+      );
+      const lines = out.trim().split(/\r?\n/).filter(l => l.trim() && !l.includes('"进程名"'));
+      for (const line of lines) {
+        const fields = line.split(',').map(f => f.replace(/"/g, '').trim());
+        if (fields[0] && fields[1]) {
+          return { running: true, pid: parseInt(fields[1], 10) || null };
+        }
+      }
+    } else {
+      // macOS / Linux: pgrep -x 精确匹配（去掉 .exe 后缀）
+      const name = exeName.replace(/\.exe$/i, '');
+      const out = execSync('pgrep -x ' + name, {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']
+      });
+      const pid = parseInt(out.trim().split(/\s+/)[0], 10);
+      return { running: !isNaN(pid) && pid > 0, pid: isNaN(pid) ? null : pid };
+    }
+  } catch {
+    // 进程不存在或命令失败，视为未运行
+  }
+  return { running: false, pid: null };
+}
+
+module.exports = { probePort, profileLocked, isBrowserRunning };
