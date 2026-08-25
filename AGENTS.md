@@ -67,3 +67,11 @@
 - 6.1 唯一事实源：本文件为仓库纪律唯一权威；任何纪律变更必须先更新本文件，再更新引用方。
 - 6.2 章节数据段（第 2 章）可由 `scripts/sync-scope-manifest.py --update` 自动重写，其他章节人工维护。
 - 6.3 修订记录：本文件改动走 `meta` scope，须触发全量 CI；修订后更新 CHANGELOG.md。
+
+## 7 特殊 Skill 的副本纪律
+- 7.1 **chrome-devtools 主副本与部署副本关系**：
+  - **主副本**：`D:/Documents/AI_MCP-Skill-CLI/chrome-devtools/`（本仓库内），是唯一修改源头。所有需求、BUG 修复、功能增强必须先在此处归因分析、根源分析、追溯分析，修改仅在此进行。
+  - **部署副本**：各用户的 `C:/Users/<username>/.workbuddy/skills/chrome-devtools/`，通过运行 `node localization/deploy.cjs` 从主副本生成。**严禁直接修改部署副本**，所有改动须经主副本 → 重新部署。
+  - **修改纪律**：每次修改主副本后，必须重新运行 `node localization/deploy.cjs` 以同步到部署副本；部署副本的 `local-config.json` 和 `mcp-local-config.json` 是用户机器的本地配置，不入库、不随主副本分发。
+  - **最小化原则**：主副本保持最小化——一切可通过脚本生成的文件（`local-config.json`、`mcp-local-config.json`、`upstream/build/`、`node_modules/`）均不入库，仅保留源码和部署脚本；Agent 通过指令下载、生成、衍生的内容不属于主副本范畴。
+  - **自动安装纪律**：`cli_run.cjs` 已内置自动安装逻辑（`npm install -g chrome-devtools-mcp`，`PUPPETEER_SKIP_DOWNLOAD=1`），Agent 无需手动干预；部署副本激活时若检测到 MCP 服务不可用，将自动执行安装流程。
