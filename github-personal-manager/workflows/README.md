@@ -1,6 +1,7 @@
 # workflows · GitHub 个人管理「小白按钮」脚本目录
 
 本目录存放 **工作流父脚本（`wf_*.sh`）**，专为 **SourceGit** 与 **Git Extensions** 这类图形化 Git 客户端设计。
+> 编排约定：本文档各清单/表格的排列顺序 = **仓库全生命周期顺序**（同步巡检 → 多工作树并行 → 开 PR → CI 排错 → 发版 → 分支清理 → 清理工区）；本目录与技能本体 `SKILL.md` 是并行的两条使用路线，互不依赖、各自自洽。
 它们把底层「给 AI 助手（Agent）用的 SOP 脚本」（`scripts/` 下的 `sop_*.sh`）串成一条条「点一下就办」的流程按钮，
 让**记不住 Git 命令、对 Git 理解很少**的人也能安全管理本地仓库。
 
@@ -27,12 +28,12 @@ github-personal-manager/          ← 技能根目录（可整体移动到任意
 ├── workflows/                     ← 本目录（本次从 scripts/workflows 移出，与 scripts 平级）
 │   ├── wf_common.sh               ← 公共库：被其余 7 个脚本 source，提供 wf_source_common / wf_run_step / wf_decide
 │   ├── wf_sync.sh                 ← 同步巡检（全套）
+│   ├── wf_worktree.sh             ← 多工作树（add / merge / cleanup）
 │   ├── wf_pr.sh                   ← 开 PR（含两道安全闸门）
 │   ├── wf_ci.sh                   ← CI 失败排错
+│   ├── wf_release.sh              ← 发版前体检 + 生成发版命令
 │   ├── wf_branch_clean.sh         ← 回收已合并本地分支（一键）
 │   ├── wf_workspace_clean.sh      ← 清理工区（一键，可恢复）
-│   ├── wf_worktree.sh             ← 多工作树（add / merge / cleanup）
-│   ├── wf_release.sh              ← 发版前体检 + 生成发版命令
 │   └── README.md                  ← 本文件
 └── references/ templates/ smoke/  ← 技能其他资料（wf 脚本不依赖）
 ```
@@ -61,12 +62,12 @@ github-personal-manager/          ← 技能根目录（可整体移动到任意
 |---|---|---|---|---|
 | `wf_common.sh` | 公共函数库（被其余 7 个 source） | 所有流程的底座 | `../scripts/lib/sop-common.sh`、加载 `../config/github-sop.config.sh` | 否（仅定义函数） |
 | `wf_sync.sh` | 日常同步巡检全套：看清现状 → 对齐 main → 合并上游 → 出报告 | 每天点一次，保持本地/你的远端/上游三方一致 | `sop_sync_precheck.sh`、`sop_sync_pull_ff.sh`、`sop_sync_upstream.sh`、`sop_sync_report.sh`（合并前用 `git rev-parse HEAD` 捕获 TIP 传给报告） | 是（需 `--confirm`） |
-| `wf_branch_clean.sh` | 批量回收「已合入主线」的本地分支（瘦身） | 分支越攒越多时清理 | `sop_fetch_prune.sh`（刷新远程跟踪）；自身判定 `--merged`、排除 main/当前/有未关 PR 的分支 | 是（需 `--confirm`） |
-| `wf_workspace_clean.sh` | 把未提交改动/未跟踪/忽略文件收进 stash 临时抽屉（可恢复） | 想切分支被拦、或想让文件夹变干净 | `sop_privacy_gate.sh`（先过隐私闸门）；自身用 `git stash push -a` | 是（需 `--confirm`） |
+| `wf_worktree.sh` | 多工作树并行开发：`add` 开线 / `merge` 合回主线 / `cleanup` 收拾 | 同时写两条功能线，互不干扰 | `sop_worktree_add.sh` / `sop_worktree_merge.sh` / `sop_worktree_cleanup.sh` | 是（需 `--confirm`） |
 | `wf_pr.sh` | 开合并请求（PR）全套，先过文档闸门 + 隐私闸门 | 功能分支写好，向原作者申请合并 | `sop_docs_sync_check.sh`、`sop_privacy_gate.sh`、`sop_pr_create.sh` | 是（需 `--confirm`） |
 | `wf_ci.sh` | CI 失败排错：看日志 → 看检查 → 重跑 | PR 的 CI 红了，定位并重测 | `sop_ci_failed_log.sh`、`sop_pr_checks.sh`、`sop_ci_rerun.sh` | ①②只读；③重跑是写动作（需 `--confirm`） |
-| `wf_worktree.sh` | 多工作树并行开发：`add` 开线 / `merge` 合回主线 / `cleanup` 收拾 | 同时写两条功能线，互不干扰 | `sop_worktree_add.sh` / `sop_worktree_merge.sh` / `sop_worktree_cleanup.sh` | 是（需 `--confirm`） |
 | `wf_release.sh` | 发版前体检（主线干净/与上游对齐/PR 检查绿）+ 生成发版命令 | 准备发正式版本前自检 | `sop_sync_precheck.sh`、`sop_pr_checks.sh` | 只读体检；`--confirm` 才真正 `git tag`+`gh release`（公开动作，慎点） |
+| `wf_branch_clean.sh` | 批量回收「已合入主线」的本地分支（瘦身） | 分支越攒越多时清理 | `sop_fetch_prune.sh`（刷新远程跟踪）；自身判定 `--merged`、排除 main/当前/有未关 PR 的分支 | 是（需 `--confirm`） |
+| `wf_workspace_clean.sh` | 把未提交改动/未跟踪/忽略文件收进 stash 临时抽屉（可恢复） | 想切分支被拦、或想让文件夹变干净 | `sop_privacy_gate.sh`（先过隐私闸门）；自身用 `git stash push -a` | 是（需 `--confirm`） |
 
 **通用安全边界（所有脚本一致）**
 - 永远只推到你的远端（`origin`），绝不碰上游（`upstream`）；永远不做强制推送、绝不删 `main`。

@@ -1,10 +1,10 @@
 ---
 name: github-personal-manager
-description: 面向个人日常所有 GitHub 管理与操作的统一执行技能（跨项目通用）。覆盖 9 个标准工作流：信息读取与搜索、日常同步巡检、标准代码修改、多工作树并行开发、CI 失败排错、Release 发版、分支清理回收、PR 全生命周期、清理工区。当用户要求对本地或远端 GitHub 仓库执行任何操作（改代码、写文件、提交、推送、开 PR、合 PR、同步、发版、清理分支、查仓库/代码/Issue/PR、清理工区）时触发；当用户说"帮我改一下 XX 仓库""向 XX 上游提个 PR""同步一下仓库""发个版""看看 CI 为什么红""清理分支""清理工区"时触发此技能。适用于个人 fork 仓库与上游贡献、本地代码修改全流程、每日同步巡检、多工作树并行开发、PR 全生命周期协作、工区清理。可协同记忆系统工作，也可脱离记忆系统独立运行。不适用于与 GitHub 无关的通用文件编辑、非 git 版本控制的文档操作，以及需要他人仓库写权限且未走 Fork+PR 的操作。
+description: 面向个人日常所有 GitHub 管理与操作的统一执行技能（跨项目通用）。覆盖 9 个标准工作流（章节按仓库全生命周期排序）：信息读取与搜索、日常同步巡检、标准代码修改、多工作树并行开发、CI 失败排错、PR 全生命周期、Release 发版、分支清理回收、清理工区。当用户要求对本地或远端 GitHub 仓库执行任何操作（改代码、写文件、提交、推送、开 PR、合 PR、同步、发版、清理分支、查仓库/代码/Issue/PR、清理工区）时触发；当用户说"帮我改一下 XX 仓库""向 XX 上游提个 PR""同步一下仓库""发个版""看看 CI 为什么红""清理分支""清理工区"时触发此技能。适用于个人 fork 仓库与上游贡献、本地代码修改全流程、每日同步巡检、多工作树并行开发、PR 全生命周期协作、工区清理。内置「代码编写、修改和BUG修复通用纪律」（统一优先级裁决器 + 全局契约面 + 回归纪律 + 既有功能保真），凡涉及代码改动的工作流均强制先行过该纪律。可协同记忆系统工作，也可脱离记忆系统独立运行。不适用于与 GitHub 无关的通用文件编辑、非 git 版本控制的文档操作，以及需要他人仓库写权限且未走 Fork+PR 的操作。
 license: Apache-2.0
 metadata:
   author: zhangweildlh
-  version: "2.1.0"
+  version: "2.3.0"
 compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个命令行工具，并登录 GitHub 账号。git/gh 工具路径不硬编码——每次进入本技能先 `where.exe git` / `where.exe gh` 取实际路径（详见阶段 0）。本地 GitHub 仓库根目录默认值 `REPO_ROOT` = `D:/Documents/AI_Work_Temp`（该目录本身不是仓库项目，仅为存放各仓库的根；此为允许的硬编码默认值，可在 config 改），用户给出绝对路径的仓库目录时以用户输入优先。GitHub 用户名默认值 `GH_USER=zhangweildlh`（允许的硬编码默认值，可由 origin 远端拥有者覆盖）。
 ---
 
@@ -96,6 +96,75 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 9. **公开动作一律暂停确认（强门禁）**：删除分支、打标签、创建 Release、删除远端分支等，先大白话说明将做什么、后果、产物，暂停等明确指令；一切冲突、公开动作一律"大白话 + 后果 + 暂停等指令"，绝不自动执行。
    - **特例（链路整体授权，D6 修复）**：当用户用**一条指令**明确授权了串联动公开动作（如「CI 全绿则合并 main + 打标签 + 发布版本」），视为对该链路整体授权，可免逐一暂停；但每个子动作执行前仍须用一句话说明「将做什么 + 后果」（不需等二次确认），且涉及「删远端标签重推 / 删远端分支」等不可逆动作时仍须显式确认。本特例**不扩展到**「删 main / 强推 / 推 upstream」等绝对红线，那些仍须独立二次授权（见第 2/4/5 条）。
 
+## 代码编写、修改和BUG修复通用纪律（一切涉及代码的任务强制先行）
+
+> 本纪律是**一切代码编写 / 代码修改 / BUG 修复 / PR 评审 / PR 全生命周期**任务统一遵循的通用工程纪律，不局限于 GitHub 或 PR；凡动手写代码或改代码前，一律先过本纪律。本技能各涉及代码改动的工作流（工作流四 / 五 / 六 / 九 等）仅承接、引用本章，不重述；仅当任务不含任何代码改动（纯读取 / 纯搜索 / 纯发版 / 纯工区清理 / 纯问答）时方可豁免。
+
+**代码改动通用纪律（完整裁决器 + 全局契约面 + 全仓库整体性视角 + 变更波及半径 + 回归纪律 + 既有功能保真）**：
+
+> **适用范围（强制）**：本纪律适用于**所有涉及代码的任务**——写新功能 / 新模块、改已有代码、修 BUG、回应评审、开 / 合 PR。凡动手写代码或改代码前，一律先过本纪律；仅当任务不含任何代码改动（纯文档 / 纯调研 / 纯问答）时方可豁免。
+
+> **最高视角（强制）**：任何代码改动都**从整个仓库代码的整体性、全局性出发**——先置于全仓库语境评估，而非只盯被点名的一行/一处；按需联动验证其余调用点/模块/构建/CI/文档声明。
+
+**一、红线层（七条铁律，不得违反）**：
+
+1. **不得叠补丁（no patch-on-patch）**：禁止为消一个红灯再叠一个补丁的串行敷衍；每轮修改前先回到全局契约面重画方案。
+2. **不得覆盖不全（no under-coverage）**：修复必须覆盖该问题的全部触发路径与边界，不留"文档声称但代码不到 / 代码到了但场景不全"的缺口。
+3. **不得过度覆盖违反契约（no over-coverage violating contract）**：修复不得扩大作用域超出问题本质与既定契约/语义，不得为修 A 而误伤 B 的契约。
+4. **不得修补旧问题的同时制造新漏点（no fixing-old-opening-new）**：每个改动必须显式校验"是否引入新红灯 / 新漏点"，纳入同一 diff 一并修复或回退。
+5. **不得修一个漏一个（no fix-one-leak-another）**：评审项之间、调用点之间彼此耦合；改一处须联动验证其余所有相关项与调用点，不允许"过掉被点名项、牺牲未点名项"。
+6. **必须有统一优先级裁决器 + 全局高度**：动手前先定"裁决器"并画出全局契约面，否则不下改。
+7. **不得「既有功能失常」（no regression of existing behavior）**：任何代码编写 / 代码修改 / BUG 修复都不得使**既有已可用的功能**失常、失效、出问题乃至无法使用——含对外行为与**可观测行为(observable behavior)**漂移、既有调用路径报错或静默失效、既有配置 / 命令 / 产物不再兼容，以及性能与资源占用的明显劣化。**举证责任在改动方**：须以「改前 / 改后同一套验证」的对比证据自证零回归，不得以「我以为没影响」代替验证。确需变更既有行为时，只能走**显式声明 + 变更记录 + 迁移指引**的公开路径，严禁静默破坏。与红线③④的分界：③管「作用域越界、误伤别处契约」，④管「新增漏点」，本条管「**既有能力退化**」——三者独立成立、须分别校验，不得互相顶替。执行细则见本章四之「既有功能保真专项」。
+
+**二、统一优先级裁决器（Unified Priority Arbiter，固定优先级顺序裁决冲突：覆盖 vs 契约 vs 最小改动）**：
+
+1. **契约保真（contract fidelity）＋既有行为保真（behavior preservation）** 最高：不破坏既有语义与对外契约（含文档声明、调用方预期、评审已共识的语义），亦不使既有已可用功能退化（红线⑦）。
+2. **正确性（correctness）**：修复的问题在全部触发路径与边界上确实正确。
+3. **覆盖完整性（coverage completeness）**：无遗漏路径 / 场景（针对"该问题"本身，不外延）。
+4. **最小作用域（minimal scope）**：在满足上三者的前提下，改动面尽量小、不波及无关调用点。
+5. **可观测 / 可验证（verifiable）**：改动能被测试或证据闭环验证。
+
+- **裁决示例**：当"扩大覆盖"会"违反契约(优先级1)"时 → **宁缩小覆盖、保契约**，并在评审/文档中明确标注剩余边界（"覆盖不全"也须是主动、明示、有契约依据的不覆盖）；当"修 A"会"误伤 B 契约"时 → 必须同一 diff 内同时修 B 或回退 A 的越界部分。
+- **裁决示例（既有测试与本次实现冲突）**：既有测试挂红时**默认改实现、不改测试**；仅当能举证「该测试的期望本身写错」时才动测试，且须在同一 diff 内说明理由。**严禁**为凑绿而跳过(skip) / 删除测试、弱化断言，或下调覆盖率、lint 等级、超时等**既有门禁阈值**——那是把红灯藏起来，不是修好（红线⑦）。
+- **裁决示例（确需改动既有行为）**：当需求与「既有行为保真」确实冲突时 → 不静默改，走**显式声明 + 变更记录(CHANGELOG) + 迁移指引 / 废弃期(deprecation)**，并在 PR 描述中标注为破坏性变更(breaking change)。
+
+**三、全局契约面（动手前必画，作为后续所有决策的唯一事实源）**：
+
+- 被改函数 / 模块的**既有语义**（对外契约）；
+- 全部**调用点**与调用方预期；
+- **文档声明**（接口文档 / README / 注释 / PR 描述）；
+- 评审已共识的语义边界；
+- 耦合的其它模块 / 评审项（改 A 会牵动谁）；
+- **全仓库影响面 / 变更波及半径（blast radius / change impact）**：本改动对全仓库其它模块、构建、CI、文档、公共 API 的连带影响；须回答"改了什么、什么依赖它"，而非只看 diff 触及的文件（变更影响分析）。
+- **既有功能清单与验证基线（existing behavior inventory & baseline）**：本次改动会波及哪些**已在用**的功能、它们当前的正确行为基线是什么、改后拿什么证据证明它们仍正确（红线⑦，细则见四）。
+- 未画完契约面、未定位根因前，不下改。
+
+**四、分阶段操作手册（明确且唯一的执行步骤，须按序执行，不得跳步、不得只做被点名那一项）**：
+
+- **接到"编写 / 修改 / 修 BUG"任务时**：① 写出本任务的裁决器（把五优先级映射为本次"契约保真指什么 / 正确性指什么 / 覆盖到哪"）；② 画全局契约面，逐项填全（含变更波及半径）；③ 定位根因（根因修复而非仅消红灯的表象修补）；④ 定方案（明确"覆盖到哪、不覆盖到哪、为何"，写入任务笔记作为对齐基准）。
+- **编写新功能 / 新模块时**：同样先画契约面（对外契约、调用方预期、与既有模块的边界）；先最小骨架落地再迭代；不得为"顺手"顺带改动无关模块或既有契约（红线③）。
+- **写代码 / 改代码时**：① 按方案改，改动面控制在最小作用域；② 每改一处，立即回到契约面，联动核对其余全部调用点/文档声明/耦合项，确认未引入新红灯、未误伤 B 契约（红线③④⑤）；③ 文档与代码同改同审（声明与语义必须一致，禁止"文档过度承诺、代码覆盖不全"或反向错位）。
+- **BUG 修复专项（回归纪律）**：① **先复现**——用失败用例或确定性复现命令证明 bug 存在，再动手（避免"我以为修好了"）；② **最小修复**——仅使复现用例通过的 diff，不夹带重构；③ **锁定回归**——新增/复用回归测试锁定该 bug（纯逻辑用单测、IO 边界用集成、输出格式用 golden），或附确定性复现命令；④ **广谱验证**——按变更波及半径选择 partial / full regression 跑相关乃至全量测试，确认未引入新红灯；⑤ **修复与改进分离**：先修 bug 保持绿，重构/优化另起一轮。
+- **既有功能保真专项（红线⑦执行细则：基线 → 对比 → 举证）**：① **改前取基线**——动手前先跑一遍既有测试 / 冒烟并记录结果（通过 / 失败计数、关键输出）作为 before 基线；无测试可跑时，先给要动的既有行为补**特征测试(characterization test)**把当前行为锁住再改。② **不懂不动**——未弄清某段既有代码 / 配置 / 分支为何存在前**不得删改**（Chesterton's fence）；疑似冗余先查调用点与历史，查不清则**问，不猜**。③ **改后同套复跑**——用与 before **完全相同**的命令与范围复跑并逐条对比；输出 / 快照类差异须**逐项复核该差异是否有意**，不得整体覆盖基线了事。④ **显式举证**——汇报时必须给出通过 / 失败计数与对比结论，禁止只说「测试通过了」。⑤ **非功能回归同管**——性能、内存、启动耗时、产物体积明显劣化，同样按本专项处理。⑥ **无工具链兜底**——本机无测试工具链时，明确声明「零回归依赖远端 CI 验证」，并在 diff 自审中逐个调用点核对，不得假装已验证。
+- **提交 PR 时**：① PR 描述显式声明本次**契约边界**（覆盖到哪、不覆盖到哪、剩余边界为何）；② 确认文档代码已同改、本地全量验证（相关测试 + compile + 既定 CI 目标集）通过；③ 单一收口提交，不为"预留给某条评审"开空补丁提交（红线①）。
+- **收到评审回复（PR reply）时**：① 逐条把评审项分类 **A 真问题（须改）/ B 边界澄清（文档即可）/ C 误判（用裁决器驳回）**；② 同一 diff 内一次性收口所有 A 类 + 其联动项，禁止"只改被点名那一项、牺牲未点名项"（红线⑤）；③ 回复时每条引用裁决器结论（为何扩/缩/保契约），不空泛认错；④ **绝不因单条评审新开一个串行补丁提交**（红线①），若需调整作用域回到"接到任务"步重画方案后同 diff 处理。
+- **多次复提交（迭代）时**：① 每轮复提前，回到裁决器 + 全局契约面**整体重画方案**，而非在上一轮补丁上再叠（红线①）；② 若发现上轮改动越界/漏点，在同分支 amend/squash 收口，保持 PR 单一连贯。
+
+**五、反模式速查（脱敏通用版，来自真实复盘）**：
+
+- **无统一裁决器**：每次只针对"被点名那一项"打补丁，缺乏裁决"覆盖广度 vs 契约保真 vs 最小改动"的全局标准 → 局部正确、彼此冲突。
+- **补丁叠补丁**：一路串行打 commit，每个只为消上一个 commit 引出的新红灯，从未停下来重画全局契约。
+- **两极摇摆（覆盖不全 ↔ 过度覆盖）**：文档先过度承诺覆盖，代码又过度覆盖误伤其它契约，再靠回退在两极间横跳。
+- **修一漏一 / 修旧造新漏**：为过某评审项扩大命中范围，却让合法精确情形被泛词误杀；用前瞻/正则修一处，又影响另一处提取。
+- **无全局视野**：只盯当前这条 review comment，没先画"整个契约面 + 所有调用点 + 所有评审项耦合"，导致局部最优、全局震荡。
+- **未做回归**：只证明"新代码对"，未证明"旧代码仍对"；改动波及半径内的既有行为被破坏却没人验证（主条款见红线⑦，细则见上「BUG 修复专项」与「既有功能保真专项」）。
+- **改测试凑绿**：实现改不动就跳过(skip) / 删除测试、弱化断言，或下调覆盖率 / lint / 超时阈值——红灯藏住了，既有功能实际已坏（红线⑦）。
+- **删掉「看起来没用」的既有代码**：未查清其存在理由就顺手清理，删掉的正是别处仍在依赖的行为（Chesterton's fence）。
+- **静默改既有行为**：既有输出格式 / 接口语义 / 默认值悄悄变了，既无声明也无变更记录，调用方在下游炸。
+- **只看功能红绿**：性能、内存、产物体积等非功能项明显劣化，未纳入回归判定（红线⑦）。
+
+**六、与本技能门禁的衔接（本章内闭环，不向外章回引）**：文档与代码同改同审（声明与语义一致）；改完即验证（有工具链则跑 lint/test，否则开 PR 触发 CI + 严谨 diff 自审）。开新 PR 准备阶段的代码修改亦须遵循本章标准，且同时通过对应工作流的既有门禁——「阶段 0 启动前闸门」（完整性 / 正确性 / 静态校验，见工作流四第 1 步）与「提交前文档同步门禁」（Tier 1/2/3，见工作流四第 3 步），二者并列互补、互不替代。
+
 ## 环境硬约束
 1. 本机无 Docker，任何涉及 Docker 的安装/部署方案一律忽略，改用原生路径。
 2. 默认走远程 CI（GitHub Actions）构建二进制/产物；若仅用本机已安装且已在 PATH 注册的工具（如 `node`、`uv`/Python、本机已预装编译器）即可完成本地编译、且无需安装新编译工具链（MSVC Build Tools、MinGW-w64 等），则允许本地编译。
@@ -150,9 +219,9 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 3. 标准代码修改（改/写代码或文件、提交(commit)、推送(push)、开 PR）——见工作流四
 4. 多工作树并行开发（独立工作树、--no-ff 普通合并、整段回滚）——见工作流五
 5. CI 失败排错（定位红 run、修复回推）——见工作流六
-6. Release 发版（打标签(tag)、取构建产物）——见工作流七
-7. 分支清理回收（本地 + 远端删除已合并分支）——见工作流八
-8. PR 全生命周期操作（开 PR、评审回应、合并、收尾）——见工作流九
+6. PR 全生命周期操作（开 PR、评审回应、合并、收尾）——见工作流九
+7. Release 发版（打标签(tag)、取构建产物）——见工作流七
+8. 分支清理回收（本地 + 远端删除已合并分支）——见工作流八
 9. 清理工区维护（搜列、确认、删除垃圾/过期/临时文件）——见工作流十
 10. 仓库管理（clone/fork/create/rename/archive）——详见 references/gh-capability.md
 11. Issue/PR 管理（建/列/查/评/合/关）——详见 references/gh-capability.md 与 工作流九
@@ -160,7 +229,9 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 
 ## 核心工作流
 
-> 以下 9 个工作流为本技能内置权威实现；工作流编号沿用既有约定便于维护；各工作流均自包含，可独立执行。
+> 以下 9 个工作流为本技能内置权威实现；各工作流均自包含，可独立执行。两点编排约定：
+> 1. **章节排列 = 仓库全生命周期顺序**（信息读取 → 同步巡检 → 代码修改 → 多工作树并行 → CI 排错 → PR 全周期 → 发版 → 分支清理 → 清理工区），与工作流编号先后无关，阅读与执行均按章节排列顺序推进；
+> 2. **编号从「二」起、无「工作流一」系有意设计而非断档**：记忆体系中「工作流一」为 GitHub 工作流总闸门（技能自动激活前置判定），本技能经平台技能系统按名加载即视为已过该闸门（见上文「运行模式」与「触发与加载」），故本文件不含工作流一章节；二~十的编号与记忆体系一一对应，便于跨系统互引。
 
 ### 工作流二：信息读取与搜索（gh 优先）
 （gh 优先：仓库/代码/Issue/PR 读取与搜索。）
@@ -171,6 +242,8 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 
 ### 工作流三：日常同步巡检
 （前提：阶段 0 已确认 `git` 与 `gh` 可用，且已完成路径核验。先 `cd` 到技能根目录。）
+
+**配置校验（进入下列步骤的前置门槛）**：`git remote -v` 须同时存在 origin + upstream；`git rev-parse --abbrev-ref main@{upstream}` 须为 origin/main。缺项 → 大白话报告缺失项并暂停，等用户确认后助手补齐（如 `git remote add upstream <url>`、`git branch --set-upstream-to=origin/main main`）。多 remote 场景（如同公司 GitLab 并存）可为额外远端起直观命名避免混淆；`origin` 只是习惯命名、非规定。
 0. **第零步（批量总览，可选）**：想"一眼看全部 fork 状态"时，先运行
    `bash scripts/sop_status_all.sh`
    默认只扫描 `REPO_ROOT` 下所有 fork 并汇总每个仓库的落后/领先/未提交/未推送状态，**默认不 fetch（纯本地只读，不联网）**；`--fetch` 才真正联网拉取远端；`--confirm` 才在 fetch 后真正执行后续动作。该脚本同样遵循本技能 dry-run 优先、路径核验纪律——默认只打印将做什么，绝不直接改动任何仓库。看完总览再进入下列单仓四步做针对性同步。
@@ -189,41 +262,46 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
    **冲突处理**：凡双向分叉、工作区脏、feat 未提交、开 PR、同文件冲突，脚本会列出冲突文件/选项并暂停；你把内容用大白话转述给用户，等明确指令，绝不自动选。
 4. **第四步（生成上游更新分析报告）**：同步完成后，运行
    `bash scripts/sop_sync_report.sh <仓库路径> <合并前本地tip>` —— 以"合并前本地 tip"为基准，输出**结构化的上游更新分析报告**（新增功能 / 改进与优化 / Bug 修复 / 破坏性变更 / 其他 + 详细提交记录表）；不传 tip 时自动取 `upstream/main` 最近 20 条作参考。该报告只读、无需 `--confirm`，是本次同步交付给用户的核心产物，务必完整呈现。
+5. **特殊场景（低频，详见 references/fork-ci-pitfalls.md「特殊场景与易错坑」）**：
+   - **本地仓库丢失 `.git`**（如同步工具误清，仅剩上游快照 + 本地独有文件）：`git init -b main` → 补配 origin/upstream 远端 → `git fetch upstream` → `git reset --mixed upstream/main`（保留工作树）→ 覆盖前备份本地当前版本 → 刷跟踪文件到上游基线；全程**禁用 `reset --hard` / `git clean`**（防误删 `.workbuddy` 项目记忆）；推送前先 `gh auth setup-git` 桥接凭证。
+   - **本地独有文件（如 `.workbuddy`）不进同步**：写入 `.git/info/exclude`（本地专属忽略，不提交不推送、不受 reset/checkout/pull 影响），保持 fork 为上游干净镜像且无 `.gitignore` 分歧；已被跟踪的先 `git rm --cached -r <路径>` 再忽略。`.workbuddy` 为项目记忆库，**绝不删除**——忽略=不跟踪，不影响磁盘。
 
 ### 工作流四：标准代码修改
 （前提：阶段 0 工具可用，已完成路径核验。先 `cd` 到技能根目录。）
-1. 阶段 0 闸门：完整性（无 WIP/TODO/空实现）、正确性（逐文件 Read + `git diff` 复核）、静态校验（仅可跑不触发本地编译的格式化类检查；编译型 lint/test 一律交 CI）。未过则先修复。
-2. 同步与建分支（手动 `git`，无专门脚本）：`git switch main && git pull upstream main && git push origin main`；`git switch -c feat/[topic]`（先建分支再提交(commit)）。
+1. **纪律入口（强制）**：动手前先完整过一遍「代码编写、修改和BUG修复通用纪律」专章——按其「分阶段操作手册·接到任务时」写出裁决器并画全局契约面，再进入本步。
+2. 阶段 0 闸门：完整性（无 WIP/TODO/空实现）、正确性（逐文件 Read + `git diff` 复核）、静态校验（仅可跑不触发本地编译的格式化类检查；编译型 lint/test 一律交 CI）。未过则先修复。
+3. 同步与建分支（手动 `git`，无专门脚本）：`git switch main && git pull upstream main && git push origin main`；`git switch -c feat/[topic]`（先建分支再提交(commit)）。
    - **分支保护提示（2026-08-19）**：若目标仓库 main 已开启分支保护（旧式保护或 ruleset，如已转公开的 AI_MCP-Skill-CLI），`git push origin main` 直推会被拒；应改走 PR——在 `feat/[topic]` 分支提交后运行 `bash scripts/sop_pr_create.sh <仓库路径> --base main --confirm`（同步 main 基线则改为 `git pull --ff-only origin main`，勿直推）。
-   - **born 检查（防根提交异常）**：建分支后、首次 `git commit` 前，务必 `git rev-parse HEAD` 确认当前分支已 born（解析出有效 SHA、有父提交）；若报 `unknown revision` → 先 `git reset --mixed main` 修复，绝不直接 `git add -A && git commit`。
-3. **提交前文档同步门禁（分层检查清单，提交(commit)动作之前必须过）**：
+   - **born 检查（防根提交异常）**：建分支后、首次 `git commit` 前，务必 `git rev-parse HEAD` 确认当前分支已 born（解析出有效 SHA、有父提交）；若报 `unknown revision` → 先 `git reset --mixed main` 修复，绝不直接 `git add -A && git commit`。⚠️ **分支名含斜杠（如 `feat/2026-07-31-xxx`）在某些环境更易触发引用歧义致 unborn**（已实证于首次提交即生成无父根提交的案例），建分支后必跑 `git rev-parse HEAD` 核验。
+4. **提交前文档同步门禁（分层检查清单，提交(commit)动作之前必须过）**：
    - **流程**：先 `bash scripts/sop_docs_sync_check.sh <仓库路径>`（只读 dry-run，无需 `--confirm`），脚本按 `references/docs-sync-checklist.md` 的「分层检查清单」——① 取本次真实变化（`git status`/`git diff`/`ls-files`）；② 推导改动类型；③ 查仓库是否存在清单中的 Tier 1/2/3 文件；④ 分析是否已纳入变更；输出 `【文档同步状态】已同步 / 未同步` 及分层明细（Tier 1 阻断 / Tier 2 强建议 / Tier 3 提示）。
    - **Tier 1（根 README/README_EN/CHANGELOG，阻断）未同步 → 必须先补文档**：基于真实变化更新对应文档相应章节，并把文档一并 `git add` 进同一次提交(commit)。**严禁在 Tier 1 未同步时直接 `git commit` 代码。**
    - **Tier 2（docs/、CONTRIBUTING、配置样例、接口契约、i18n、examples，强建议）未同步 → 提交(commit)前须处理或显式说明为何不改**：加 `--strict` 运行脚本可让 Tier 2 未同步同样阻断（`exit 2`）。
    - **Tier 3（测试、包清单、锁文件，提示）**：行为/依赖变动建议补测试或同步锁文件，仅提示不阻断。
    - 适用范围、"免触发"边界与完整分层定义见 `references/docs-sync-checklist.md`；本门禁不绕过任何顶级全局禁令/路径核验。
-4. 提交/推送/触发 CI（手动 `git`）：`git add [文件]` → `git commit -m "type: 简述"` → **推送(push) 前先运行 `bash scripts/sop_privacy_gate.sh <仓库路径>`（见顶级全局禁令第 6 条），命中即暂停处理再 push** → `git push -u origin feat/[topic]`。
-  - **4.5 提交前置排雷（.gitignore 预置，防 pre-commit 拦截）**：若工作区存在**未跟踪的含密钥文件 / 超大文件**（如 `providers.json` 含真实 key、数百 MB 的 exe），而目标分支的 `.gitignore` 无对应忽略规则 → 隐私/体积门禁（Tier0）会扫描未忽略的未跟踪文件并 **FATAL 拦截提交**。对策：每个要提交的分支**先补 `.gitignore` 忽略规则**（与含规则分支用**相同文本、相同位置**追加 → 多 PR 合并时大概率自动合并）；提交前 `git status --short` 确认只暂存预期文件。
-  - **推送后须核验（防漏推）**：`git push -u origin feat/[topic]` 后，必须 `git branch -vv` 确认该分支显示 `ahead 0`（远端已更新）；`gh run list --branch <b>` 应有新 run（headSha=新提交）。漏推时 PR head 不更新、无新 CI run，极易漏检。
+5. 提交/推送/触发 CI（手动 `git`）：`git add [文件]` → `git commit -m "type: 简述"` → **推送(push) 前先运行 `bash scripts/sop_privacy_gate.sh <仓库路径>`（见顶级全局禁令第 6 条），命中即暂停处理再 push** → `git push -u origin feat/[topic]`。
+  - **5.5 提交前置排雷（.gitignore 预置，防 pre-commit 拦截）**：若工作区存在**未跟踪的含密钥文件 / 超大文件**（如 `providers.json` 含真实 key、数百 MB 的 exe），而目标分支的 `.gitignore` 无对应忽略规则 → 隐私/体积门禁（Tier0）会扫描未忽略的未跟踪文件并 **FATAL 拦截提交**。对策：每个要提交的分支**先补 `.gitignore` 忽略规则**（与含规则分支用**相同文本、相同位置**追加 → 多 PR 合并时大概率自动合并）；提交前 `git status --short` 确认只暂存预期文件。
+  - **提交整理（amend / rebase -i，仅限未推送或已授权自有 feat 分支）**：`git commit --amend --no-edit`（补漏文件）/ `--amend -m "新信息"`（改最近一次提交信息）；开 PR 前可用 `git rebase -i HEAD~N` 整理最近 N 个本地提交（动词：pick 保留 / reword 改信息 / squash 合并保留信息 / fixup 合并丢弃信息 / drop 删除），让 PR 历史干净易审。**硬约束**：仅限未推送的本地提交，或仅自己使用且已获授权的 feat 分支；**禁止**用于 main 及已推送且他人/PR 依赖的分支（改写历史违反审计链）；整理后强推仅允许 feat 分支且必须 `--force-with-lease`。
+  - **推送后须核验（防漏推，属第 5 步）**：`git push -u origin feat/[topic]` 后，必须 `git branch -vv` 确认该分支显示 `ahead 0`（远端已更新）；`gh run list --branch <b>` 应有新 run（headSha=新提交）。漏推时 PR head 不更新、无新 CI run，极易漏检。
    - **提交信息建议采用 conventional commits 类型前缀（规范引导，非强制校验）**：`type` 取 `feat:`（新功能）/ `fix:`（修复）/ `chore:`（杂务）/ `docs:`（文档）/ `refactor:`（重构）/ `test:`（测试）/ `style:`（格式），格式为 `type: 简述`（如 `fix: 修正 CI 路径核验误报`）。此举仅为提交信息约定，便于审阅与生成 CHANGELOG，工具层不强制校验；仍须坚持"一 PR 一主题"。注意：这是提交信息约定，与合并纪律（顶级禁令第 8 条 `--no-ff`）无关，互不替代。
-5. **CI 触发条件核查（开 PR / 轮询 CI 前强制，D2 修复）**：读取 `<仓库>/.github/workflows/*.yml`，确认 `on:` 下的 `push.branches` 与 `pull_request.branches`：
+6. **CI 触发条件核查（开 PR / 轮询 CI 前强制，D2 修复）**：读取 `<仓库>/.github/workflows/*.yml`，确认 `on:` 下的 `push.branches` 与 `pull_request.branches`：
    - 若当前功能分支(feat) 不在 `push.branches` 列表 → **明确告知用户**：「feature 分支 push 不会自动触发 CI，须开 PR（或合并 main）才能验证」；直接走「开 PR 触发 PR 的 CI」路径，不浪费一轮 push 后空等。
    - 若 workflow 仅对 main 触发 → 开 PR 到 main 即触发，无需 push 后轮询。
    此核查避免「push 后 CI 无运行记录」的误判与空等。
-6. **开 PR（必须走脚本，不手写 gh）**：运行
+7. **开 PR（必须走脚本，不手写 gh）**：运行
    `bash scripts/sop_pr_create.sh <仓库路径> --base <分支>` —— dry-run，打印将执行的 push + `gh pr create`；
    `bash scripts/sop_pr_create.sh <仓库路径> --base <分支> --confirm` —— 真正执行。
    脚本守卫：当前在 main 上会被拒绝（违反顶级禁令）；分离 HEAD 会拒绝；只在 feat 分支上才允许开 PR。
-7. **轮询 CI（脚本）**：运行 `bash scripts/sop_pr_checks.sh <仓库路径>`，只读输出 PR 检查状态与最近 5 条 workflow run。
-8. 对齐上游并强推（仅功能分支(feat)，非 main）：`git fetch upstream && git rebase upstream/main feat/[topic]`；冲突就地解决 → `git rebase --continue` → `git push --force-with-lease origin feat/[topic]`（绝不强推 main）。重跑 CI 至绿。
-9. 合并(merge)：贡献上游仓库(upstream) 由维护者合并(merge)，你仅监控；自有/自测 PR 用 `gh pr merge`；fork 内部 PR 用 `gh pr merge --squash`。
-10. 收尾：`git switch main && git pull upstream main && git push origin main`；`git branch -d feat/[topic]` + `git push origin --delete feat/[topic]`。
+8. **轮询 CI（脚本）**：运行 `bash scripts/sop_pr_checks.sh <仓库路径>`，只读输出 PR 检查状态与最近 5 条 workflow run。
+9. 对齐上游并强推（仅功能分支(feat)，非 main）：`git fetch upstream && git rebase upstream/main feat/[topic]`；冲突就地解决 → `git rebase --continue` → `git push --force-with-lease origin feat/[topic]`（绝不强推 main）。重跑 CI 至绿。
+10. 合并(merge)：贡献上游仓库(upstream) 由维护者合并(merge)，你仅监控；自有/自测 PR 用 `gh pr merge`；fork 内部 PR 用 `gh pr merge --squash`。
+11. 收尾：`git switch main && git pull upstream main && git push origin main`；`git branch -d feat/[topic]` + `git push origin --delete feat/[topic]`。
     - **分支保护提示（2026-08-19）**：若目标仓库 main 已开启分支保护，直推被拒时改为在 `feat/[topic]` 分支走 PR 合并后再同步本地：`git pull --ff-only origin main`；不要硬推 main。
-11. 硬约束：本地 main 跟踪 origin/main；`git push` 只推 origin；fork Actions 需一次性手动启用；给上游建 PR 用 `gh`（免 403）。
-12. 临时抽屉（stash）：开发到一半被打断时 `git stash push -m "feat A 做到一半"` 暂存，恢复时 `git stash pop`；stash 后仍需合适时机 pop 回来继续，巡检遇工作区脏会硬停止。
+12. 硬约束：本地 main 跟踪 origin/main；`git push` 只推 origin；fork Actions 需一次性手动启用；给上游建 PR 用 `gh`（免 403）。
+13. 临时抽屉（stash）：开发到一半被打断时 `git stash push -m "feat A 做到一半"` 暂存，恢复时 `git stash pop`；stash 后仍需合适时机 pop 回来继续，巡检遇工作区脏会硬停止。
 
 ### 工作流五：多工作树并行开发（--no-ff 普通合并特化）
-（适用：同一仓库需多任务并行、代码隔离，最终 `--no-ff` 普通合并回主线、整段可回滚。本质是「工作流四 标准代码修改」的并行多工作树特化。前提：阶段 0 工具可用、已完成路径核验；先 `cd` 到技能根目录。）
+（适用：同一仓库需多任务并行、代码隔离，最终 `--no-ff` 普通合并回主线、整段可回滚。本质是「工作流四 标准代码修改」的并行多工作树特化。前提：阶段 0 工具可用、已完成路径核验；先 `cd` 到技能根目录。改动（编码 / 冲突解决 / 修 BUG）动手前须先过「代码编写、修改和BUG修复通用纪律」专章。）
 
 **核心原则（不可动摇）**：① 普通合并——功能分支(feat) 合入主线(main)一律 `git merge --no-ff`，生成双父合并碑、保留中间提交谱系、不改写历史；② 整段可回滚——合并碑双父结构，回滚唯一命令 `git revert -m 1 <合并碑>`；③ 历史不可变——已推送提交禁止改写（rebase -i/amend/--force）；④ 一分支一工作树，不同工作树须 checkout 不同分支。
 
@@ -236,6 +314,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
   ⚠️ **Windows 环境约束**：`sop_worktree_add.sh` 会把工作树路径统一归一化为 Windows 形态（`D:/...`）。请在 **Git for Windows + Git Bash** 环境下运行；若路径呈 POSIX 形态（`/d/...`），Git 会误判为相对路径、把工作树错建到 `D:/d/...` 而导致后续无法进入（P-GPM-4 已修复，但归一化依赖 Git Bash 环境的 `cygpath`）。纯 CMD / 非 Git Bash 终端可能异常。
 - **阶段二：工作树内开发 + 测试（在各自工作树目录内）**
   `cd` 到工作树目录，按需多次提交(commit)（保留中间提交谱系）；独立安装依赖（`node_modules` 等不跨工作树共享）；跑 `<INSTALL_DEPS> && <RUN_TESTS> && <BUILD>`，**全绿才允许合并**。可选 `git push -u origin feat/<topic>` 持久化引用。建议定期 `git fetch origin && git rebase origin/main` 减少后期冲突（仅未推送或已授权自身分支时）。
+  **版本号防坑（若随合并发版适用）**：本任务将随合并一起发版 → 功能分支(feat) 内**同步升全部版本标识**（包描述/应用清单/兜底字符串等，曾发生漏升某处版本字段致合并时补课）；暂不发版 → 功能分支(feat) 保持与主线(main) 同版本号，合并后统一升（推荐，避免多分支版本号分叉）。
 - **阶段二·甲（并行子 Agent 完成核验门禁，强制，D1 修复）**：若采用「多个并行子 Agent 团队」模式（区别于手动 `git worktree`），每个子 Agent 结束后**必须**核验其产出的工作树/分支是否有实际提交：`git -C "<子Agent工作树>" rev-list --count <base>..HEAD`（`<base>` 取 main 或 PR 目标分支）。计数 = 0 → 该子 Agent 零产出，**立即报错并自动回退到串行亲自执行**（不在该子 Agent 上重试），同时记录该分支供清理；**绝不带着「未完成的并行」进入阶段三合并**。核验不通过不得继续后续合并/PR 步骤。
 - **阶段三：--no-ff 合并到主线（必须在主仓库目录，绝不在工作树内）**
   运行（先 dry-run 预览，再加 `--confirm` 真正合并）：
@@ -256,15 +335,41 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 
 ### 工作流六：CI 失败排错
 （前提：阶段 0 工具可用，完成路径核验。先 `cd` 到技能根目录。）
+- **纪律回引（强制）**：若红灯源于代码修改——尤其属「为过评审叠补丁」所致——先回到「代码编写、修改和BUG修复通用纪律」，按其裁决器 + 全局契约面整体重画方案后再修，绝不在旧补丁上继续叠加。
 - **前置核查 · CI 触发条件核查（轮询 CI 前强制，D2 修复）**：同工作流四第 5 步——读取 `<仓库>/.github/workflows/*.yml` 的 `push.branches` / `pull_request.branches`，确认当前分支的 CI 是否被触发；若 feature 分支不在 `push.branches`，明确知晓「须开 PR 才能验证」，不空等 push 后的 run。进入本工作流通常已在 PR 中，此核查用于避免误判「CI 没跑」。
-  - **红灯归属诊断（避免对历史遗留红灯空折腾）**：合并/修复前先看 main 自身 CI 历史 `gh run list --workflow <wf> --branch main`——若 main 最近多次全 failure，说明红灯是**历史遗留、与 PR 内容无关**，不要试图逐个 PR 找原因；再用 `git show main:<测试文件>` 确认 main 同样含该断言、`git ls-tree` 确认被忽略文件确不在 main 树内，坐实后按「测试缺陷修复」处理（见工作流四 4.5 提交前置排雷），而非改业务代码。
+  - **红灯归属诊断（避免对历史遗留红灯空折腾）**：合并/修复前先看 main 自身 CI 历史 `gh run list --workflow <wf> --branch main`——若 main 最近多次全 failure，说明红灯是**历史遗留、与 PR 内容无关**，不要试图逐个 PR 找原因；再用 `git show main:<测试文件>` 确认 main 同样含该断言、`git ls-tree` 确认被忽略文件确不在 main 树内，坐实后按「测试缺陷修复」处理（见工作流四 5.5 提交前置排雷），而非改业务代码。
 1. **下载失败日志（脚本，只读）**：运行 `bash scripts/sop_ci_failed_log.sh <仓库路径>`，自动取最近一次 workflow run 并打印失败步骤日志，无需打开网页。
 2. **轮询 CI 状态（脚本，只读）**：运行 `bash scripts/sop_pr_checks.sh <仓库路径>`。
+   ⚠️ **结论取数坑**：`gh run watch --exit-status` 的退出码会被后续管道（如 `| tail; echo $?`）掩盖，取的是管道末命令的退出码；应再用 `gh run view <run-id> --json conclusion --jq .conclusion` 明确取结论。clippy 在 `-D warnings` 下日志输出 `error:` 而非 `warning:`，在失败日志中 grep `error:` 定位 clippy 失败。
 3. 按现象对号入座（详见 references/fork-ci-pitfalls.md）：fmt 失败 → 格式化；clippy `-D warnings` → 改 feat 重验；`action_required` → 等维护者；整 CI 红且无关代码 → 取消 pinned SHA 勾选；发布 job 失败 → 给发布 job 加 `if: github.repository == '<upstream>'` 守卫（⚠️ actionlint 拒绝纯常量 `if: false`，须用非常量仓库名比较）；CHANGELOG 缺段 → 补段。
 4. **重跑 CI（脚本，需确认）**：运行
    `bash scripts/sop_ci_rerun.sh <仓库路径>` —— dry-run，打印将执行的 `gh run rerun`；
    `bash scripts/sop_ci_rerun.sh <仓库路径> --confirm` —— 真正重跑失败 job。
 5. 修复回推：代码/格式/clippy 类改在功能分支(feat) → `git push origin feat/[topic]` 自动重跑；改 workflow 文件或删/重推标签(tag) 属影响面较大动作 → 先说明再执行。`git push` 偶发 `github.com:443` 超时用 for 循环重试 3~5 次；若 `Recv failure: Connection was reset`（网络层封锁，重试无效），改用 `gh api` REST 接口绕过 git 智能 HTTP 协议提交/移标签。
+
+### 工作流九：PR 全生命周期操作
+（统一覆盖开 PR、评审回应、合并、收尾等一切 PR 操作。前提：阶段 0 工具可用，完成路径核验（见顶级全局禁令第 1 条），严守硬禁令（只推 origin、禁强推/删 main）。先 `cd` 到技能根目录。）
+
+- **阶段 0 — 前置门禁**：路径核验（必须）；仓库三元组提取 `bash scripts/sop_resolve_repo.sh <仓库路径>`；严守顶级全局禁令（绝不强推/删 `origin/main`、只推 origin）。
+- **阶段 1 — 开新 PR 前的三核验**：① 路径核验通过；② 分支核验：`git rev-parse --abbrev-ref HEAD` 确为 `feat/<topic>`（非 main、非游离）、`git rev-parse HEAD` 须 born（否则 `git reset --mixed main` 修复）、分支已推 `origin/feat/<topic>`、工作区干净（`git status --porcelain` 为空）；③ 本地↔origin↔upstream 对齐：开 PR 前必须 `git fetch upstream && git rebase upstream/main feat/<topic>`（或 merge）保证基于最新 main。
+- **阶段 2 — 重复 PR 检查**：`gh pr list --repo <upstream> --author <你> --state all`（**作者口径**，弃用 `--head` 窄口径，避免漏判 `feat/*` 分支的 PR）。已有 open PR 覆盖同一改动 → 不重复开，在那条上更新；已有 rejected → 按反馈改后开新 PR（暂停）；无 PR → 进入阶段 3/4。
+- **阶段 3 — 查询并遵循上游仓库对 PR 的要求与规范**：开 PR 前 `gh api repos/<UPSTREAM>/contents/CONTRIBUTING.md -q .content | base64 -d` 读贡献要求、`pull_request_template.md` 读正文结构、`.github/workflows` 读必过 CI job；逐项核对（基于最新 main、PR 聚焦、跑本地校验、附 user-facing 证据、不隐藏失败）。
+- **阶段 4 — 开新 PR 的规范操作**：
+  - 开 PR（必须走脚本）：`bash scripts/sop_pr_create.sh <仓库路径> --base <分支>`（dry-run）/ `--confirm`（真正执行）；脚本守卫当前须在 feat 分支。
+  - 向 上游仓库(upstream) 贡献：`gh pr create --repo <upstream> --head <你>:<分支> --base main`；fork 内部 PR（触发 fork CI）：`gh pr create --repo <fork> --head <你>:<分支> --base main`。⚠️ 一律显式带 `--repo`，避免默认取 upstream 报 "No commits between…"。
+  - PR 正文用 `--body-file`：先写正文到文件再 `gh pr create --body-file <file>`，避免中文括号被 bash 解析失败；严格套用上游 PR 模板段落，显式声明契约边界（覆盖到哪、不覆盖到哪）。
+  - 文档同步门禁：提交前 Tier 1（README/CHANGELOG）必须同步（运行 `bash scripts/sop_docs_sync_check.sh <仓库路径>`），未同步不得直接提交/开 PR。
+  - 触发并轮询 CI：`bash scripts/sop_pr_checks.sh <仓库路径>`，`gh pr checks` / `gh run list` 必须全绿。
+- **阶段 5 — PR 审查意见回应（含多轮）**：① 拉取评审 `gh pr view <编号> --comments` / `gh pr diff <编号>` / `gh api .../pulls/<编号>/reviews`；② 先对齐分支（当前分支须等于 PR 源分支 `feat/<topic>`，`gh pr view <编号> --json headRefName` 核对）；③ 以**真实代码**为唯一基准（用 `gh pr diff`/`Read` 实际文件当前行），逐条对照避免悬空/错误回应；④ **代码修改标准**：先完整执行「代码编写、修改和BUG修复通用纪律」专章——定统一优先级裁决器、画全局契约面（含变更波及半径）、根因修复；同 diff 一次性收口所有 A 类（真问题）+ 联动项，绝不叠补丁、绝不只改被点名项（细则以该专章为准）；⑤ 文案回答逐条引用裁决/契约结论（A 改了哪如何验证 / B 文档澄清 / C 误判有理有据驳回）；⑥ user-facing 改动在 Evidence 段附截图（Web UI 直接粘贴，或 CLI 兜底放 `assets/pr-evidence/` 后引用公开 URL）；⑦ 推送更新 `git push origin feat/<topic>`，重跑 CI 至绿；⑧ 多轮迭代回到阶段 5 开头整体重画方案，不叠补丁。
+- **阶段 6 — PR 合并**：贡献 upstream 由维护者合并，你仅监控；自有仓库/自测 PR 用 `gh pr merge`；fork 内部 PR 用 `gh pr merge --squash`。合并前冲突/分支保护见工作流三冲突决策树或工作流五多工作树。
+  - **规则集跳过检查绕过（GitHub ruleset 场景）**：若仓库启用 ruleset 且其 required checks 含「因 PR 变更范围(scope)而 skipping」的检查（如 `smoke-scoped` 对 meta 变更跳过），默认 `gh pr merge` 会因「该 required check 虽 skipping 仍视为未满足」被拒（提示 `the base branch policy prohibits the merge`）。
+    - 前置：PR 的 CI **实际已通过**（smoke / scope-map pass，skipping 属正常）；`--admin` **仅绕过「跳过的 check」**，若 smoke / scope-map **真红须先修 CI 再合并**。
+    - 你是 repo admin 且 ruleset 已配 `bypass_actors`（方向 B：`bypass_mode: always`）时，用 `gh pr merge <PR> --admin -m`（须带 `-m/-s/-r` 之一，非交互缺省会报「缺合并方式标志」）。
+    - **禁止用 `--auto` 替代**：skipping 的 required check 永不满足条件，`--auto` 会让 PR 永远等不到自动合并。
+    - 若 ruleset 未配 admin bypass，`--admin` 仍被拒 → 须先配 `bypass_actors` 或调整 ruleset 的 required checks。本绕过**不扩展到**删 main / 强推 / 推 upstream 等绝对红线（见顶级禁令第 2/4/5 条与 D6 特例）。
+- **阶段 7 — 其他 PR 操作**：关闭 `gh pr close`、重开 `gh pr reopen`、编辑 `gh pr edit --body-file`、标 ready `gh pr ready`、作为评审人 `gh pr review --approve|--request-changes|--comment`、评论 `gh pr comment`。
+- **阶段 8 — 收尾与清理**：合并后 `git switch main && git pull upstream main && git push origin main`；分支清理走工作流八（删前确认 PR 非 open）；工区清理走工作流十。**分支保护提示（2026-08-19）**：若目标仓库 main 已开启分支保护，直推被拒时改为 `git pull --ff-only origin main` 同步即可（PR 已在阶段 6 合并，本地无需再推 main）。
+- **强门禁总述**：仅「路径核验通过 + 分支/对齐通过 + 重复 PR 已排除 + 上游规范已遵循 + 正文合规 + CI 全绿」的 PR 可开/可合；一切冲突、公开动作（强推 feat 需 `--force-with-lease` 二次确认、合并受保护分支走 PR、删分支前 PR 状态核验）一律大白话 + 后果 + 暂停等指令。
 
 ### 工作流七：Release 发版
 （本工作流无专门脚本，按以下手动流程（均为公开动作，需暂停确认）。前提：阶段 0 工具可用，完成路径核验。）
@@ -285,31 +390,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 3. 清理（删除类动作，暂停等指令）：本地 `git branch -d feat/[topic]`（小写 `-d` 只删已合并，绝不擅自 `-D` 强删）；fork 远程 `git push origin --delete feat/[topic]`。`git fetch --prune` 可自动执行（即第 2 步脚本）。
 4. 强门禁：只删已确认合并或用户明确废弃的分支；删除前先列待删清单及**合并状态 + PR open 状态两维**，暂停确认；`main` 永不删；当前所在分支不删。
    **open PR 人工核对（重要）**：删除分支（尤其已合并但上游仍有 open PR 的分支）前，须先在 GitHub 确认该分支无未关闭的 open PR——否则对应 PR 会被 GitHub 自动关闭。可手动跑 `gh pr list --repo <upstream> --author <你> --state open` 与 `gh pr list --repo <fork> --author <你> --state open` 两条查询核对。
-5. 工区内部对象回收（可选）：分支删除后若有悬空对象，`git reflog expire --expire=now --all` → `git gc --prune=now` 回收。
-
-### 工作流九：PR 全生命周期操作
-（统一覆盖开 PR、评审回应、合并、收尾等一切 PR 操作。前提：阶段 0 工具可用，完成路径核验（见顶级全局禁令第 1 条），严守硬禁令（只推 origin、禁强推/删 main）。先 `cd` 到技能根目录。）
-
-- **阶段 0 — 前置门禁**：路径核验（必须）；仓库三元组提取 `bash scripts/sop_resolve_repo.sh <仓库路径>`；严守顶级全局禁令（绝不强推/删 `origin/main`、只推 origin）。
-- **阶段 1 — 开新 PR 前的三核验**：① 路径核验通过；② 分支核验：`git rev-parse --abbrev-ref HEAD` 确为 `feat/<topic>`（非 main、非游离）、`git rev-parse HEAD` 须 born（否则 `git reset --mixed main` 修复）、分支已推 `origin/feat/<topic>`、工作区干净（`git status --porcelain` 为空）；③ 本地↔origin↔upstream 对齐：开 PR 前必须 `git fetch upstream && git rebase upstream/main feat/<topic>`（或 merge）保证基于最新 main。
-- **阶段 2 — 重复 PR 检查**：`gh pr list --repo <upstream> --author <你> --state all`（**作者口径**，弃用 `--head` 窄口径，避免漏判 `feat/*` 分支的 PR）。已有 open PR 覆盖同一改动 → 不重复开，在那条上更新；已有 rejected → 按反馈改后开新 PR（暂停）；无 PR → 进入阶段 3/4。
-- **阶段 3 — 查询并遵循上游仓库对 PR 的要求与规范**：开 PR 前 `gh api repos/<UPSTREAM>/contents/CONTRIBUTING.md -q .content | base64 -d` 读贡献要求、`pull_request_template.md` 读正文结构、`.github/workflows` 读必过 CI job；逐项核对（基于最新 main、PR 聚焦、跑本地校验、附 user-facing 证据、不隐藏失败）。
-- **阶段 4 — 开新 PR 的规范操作**：
-  - 开 PR（必须走脚本）：`bash scripts/sop_pr_create.sh <仓库路径> --base <分支>`（dry-run）/ `--confirm`（真正执行）；脚本守卫当前须在 feat 分支。
-  - 向 上游仓库(upstream) 贡献：`gh pr create --repo <upstream> --head <你>:<分支> --base main`；fork 内部 PR（触发 fork CI）：`gh pr create --repo <fork> --head <你>:<分支> --base main`。⚠️ 一律显式带 `--repo`，避免默认取 upstream 报 "No commits between…"。
-  - PR 正文用 `--body-file`：先写正文到文件再 `gh pr create --body-file <file>`，避免中文括号被 bash 解析失败；严格套用上游 PR 模板段落，显式声明契约边界（覆盖到哪、不覆盖到哪）。
-  - 文档同步门禁：提交前 Tier 1（README/CHANGELOG）必须同步（运行 `bash scripts/sop_docs_sync_check.sh <仓库路径>`），未同步不得直接提交/开 PR。
-  - 触发并轮询 CI：`bash scripts/sop_pr_checks.sh <仓库路径>`，`gh pr checks` / `gh run list` 必须全绿。
-- **阶段 5 — PR 审查意见回应（含多轮）**：① 拉取评审 `gh pr view <编号> --comments` / `gh pr diff <编号>` / `gh api .../pulls/<编号>/reviews`；② 先对齐分支（当前分支须等于 PR 源分支 `feat/<topic>`，`gh pr view <编号> --json headRefName` 核对）；③ 以**真实代码**为唯一基准（用 `gh pr diff`/`Read` 实际文件当前行），逐条对照避免悬空/错误回应；④ **代码修改标准（完整裁决器 + 全局契约面）**：动手前先定统一优先级裁决器（契约保真 > 正确性 > 覆盖完整 > 最小作用域 > 可验证）、画出全局契约面（既有语义/调用点/文档声明/评审共识/耦合模块/全仓库影响面），根因修复而非仅消红灯；同 diff 一次性收口所有 A 类（真问题）+ 联动项，绝不叠补丁、绝不只改被点名项；⑤ 文案回答逐条引用裁决/契约结论（A 改了哪如何验证 / B 文档澄清 / C 误判有理有据驳回）；⑥ user-facing 改动在 Evidence 段附截图（Web UI 直接粘贴，或 CLI 兜底放 `assets/pr-evidence/` 后引用公开 URL）；⑦ 推送更新 `git push origin feat/<topic>`，重跑 CI 至绿；⑧ 多轮迭代回到阶段 5 开头整体重画方案，不叠补丁。
-- **阶段 6 — PR 合并**：贡献 upstream 由维护者合并，你仅监控；自有仓库/自测 PR 用 `gh pr merge`；fork 内部 PR 用 `gh pr merge --squash`。合并前冲突/分支保护见工作流三冲突决策树或工作流五多工作树。
-  - **规则集跳过检查绕过（GitHub ruleset 场景）**：若仓库启用 ruleset 且其 required checks 含「因 PR 变更范围(scope)而 skipping」的检查（如 `smoke-scoped` 对 meta 变更跳过），默认 `gh pr merge` 会因「该 required check 虽 skipping 仍视为未满足」被拒（提示 `the base branch policy prohibits the merge`）。
-    - 前置：PR 的 CI **实际已通过**（smoke / scope-map pass，skipping 属正常）；`--admin` **仅绕过「跳过的 check」**，若 smoke / scope-map **真红须先修 CI 再合并**。
-    - 你是 repo admin 且 ruleset 已配 `bypass_actors`（方向 B：`bypass_mode: always`）时，用 `gh pr merge <PR> --admin -m`（须带 `-m/-s/-r` 之一，非交互缺省会报「缺合并方式标志」）。
-    - **禁止用 `--auto` 替代**：skipping 的 required check 永不满足条件，`--auto` 会让 PR 永远等不到自动合并。
-    - 若 ruleset 未配 admin bypass，`--admin` 仍被拒 → 须先配 `bypass_actors` 或调整 ruleset 的 required checks。本绕过**不扩展到**删 main / 强推 / 推 upstream 等绝对红线（见顶级禁令第 2/4/5 条与 D6 特例）。
-- **阶段 7 — 其他 PR 操作**：关闭 `gh pr close`、重开 `gh pr reopen`、编辑 `gh pr edit --body-file`、标 ready `gh pr ready`、作为评审人 `gh pr review --approve|--request-changes|--comment`、评论 `gh pr comment`。
-- **阶段 8 — 收尾与清理**：合并后 `git switch main && git pull upstream main && git push origin main`；分支清理走工作流八（删前确认 PR 非 open）；工区清理走工作流十。**分支保护提示（2026-08-19）**：若目标仓库 main 已开启分支保护，直推被拒时改为 `git pull --ff-only origin main` 同步即可（PR 已在阶段 6 合并，本地无需再推 main）。
-- **强门禁总述**：仅「路径核验通过 + 分支/对齐通过 + 重复 PR 已排除 + 上游规范已遵循 + 正文合规 + CI 全绿」的 PR 可开/可合；一切冲突、公开动作（强推 feat 需 `--force-with-lease` 二次确认、合并受保护分支走 PR、删分支前 PR 状态核验）一律大白话 + 后果 + 暂停等指令。
+5. 工区内部对象回收（可选）：分支删除后若有悬空对象，按两步回收——先 `git reflog expire --expire=now --all`（清除本地所有 reflog 恢复点，仅影响本地恢复能力、不丢可达代码）→ 再 `git gc --prune=now`。**根因**：`git gc` 默认遵守 reflog 保留期，reflog 仍引用的对象不会被回收——凡 gc 后悬空对象仍在，先怀疑 reflog 挡路，补 expire 一步即可彻底回收。复验 `git fsck --no-reflogs --unreachable` 应为空。
 
 ### 工作流十：清理工区维护
 （适用：用户明确要求「清理工区」。本流程只处理"工区文件"清理，不触碰远程仓库/CI/发版。前提：已完成路径核验。）
