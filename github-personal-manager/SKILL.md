@@ -1,10 +1,10 @@
 ---
 name: github-personal-manager
-description: 面向个人日常所有 GitHub 管理与操作的统一执行技能（跨项目通用）。覆盖 9 个标准工作流：信息读取与搜索、日常同步巡检、标准代码修改、多工作树并行开发、CI 失败排错、Release 发版、分支清理回收、PR 全生命周期、清理工区。当用户要求对本地或远端 GitHub 仓库执行任何操作（改代码、写文件、提交、推送、开 PR、合 PR、同步、发版、清理分支、查仓库/代码/Issue/PR、清理工区）时触发；当用户说"帮我改一下 XX 仓库""向 XX 上游提个 PR""同步一下仓库""发个版""看看 CI 为什么红""清理分支""清理工区"时触发此技能。适用于个人 fork 仓库与上游贡献、本地代码修改全流程、每日同步巡检、多工作树并行开发、PR 全生命周期协作、工区清理。可协同记忆系统工作，也可脱离记忆系统独立运行。不适用于与 GitHub 无关的通用文件编辑、非 git 版本控制的文档操作，以及需要他人仓库写权限且未走 Fork+PR 的操作。
+description: 面向个人日常所有 GitHub 管理与操作的统一执行技能（跨项目通用）。覆盖 9 个标准工作流（章节按仓库全生命周期排序）：信息读取与搜索、日常同步巡检、标准代码修改、多工作树并行开发、CI 失败排错、PR 全生命周期、Release 发版、分支清理回收、清理工区。当用户要求对本地或远端 GitHub 仓库执行任何操作（改代码、写文件、提交、推送、开 PR、合 PR、同步、发版、清理分支、查仓库/代码/Issue/PR、清理工区）时触发；当用户说"帮我改一下 XX 仓库""向 XX 上游提个 PR""同步一下仓库""发个版""看看 CI 为什么红""清理分支""清理工区"时触发此技能。适用于个人 fork 仓库与上游贡献、本地代码修改全流程、每日同步巡检、多工作树并行开发、PR 全生命周期协作、工区清理。可协同记忆系统工作，也可脱离记忆系统独立运行。不适用于与 GitHub 无关的通用文件编辑、非 git 版本控制的文档操作，以及需要他人仓库写权限且未走 Fork+PR 的操作。
 license: Apache-2.0
 metadata:
   author: zhangweildlh
-  version: "2.1.0"
+  version: "2.2.0"
 compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个命令行工具，并登录 GitHub 账号。git/gh 工具路径不硬编码——每次进入本技能先 `where.exe git` / `where.exe gh` 取实际路径（详见阶段 0）。本地 GitHub 仓库根目录默认值 `REPO_ROOT` = `D:/Documents/AI_Work_Temp`（该目录本身不是仓库项目，仅为存放各仓库的根；此为允许的硬编码默认值，可在 config 改），用户给出绝对路径的仓库目录时以用户输入优先。GitHub 用户名默认值 `GH_USER=zhangweildlh`（允许的硬编码默认值，可由 origin 远端拥有者覆盖）。
 ---
 
@@ -150,9 +150,9 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 3. 标准代码修改（改/写代码或文件、提交(commit)、推送(push)、开 PR）——见工作流四
 4. 多工作树并行开发（独立工作树、--no-ff 普通合并、整段回滚）——见工作流五
 5. CI 失败排错（定位红 run、修复回推）——见工作流六
-6. Release 发版（打标签(tag)、取构建产物）——见工作流七
-7. 分支清理回收（本地 + 远端删除已合并分支）——见工作流八
-8. PR 全生命周期操作（开 PR、评审回应、合并、收尾）——见工作流九
+6. PR 全生命周期操作（开 PR、评审回应、合并、收尾）——见工作流九
+7. Release 发版（打标签(tag)、取构建产物）——见工作流七
+8. 分支清理回收（本地 + 远端删除已合并分支）——见工作流八
 9. 清理工区维护（搜列、确认、删除垃圾/过期/临时文件）——见工作流十
 10. 仓库管理（clone/fork/create/rename/archive）——详见 references/gh-capability.md
 11. Issue/PR 管理（建/列/查/评/合/关）——详见 references/gh-capability.md 与 工作流九
@@ -160,7 +160,9 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 
 ## 核心工作流
 
-> 以下 9 个工作流为本技能内置权威实现；工作流编号沿用既有约定便于维护；各工作流均自包含，可独立执行。
+> 以下 9 个工作流为本技能内置权威实现；各工作流均自包含，可独立执行。两点编排约定：
+> 1. **章节排列 = 仓库全生命周期顺序**（信息读取 → 同步巡检 → 代码修改 → 多工作树并行 → CI 排错 → PR 全周期 → 发版 → 分支清理 → 清理工区），与工作流编号先后无关，阅读与执行均按章节排列顺序推进；
+> 2. **编号从「二」起、无「工作流一」系有意设计而非断档**：记忆体系中「工作流一」为 GitHub 工作流总闸门（技能自动激活前置判定），本技能经平台技能系统按名加载即视为已过该闸门（见上文「运行模式」与「触发与加载」），故本文件不含工作流一章节；二~十的编号与记忆体系一一对应，便于跨系统互引。
 
 ### 工作流二：信息读取与搜索（gh 优先）
 （gh 优先：仓库/代码/Issue/PR 读取与搜索。）
@@ -171,6 +173,8 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 
 ### 工作流三：日常同步巡检
 （前提：阶段 0 已确认 `git` 与 `gh` 可用，且已完成路径核验。先 `cd` 到技能根目录。）
+
+**配置校验（进入下列步骤的前置门槛）**：`git remote -v` 须同时存在 origin + upstream；`git rev-parse --abbrev-ref main@{upstream}` 须为 origin/main。缺项 → 大白话报告缺失项并暂停，等用户确认后助手补齐（如 `git remote add upstream <url>`、`git branch --set-upstream-to=origin/main main`）。多 remote 场景（如同公司 GitLab 并存）可为额外远端起直观命名避免混淆；`origin` 只是习惯命名、非规定。
 0. **第零步（批量总览，可选）**：想"一眼看全部 fork 状态"时，先运行
    `bash scripts/sop_status_all.sh`
    默认只扫描 `REPO_ROOT` 下所有 fork 并汇总每个仓库的落后/领先/未提交/未推送状态，**默认不 fetch（纯本地只读，不联网）**；`--fetch` 才真正联网拉取远端；`--confirm` 才在 fetch 后真正执行后续动作。该脚本同样遵循本技能 dry-run 优先、路径核验纪律——默认只打印将做什么，绝不直接改动任何仓库。看完总览再进入下列单仓四步做针对性同步。
@@ -189,13 +193,16 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
    **冲突处理**：凡双向分叉、工作区脏、feat 未提交、开 PR、同文件冲突，脚本会列出冲突文件/选项并暂停；你把内容用大白话转述给用户，等明确指令，绝不自动选。
 4. **第四步（生成上游更新分析报告）**：同步完成后，运行
    `bash scripts/sop_sync_report.sh <仓库路径> <合并前本地tip>` —— 以"合并前本地 tip"为基准，输出**结构化的上游更新分析报告**（新增功能 / 改进与优化 / Bug 修复 / 破坏性变更 / 其他 + 详细提交记录表）；不传 tip 时自动取 `upstream/main` 最近 20 条作参考。该报告只读、无需 `--confirm`，是本次同步交付给用户的核心产物，务必完整呈现。
+5. **特殊场景（低频，详见 references/fork-ci-pitfalls.md「特殊场景与易错坑」）**：
+   - **本地仓库丢失 `.git`**（如同步工具误清，仅剩上游快照 + 本地独有文件）：`git init -b main` → 补配 origin/upstream 远端 → `git fetch upstream` → `git reset --mixed upstream/main`（保留工作树）→ 覆盖前备份本地当前版本 → 刷跟踪文件到上游基线；全程**禁用 `reset --hard` / `git clean`**（防误删 `.workbuddy` 项目记忆）；推送前先 `gh auth setup-git` 桥接凭证。
+   - **本地独有文件（如 `.workbuddy`）不进同步**：写入 `.git/info/exclude`（本地专属忽略，不提交不推送、不受 reset/checkout/pull 影响），保持 fork 为上游干净镜像且无 `.gitignore` 分歧；已被跟踪的先 `git rm --cached -r <路径>` 再忽略。`.workbuddy` 为项目记忆库，**绝不删除**——忽略=不跟踪，不影响磁盘。
 
 ### 工作流四：标准代码修改
 （前提：阶段 0 工具可用，已完成路径核验。先 `cd` 到技能根目录。）
 1. 阶段 0 闸门：完整性（无 WIP/TODO/空实现）、正确性（逐文件 Read + `git diff` 复核）、静态校验（仅可跑不触发本地编译的格式化类检查；编译型 lint/test 一律交 CI）。未过则先修复。
 2. 同步与建分支（手动 `git`，无专门脚本）：`git switch main && git pull upstream main && git push origin main`；`git switch -c feat/[topic]`（先建分支再提交(commit)）。
    - **分支保护提示（2026-08-19）**：若目标仓库 main 已开启分支保护（旧式保护或 ruleset，如已转公开的 AI_MCP-Skill-CLI），`git push origin main` 直推会被拒；应改走 PR——在 `feat/[topic]` 分支提交后运行 `bash scripts/sop_pr_create.sh <仓库路径> --base main --confirm`（同步 main 基线则改为 `git pull --ff-only origin main`，勿直推）。
-   - **born 检查（防根提交异常）**：建分支后、首次 `git commit` 前，务必 `git rev-parse HEAD` 确认当前分支已 born（解析出有效 SHA、有父提交）；若报 `unknown revision` → 先 `git reset --mixed main` 修复，绝不直接 `git add -A && git commit`。
+   - **born 检查（防根提交异常）**：建分支后、首次 `git commit` 前，务必 `git rev-parse HEAD` 确认当前分支已 born（解析出有效 SHA、有父提交）；若报 `unknown revision` → 先 `git reset --mixed main` 修复，绝不直接 `git add -A && git commit`。⚠️ **分支名含斜杠（如 `feat/2026-07-31-xxx`）在某些环境更易触发引用歧义致 unborn**（已实证于首次提交即生成无父根提交的案例），建分支后必跑 `git rev-parse HEAD` 核验。
 3. **提交前文档同步门禁（分层检查清单，提交(commit)动作之前必须过）**：
    - **流程**：先 `bash scripts/sop_docs_sync_check.sh <仓库路径>`（只读 dry-run，无需 `--confirm`），脚本按 `references/docs-sync-checklist.md` 的「分层检查清单」——① 取本次真实变化（`git status`/`git diff`/`ls-files`）；② 推导改动类型；③ 查仓库是否存在清单中的 Tier 1/2/3 文件；④ 分析是否已纳入变更；输出 `【文档同步状态】已同步 / 未同步` 及分层明细（Tier 1 阻断 / Tier 2 强建议 / Tier 3 提示）。
    - **Tier 1（根 README/README_EN/CHANGELOG，阻断）未同步 → 必须先补文档**：基于真实变化更新对应文档相应章节，并把文档一并 `git add` 进同一次提交(commit)。**严禁在 Tier 1 未同步时直接 `git commit` 代码。**
@@ -204,6 +211,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
    - 适用范围、"免触发"边界与完整分层定义见 `references/docs-sync-checklist.md`；本门禁不绕过任何顶级全局禁令/路径核验。
 4. 提交/推送/触发 CI（手动 `git`）：`git add [文件]` → `git commit -m "type: 简述"` → **推送(push) 前先运行 `bash scripts/sop_privacy_gate.sh <仓库路径>`（见顶级全局禁令第 6 条），命中即暂停处理再 push** → `git push -u origin feat/[topic]`。
   - **4.5 提交前置排雷（.gitignore 预置，防 pre-commit 拦截）**：若工作区存在**未跟踪的含密钥文件 / 超大文件**（如 `providers.json` 含真实 key、数百 MB 的 exe），而目标分支的 `.gitignore` 无对应忽略规则 → 隐私/体积门禁（Tier0）会扫描未忽略的未跟踪文件并 **FATAL 拦截提交**。对策：每个要提交的分支**先补 `.gitignore` 忽略规则**（与含规则分支用**相同文本、相同位置**追加 → 多 PR 合并时大概率自动合并）；提交前 `git status --short` 确认只暂存预期文件。
+  - **提交整理（amend / rebase -i，仅限未推送或已授权自有 feat 分支）**：`git commit --amend --no-edit`（补漏文件）/ `--amend -m "新信息"`（改最近一次提交信息）；开 PR 前可用 `git rebase -i HEAD~N` 整理最近 N 个本地提交（动词：pick 保留 / reword 改信息 / squash 合并保留信息 / fixup 合并丢弃信息 / drop 删除），让 PR 历史干净易审。**硬约束**：仅限未推送的本地提交，或仅自己使用且已获授权的 feat 分支；**禁止**用于 main 及已推送且他人/PR 依赖的分支（改写历史违反审计链）；整理后强推仅允许 feat 分支且必须 `--force-with-lease`。
   - **推送后须核验（防漏推）**：`git push -u origin feat/[topic]` 后，必须 `git branch -vv` 确认该分支显示 `ahead 0`（远端已更新）；`gh run list --branch <b>` 应有新 run（headSha=新提交）。漏推时 PR head 不更新、无新 CI run，极易漏检。
    - **提交信息建议采用 conventional commits 类型前缀（规范引导，非强制校验）**：`type` 取 `feat:`（新功能）/ `fix:`（修复）/ `chore:`（杂务）/ `docs:`（文档）/ `refactor:`（重构）/ `test:`（测试）/ `style:`（格式），格式为 `type: 简述`（如 `fix: 修正 CI 路径核验误报`）。此举仅为提交信息约定，便于审阅与生成 CHANGELOG，工具层不强制校验；仍须坚持"一 PR 一主题"。注意：这是提交信息约定，与合并纪律（顶级禁令第 8 条 `--no-ff`）无关，互不替代。
 5. **CI 触发条件核查（开 PR / 轮询 CI 前强制，D2 修复）**：读取 `<仓库>/.github/workflows/*.yml`，确认 `on:` 下的 `push.branches` 与 `pull_request.branches`：
@@ -236,6 +244,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
   ⚠️ **Windows 环境约束**：`sop_worktree_add.sh` 会把工作树路径统一归一化为 Windows 形态（`D:/...`）。请在 **Git for Windows + Git Bash** 环境下运行；若路径呈 POSIX 形态（`/d/...`），Git 会误判为相对路径、把工作树错建到 `D:/d/...` 而导致后续无法进入（P-GPM-4 已修复，但归一化依赖 Git Bash 环境的 `cygpath`）。纯 CMD / 非 Git Bash 终端可能异常。
 - **阶段二：工作树内开发 + 测试（在各自工作树目录内）**
   `cd` 到工作树目录，按需多次提交(commit)（保留中间提交谱系）；独立安装依赖（`node_modules` 等不跨工作树共享）；跑 `<INSTALL_DEPS> && <RUN_TESTS> && <BUILD>`，**全绿才允许合并**。可选 `git push -u origin feat/<topic>` 持久化引用。建议定期 `git fetch origin && git rebase origin/main` 减少后期冲突（仅未推送或已授权自身分支时）。
+  **版本号防坑（若随合并发版适用）**：本任务将随合并一起发版 → 功能分支(feat) 内**同步升全部版本标识**（包描述/应用清单/兜底字符串等，曾发生漏升某处版本字段致合并时补课）；暂不发版 → 功能分支(feat) 保持与主线(main) 同版本号，合并后统一升（推荐，避免多分支版本号分叉）。
 - **阶段二·甲（并行子 Agent 完成核验门禁，强制，D1 修复）**：若采用「多个并行子 Agent 团队」模式（区别于手动 `git worktree`），每个子 Agent 结束后**必须**核验其产出的工作树/分支是否有实际提交：`git -C "<子Agent工作树>" rev-list --count <base>..HEAD`（`<base>` 取 main 或 PR 目标分支）。计数 = 0 → 该子 Agent 零产出，**立即报错并自动回退到串行亲自执行**（不在该子 Agent 上重试），同时记录该分支供清理；**绝不带着「未完成的并行」进入阶段三合并**。核验不通过不得继续后续合并/PR 步骤。
 - **阶段三：--no-ff 合并到主线（必须在主仓库目录，绝不在工作树内）**
   运行（先 dry-run 预览，再加 `--confirm` 真正合并）：
@@ -260,32 +269,12 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
   - **红灯归属诊断（避免对历史遗留红灯空折腾）**：合并/修复前先看 main 自身 CI 历史 `gh run list --workflow <wf> --branch main`——若 main 最近多次全 failure，说明红灯是**历史遗留、与 PR 内容无关**，不要试图逐个 PR 找原因；再用 `git show main:<测试文件>` 确认 main 同样含该断言、`git ls-tree` 确认被忽略文件确不在 main 树内，坐实后按「测试缺陷修复」处理（见工作流四 4.5 提交前置排雷），而非改业务代码。
 1. **下载失败日志（脚本，只读）**：运行 `bash scripts/sop_ci_failed_log.sh <仓库路径>`，自动取最近一次 workflow run 并打印失败步骤日志，无需打开网页。
 2. **轮询 CI 状态（脚本，只读）**：运行 `bash scripts/sop_pr_checks.sh <仓库路径>`。
+   ⚠️ **结论取数坑**：`gh run watch --exit-status` 的退出码会被后续管道（如 `| tail; echo $?`）掩盖，取的是管道末命令的退出码；应再用 `gh run view <run-id> --json conclusion --jq .conclusion` 明确取结论。clippy 在 `-D warnings` 下日志输出 `error:` 而非 `warning:`，在失败日志中 grep `error:` 定位 clippy 失败。
 3. 按现象对号入座（详见 references/fork-ci-pitfalls.md）：fmt 失败 → 格式化；clippy `-D warnings` → 改 feat 重验；`action_required` → 等维护者；整 CI 红且无关代码 → 取消 pinned SHA 勾选；发布 job 失败 → 给发布 job 加 `if: github.repository == '<upstream>'` 守卫（⚠️ actionlint 拒绝纯常量 `if: false`，须用非常量仓库名比较）；CHANGELOG 缺段 → 补段。
 4. **重跑 CI（脚本，需确认）**：运行
    `bash scripts/sop_ci_rerun.sh <仓库路径>` —— dry-run，打印将执行的 `gh run rerun`；
    `bash scripts/sop_ci_rerun.sh <仓库路径> --confirm` —— 真正重跑失败 job。
 5. 修复回推：代码/格式/clippy 类改在功能分支(feat) → `git push origin feat/[topic]` 自动重跑；改 workflow 文件或删/重推标签(tag) 属影响面较大动作 → 先说明再执行。`git push` 偶发 `github.com:443` 超时用 for 循环重试 3~5 次；若 `Recv failure: Connection was reset`（网络层封锁，重试无效），改用 `gh api` REST 接口绕过 git 智能 HTTP 协议提交/移标签。
-
-### 工作流七：Release 发版
-（本工作流无专门脚本，按以下手动流程（均为公开动作，需暂停确认）。前提：阶段 0 工具可用，完成路径核验。）
-1. 发版前检查：CHANGELOG 顶部有对应 `## [X.Y.Z] - [date]` 段；`release.yml` 发布类 job 已加 `if: github.repository == '<upstream>'` 守卫（⚠️ 禁止写纯常量 `if: false`，actionlint 会报 `constant expression` 致整条 CI 失败）；未勾 pinned SHA；fork Settings → Actions → Workflow permissions = Read and write。可用 `git diff <上一tag> <本次tag> --stat` 复核本次发版改动范围。
-2. **Release PR 步骤（推荐，发版前先开）**：发版前先开一个「Release PR」——须在「Release 专用分支」（如 `release/X.Y.Z`，**不可在 main 上执行**：`sop_pr_create.sh` 守卫会拦截处于 main 时的调用）上，仅更新 CHANGELOG 草稿段 + 版本号，再用 `bash scripts/sop_pr_create.sh --base main`（或手写 `gh pr create --base main`）发起；合并时 fork 内部 PR 采用 **squash 合并策略**（由 GitHub 分支保护 / 合并按钮设定，非脚本参数），主线合并遵循顶级禁令第 8 条 `--no-ff`，二者互不替代。PR 合并后才真正打 tag/发 Release；此举使发版可审查、可追溯。**明确禁止为生成线性历史而对 main 改用 squash-merge**（与顶级禁令第 8 条冲突，不可妥协）。
-2.5 **产物来源核查（发版前强制，D5 修复）**：读取 `.github/workflows/release.yml`（或 ci.yml 的 build job），确认是否有 `actions/upload-artifact` 上传构建产物：
-   - 有 → `gh release download v[version]` 可取产物；
-   - 无 → 明确「仅发 tag + GitHub Release 说明（`--generate-notes`），不附二进制产物」，或补 `upload-artifact` 步骤后再发；fork 发版绝不发 crates.io/PyPI（见硬前提第 5 条）。
-   此核查避免「发版时 `gh release download` 取不到产物」的空错。
-3. 打标签(tag) 触发（公开动作，暂停等指令）：`git tag -a v[version] -m "release v[version]"` → `git push origin v[version]`。重触发用「删远端标签 + 重推」（`git push origin :refs/tags/v[version]` → `git push origin v[version]`），禁强推标签。推前大白话说明版本号、触发工作流、产物，暂停确认。⚠️ 标签 SHA 核对：`git ls-remote --tags` 返回的是注解标签对象 SHA，核对须先 `git rev-parse v[version]^{commit}` 解引用出提交 SHA 再比。
-4. 监控与取产物：`gh run watch` → `gh release view v[version]` → `gh release download v[version]`。无自动发布时 `gh release create v[version] --generate-notes` + `gh release upload v[version] [产物文件]`。
-5. 硬前提：fork 发版仅自取构建产物，绝不发布到 crates.io/PyPI。
-
-### 工作流八：分支清理回收
-（前提：阶段 0 工具可用，完成路径核验。先 `cd` 到技能根目录。）
-1. **只读合并状态（脚本）**：运行 `bash scripts/sop_branch_merged_status.sh <仓库路径>`，输出本地已合并 main 的分支（可安全删）、本地未合并 main 的分支（含未完成工作，勿删）、以及 origin 远程已合并 main 的分支。
-2. **清理过时远程跟踪引用（脚本，安全）**：运行 `bash scripts/sop_fetch_prune.sh <仓库路径>`，只清理本地过时引用，不改动任何远程分支。
-3. 清理（删除类动作，暂停等指令）：本地 `git branch -d feat/[topic]`（小写 `-d` 只删已合并，绝不擅自 `-D` 强删）；fork 远程 `git push origin --delete feat/[topic]`。`git fetch --prune` 可自动执行（即第 2 步脚本）。
-4. 强门禁：只删已确认合并或用户明确废弃的分支；删除前先列待删清单及**合并状态 + PR open 状态两维**，暂停确认；`main` 永不删；当前所在分支不删。
-   **open PR 人工核对（重要）**：删除分支（尤其已合并但上游仍有 open PR 的分支）前，须先在 GitHub 确认该分支无未关闭的 open PR——否则对应 PR 会被 GitHub 自动关闭。可手动跑 `gh pr list --repo <upstream> --author <你> --state open` 与 `gh pr list --repo <fork> --author <你> --state open` 两条查询核对。
-5. 工区内部对象回收（可选）：分支删除后若有悬空对象，`git reflog expire --expire=now --all` → `git gc --prune=now` 回收。
 
 ### 工作流九：PR 全生命周期操作
 （统一覆盖开 PR、评审回应、合并、收尾等一切 PR 操作。前提：阶段 0 工具可用，完成路径核验（见顶级全局禁令第 1 条），严守硬禁令（只推 origin、禁强推/删 main）。先 `cd` 到技能根目录。）
@@ -310,6 +299,27 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 - **阶段 7 — 其他 PR 操作**：关闭 `gh pr close`、重开 `gh pr reopen`、编辑 `gh pr edit --body-file`、标 ready `gh pr ready`、作为评审人 `gh pr review --approve|--request-changes|--comment`、评论 `gh pr comment`。
 - **阶段 8 — 收尾与清理**：合并后 `git switch main && git pull upstream main && git push origin main`；分支清理走工作流八（删前确认 PR 非 open）；工区清理走工作流十。**分支保护提示（2026-08-19）**：若目标仓库 main 已开启分支保护，直推被拒时改为 `git pull --ff-only origin main` 同步即可（PR 已在阶段 6 合并，本地无需再推 main）。
 - **强门禁总述**：仅「路径核验通过 + 分支/对齐通过 + 重复 PR 已排除 + 上游规范已遵循 + 正文合规 + CI 全绿」的 PR 可开/可合；一切冲突、公开动作（强推 feat 需 `--force-with-lease` 二次确认、合并受保护分支走 PR、删分支前 PR 状态核验）一律大白话 + 后果 + 暂停等指令。
+
+### 工作流七：Release 发版
+（本工作流无专门脚本，按以下手动流程（均为公开动作，需暂停确认）。前提：阶段 0 工具可用，完成路径核验。）
+1. 发版前检查：CHANGELOG 顶部有对应 `## [X.Y.Z] - [date]` 段；`release.yml` 发布类 job 已加 `if: github.repository == '<upstream>'` 守卫（⚠️ 禁止写纯常量 `if: false`，actionlint 会报 `constant expression` 致整条 CI 失败）；未勾 pinned SHA；fork Settings → Actions → Workflow permissions = Read and write。可用 `git diff <上一tag> <本次tag> --stat` 复核本次发版改动范围。
+2. **Release PR 步骤（推荐，发版前先开）**：发版前先开一个「Release PR」——须在「Release 专用分支」（如 `release/X.Y.Z`，**不可在 main 上执行**：`sop_pr_create.sh` 守卫会拦截处于 main 时的调用）上，仅更新 CHANGELOG 草稿段 + 版本号，再用 `bash scripts/sop_pr_create.sh --base main`（或手写 `gh pr create --base main`）发起；合并时 fork 内部 PR 采用 **squash 合并策略**（由 GitHub 分支保护 / 合并按钮设定，非脚本参数），主线合并遵循顶级禁令第 8 条 `--no-ff`，二者互不替代。PR 合并后才真正打 tag/发 Release；此举使发版可审查、可追溯。**明确禁止为生成线性历史而对 main 改用 squash-merge**（与顶级禁令第 8 条冲突，不可妥协）。
+2.5 **产物来源核查（发版前强制，D5 修复）**：读取 `.github/workflows/release.yml`（或 ci.yml 的 build job），确认是否有 `actions/upload-artifact` 上传构建产物：
+   - 有 → `gh release download v[version]` 可取产物；
+   - 无 → 明确「仅发 tag + GitHub Release 说明（`--generate-notes`），不附二进制产物」，或补 `upload-artifact` 步骤后再发；fork 发版绝不发 crates.io/PyPI（见硬前提第 5 条）。
+   此核查避免「发版时 `gh release download` 取不到产物」的空错。
+3. 打标签(tag) 触发（公开动作，暂停等指令）：`git tag -a v[version] -m "release v[version]"` → `git push origin v[version]`。重触发用「删远端标签 + 重推」（`git push origin :refs/tags/v[version]` → `git push origin v[version]`），禁强推标签。推前大白话说明版本号、触发工作流、产物，暂停确认。⚠️ 标签 SHA 核对：`git ls-remote --tags` 返回的是注解标签对象 SHA，核对须先 `git rev-parse v[version]^{commit}` 解引用出提交 SHA 再比。
+4. 监控与取产物：`gh run watch` → `gh release view v[version]` → `gh release download v[version]`。无自动发布时 `gh release create v[version] --generate-notes` + `gh release upload v[version] [产物文件]`。
+5. 硬前提：fork 发版仅自取构建产物，绝不发布到 crates.io/PyPI。
+
+### 工作流八：分支清理回收
+（前提：阶段 0 工具可用，完成路径核验。先 `cd` 到技能根目录。）
+1. **只读合并状态（脚本）**：运行 `bash scripts/sop_branch_merged_status.sh <仓库路径>`，输出本地已合并 main 的分支（可安全删）、本地未合并 main 的分支（含未完成工作，勿删）、以及 origin 远程已合并 main 的分支。
+2. **清理过时远程跟踪引用（脚本，安全）**：运行 `bash scripts/sop_fetch_prune.sh <仓库路径>`，只清理本地过时引用，不改动任何远程分支。
+3. 清理（删除类动作，暂停等指令）：本地 `git branch -d feat/[topic]`（小写 `-d` 只删已合并，绝不擅自 `-D` 强删）；fork 远程 `git push origin --delete feat/[topic]`。`git fetch --prune` 可自动执行（即第 2 步脚本）。
+4. 强门禁：只删已确认合并或用户明确废弃的分支；删除前先列待删清单及**合并状态 + PR open 状态两维**，暂停确认；`main` 永不删；当前所在分支不删。
+   **open PR 人工核对（重要）**：删除分支（尤其已合并但上游仍有 open PR 的分支）前，须先在 GitHub 确认该分支无未关闭的 open PR——否则对应 PR 会被 GitHub 自动关闭。可手动跑 `gh pr list --repo <upstream> --author <你> --state open` 与 `gh pr list --repo <fork> --author <你> --state open` 两条查询核对。
+5. 工区内部对象回收（可选）：分支删除后若有悬空对象，按两步回收——先 `git reflog expire --expire=now --all`（清除本地所有 reflog 恢复点，仅影响本地恢复能力、不丢可达代码）→ 再 `git gc --prune=now`。**根因**：`git gc` 默认遵守 reflog 保留期，reflog 仍引用的对象不会被回收——凡 gc 后悬空对象仍在，先怀疑 reflog 挡路，补 expire 一步即可彻底回收。复验 `git fsck --no-reflogs --unreachable` 应为空。
 
 ### 工作流十：清理工区维护
 （适用：用户明确要求「清理工区」。本流程只处理"工区文件"清理，不触碰远程仓库/CI/发版。前提：已完成路径核验。）
