@@ -1,6 +1,11 @@
-# Changelog
+---
 
-本仓库（`AI_MCP-Skill-CLI`，私有技能集合）的变更记录。
+## [2026-08-28]
+- feat(dir/self-improvement-system__skillhub): 新增 self-improvement 目录型 Skill
+- feat(file/external-tool-onboarding): 新增外部工具引入评估根级 Skill
+- refactor: 记忆体系重构，拆分 MEMORY.md 为多个子文件
+- chore: 清理重复 Skill 文件
+
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/)，条目按时间倒序排列。分类约定：
 **Added**（新增能力）/ **Changed**（行为或实现变更）/ **Removed**（移除）/ **Fixed**（缺陷修复）/ **Docs**（文档）。

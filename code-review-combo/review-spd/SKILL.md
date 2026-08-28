@@ -1,3 +1,7 @@
+---
+disable-model-invocation: true
+---
+
 <!--
 本文件不是上游 zhu1090093659/spec_driven_develop @ d5d3477 的纯镜像，
 而是其 fork zhangweildlh/spec_driven_develop @ 35cc1e8 的副本
