@@ -1,3 +1,7 @@
+---
+disable-model-invocation: true
+---
+
 <!--
 本文件为上游 alibaba/open-code-review @ v1.9.5 的纯镜像（仅 SKILL.md 一个文件）。
 code-review-combo 的本地化增强（自动安装、Win11 路径、功能覆盖表、委托宿主 JSON Schema 包装、人类报告 prompt）已抽到 ./local/ 目录。
