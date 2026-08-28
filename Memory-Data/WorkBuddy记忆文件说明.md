@@ -194,8 +194,8 @@ uv run --project D:\Tools\Assembly\python\myenv python memory-mgr.py restore --f
 | v3.1.0 | 2026-08-27 | 审计报告质证后修复（P0-P3级BUG） |
 | v3.1.1 | 2026-08-27 | 重编号后锚点同步、同文件锚点双轨同步 |
 | v3.1.2 | 2026-08-27 | 纪律1误报修复（代码块注释行）、良性环误报修复 |
-| v3.1.3 | 2026-08-28 | add命令支持--title/--summary、rewrite支持--dry-run |
-| v3.1.4 | 2026-08-28 | add命令自动填充related字段默认值 |
+| v3.1.3 | 2026-08-28 | 豆包/DeepSeek第一轮审计：H3边界/YAML转义/循环引用/CLI退出码/--fix同行(6项采纳，7项否决) |
+| v3.1.4 | 2026-08-28 | DeepSeek复审：新问题1-6与建议1-10全部证伪，无代码改动 |
 
 ## 注意事项
 
