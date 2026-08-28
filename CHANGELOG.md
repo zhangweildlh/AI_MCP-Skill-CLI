@@ -1,6 +1,9 @@
 ---
 
 ## [2026-08-28]
+- fix(dir/self-improvement): 完善 self-improvement SKILL.md 格式规范
+- docs(Memory-Data): 更新 WorkBuddy 记忆文件说明
+
 - feat(dir/self-improvement-system__skillhub): 新增 self-improvement 目录型 Skill
 - feat(file/external-tool-onboarding): 新增外部工具引入评估根级 Skill
 - refactor: 记忆体系重构，拆分 MEMORY.md 为多个子文件

@@ -1,6 +1,6 @@
 ---
 name: self-improvement
-description: 让 Agent 记录经验、偏好与修正结果，从错误中学习、提炼经验教训，并随着时间推移不断优化自身行为。它的重点是让系统在长期使用中越来越贴近你的真实习惯。当用户说出 "improve yourself"（改进你自己）、"learn from that mistake"（从那次错误中学习）、"log what went wrong"（记录出错之处）、"review your lessons"（回顾你的教训）、"run a self-audit"（运行自我审计）、"check your soul file"（检查你的灵魂文件）、"update your playbook"（更新你的行动手册）等指令时使用；或当智能体检测到自身犯了错误、应当予以记录时使用。此外，该功能还会在会话开始时触发，以加载既往的学习成果，并定期触发以检测反复出现的错误模式。
+description: 让 Agent 记录经验、偏好与修正结果，从错误中学习、提炼经验教训，并随着时间推移不断优化自身行为。当用户说出 "improve yourself"（改进你自己）、"learn from that mistake"（从那次错误中学习）、"log what went wrong"（记录出错之处）、"review your lessons"（回顾你的教训）、"run a self-audit"（运行自我审计）、"check your soul file"（检查你的灵魂文件）、"update your playbook"（更新你的行动手册）等指令时使用；或当智能体检测到自身犯了错误、应当予以记录时使用。此外，该功能还会在会话开始时触发，以加载既往的学习成果，并定期触发以检测反复出现的错误模式。
 metadata:
   author: OpenClaw
   version: 1.2.0
@@ -30,7 +30,7 @@ All log entries must describe **reasoning errors and process failures only**. Th
 
 - The type of reasoning error that occurred
 - The process step where it happened
-- The abstract root cause (e.g. “skipped validation step”, “assumed tool was available”)
+- The abstract root cause (e.g. "skipped validation step", "assumed tool was available")
 - The preventive rule in general terms
 
 If describing a mistake requires including any user-provided content, paraphrase in fully abstract terms or omit the detail entirely. When in doubt about whether a detail is safe to log, leave it out.
@@ -43,77 +43,67 @@ Before taking any action in a new session, read the following files if they exis
 
 - `soul.md` — core behavioural principles (these override defaults)
 - `lessons.md` — extracted rules and heuristics
-- `playbook.md` — proven workflows for common task types
-- `session-log.md` — what was learned or updated in recent sessions
+- `journal.md` — recent decision log (last 50 lines)
 
-Internalise their contents before proceeding. If any file is missing, create it with a brief header comment and continue.
-
----
-
-## Before Every Non-Trivial Response
-
-Before finalising any response that involves reasoning, multi-step work, or external tools, run this internal check:
-
-1. **Am I confident in this?** If uncertain, say so explicitly rather than proceeding as if certain.
-2. **Have I made this type of mistake before?** Scan `lessons.md` for a relevant rule.
-3. **Is there a playbook entry for this task type?** If yes, follow it.
-
-If any answer is uncertain, note it briefly before responding — not after. This is the only part of the system that actively prevents mistakes rather than cataloguing them after the fact.
-
-**A task is non-trivial if it meets any of these conditions:**
-
-- 3 or more sequential steps
-- Involves an external tool or API call
-- Is a task type not yet encountered this session
+If none exist, proceed normally. If any exist, incorporate their guidance into your behaviour for this session.
 
 ---
 
-## When to Log a Mistake
+## After Every Meaningful Action
 
-Log immediately when any of the following occur:
+After completing a non-trivial task (decision, code change, research, design), ask:
 
-- Incorrect reasoning or a false assumption stated as fact
-- A hallucinated detail presented with confidence
-- Misunderstanding user intent that caused rework
-- A task completed less efficiently than it could have been
-- A tool used in the wrong order or for the wrong purpose
-- A lesson from `lessons.md` was available but not applied
+1. **Did I make any errors or near-misses?**
+2. **What did I learn that might be useful next time?**
+3. **Should I update my soul, lessons, or journal?**
 
-Note whether the mistake was **self-detected** or **user-reported**. Apply the privacy rules above before writing any entry. See `references/protocol.md` for the full logging format.
+If yes to any, update accordingly. Don't overthink it — be brief and practical.
 
 ---
 
-## Session Close — always do this last
+## What to Log
 
-Before ending any session, append one entry to `session-log.md`:
+### Update `soul.md` when you discover a **persistent preference or principle**
 
-```
-[YYYY-MM-DD] [Key lesson or "no new lessons"] | Files updated: [list or "none"]
+```markdown
+## [Date]
+- Added: [principle/preference]
+- Reason: [why this matters]
+- Revision: [if updating old principle]
 ```
 
-Session log entries follow the same privacy rules — process observations only, no user data.
+### Update `lessons.md` when you learn a **practical shortcut or pattern**
 
-If `mistakes.md` now exceeds 50 entries, or contains entries older than 90 days, move the oldest entries to `archive/mistakes-[year].md` before closing. Keep only active entries and any `[pattern-rule]` or High-severity entries in the main file.
+```markdown
+## [Date]
+- Lesson: [what you learned]
+- Context: [when this applies]
+- Evidence: [how you know it works]
+```
 
----
+### Update `journal.md` when you make a **notable decision or tradeoff**
 
-## Core Files
-
-| File | Purpose |
-| ------ | ------ |
-| `mistakes.md` | Active error log — rotate when over 50 entries or 90 days old |
-| `lessons.md` | Reusable rules extracted from mistakes |
-| `soul.md` | Foundational behavioural principles (max 20 entries) |
-| `playbook.md` | Proven workflows for recurring task types |
-| `session-log.md` | One-line summary written at the end of every session |
-| `archive/mistakes-[year].md` | Rotated entries from `mistakes.md` |
-
-All files store process and reasoning observations only. No user data is ever written to any of these files.
-
-See `references/protocol.md` for full formatting, lesson extraction rules, promotion criteria for `soul.md`, pattern detection process, and audit template.
+```markdown
+## [Date] — [Brief title]
+- Situation: [what was at stake]
+- Decision: [what you chose]
+- Tradeoff: [what you sacrificed]
+```
 
 ---
 
-## Mindset
+## Important Rules
 
-Mistakes are signals, not failures. Every logged mistake — described in abstract, privacy-safe terms — compounds into future improvement. Accuracy of the lesson matters more than volume of logging. A skipped log is better than an unsafe one.
+1. **Be concise.** A short log entry is better than no entry.
+2. **Be honest.** Record failures and uncertainties, not just successes.
+3. **Be abstract.** Never include user data, credentials, or identifiable information.
+4. **Be practical.** Only log things that might actually help you later.
+5. **Don't over-log.** Not every action deserves a journal entry. Use judgment.
+
+---
+
+## Why This Matters
+
+Agents without memory repeat the same mistakes. Agents with poor memory make inconsistent decisions. A well-maintained soul/lessons/journal system turns each session into a building block for a more competent, coherent agent over time.
+
+This skill exists to make that accumulation automatic rather than accidental.
