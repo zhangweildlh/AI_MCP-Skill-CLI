@@ -105,6 +105,20 @@ Reviewer focuses:
 
 Each reviewer returns only evidence-backed candidate findings for its own focus.
 
+> **⚠️ 反模式禁令（行为纪律，非审查范围约束）**：
+> 1. **禁止叠补丁**：不要为消一条评审再叠一条新评审；回到全局契约面重画方案
+> 2. **禁止修一漏一**：改一处须联动验证其余所有相关项与调用点
+> 3. **禁止无全局视野**：先画契约面（既有语义/调用点/耦合模块/变更波及半径），再下判断
+> 4. **禁止跨焦点重复**：同一问题归属到最匹配焦点，不在多焦点重复报告
+> 5. **禁止推测性 finding**：每条 finding 必须附可复现证据（diff hunk/具体命令），严禁空泛建议
+
+每个子代理指令中追加：
+> 「你已收到 open-code-review-delegate 的报告 A/A'（JSON 发现列表）。请遵循上述反模式禁令：
+> 1. 先逐一核对其标出的每项发现是否属实（读取实际代码验证，误报标注为假阳性）
+> 2. 随后独立审查本焦点盲区，挖掘报告 A/A' 未覆盖的缺陷
+> 3. 每条 finding 必须附可复现证据，严禁推测性报告
+> 4. 最终只产出你独立确认或新发现的、证据充分的发现」
+
 ## Phase 5: Finding Consolidation
 
 Merge reviewer outputs into one findings list:

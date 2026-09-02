@@ -60,7 +60,36 @@ Stage1 并行跑三路：`ocr review`（外部 Key，广覆盖 + 规则分组）
 
 **架构质量镜（S.U.P.E.R，跨切面）**：三路审查同时套用 `./local/super-philosophy.md` 的「S.U.P.E.R 10 项评审核查」作为架构质量维度（单一职责 / 单向流 / 端口优于实现 / 环境无关 / 可替换），补足 combo 此前「仅缺陷维度」的缺口。架构质量问题（如硬编码密钥、循环依赖、不可序列化 I/O、隐式全局依赖）以 `category: other` 的发现产出（severity 由宿主在 Stage3 据实判定；安全类密钥泄漏升 `security`）。**不新增第 4 条审查路、不改 `merge_reports` 的确定性合并逻辑**——S.U.P.E.R 只是各路与宿主共享的检查清单，产出走既有 `findings[]` 通道。
 
-## 工作流（Stage0 选择器 probe 探测 Key 活/死 → Stage1 OCR 原生审查 + delegate 平等主审 + review-spd 三路并行 → Stage2 review-spd 交叉验证 → Stage3 merge_reports 合并去重）
+## 工作流（路径核验 → Stage0 选择器 probe 探测 Key 活/死 → Stage0.5 裁决器 + 契约面前置 → Stage1 OCR 原生审查 + delegate 平等主审 + review-spd 三路并行 → Stage2 review-spd 交叉验证 → Stage3 merge_reports 合并去重 → Stage3.5 裁决器复核 → Stage4 修复纪律）
+
+### 输入校验：路径核验（最高优先级，强制前置）
+
+在调用任何 `ocr` 或 `review-context.py` 之前，**必须**先执行路径核验。
+
+#### 核验流程
+
+1. **第 1 步**：`ls "<target_repo>/.git"` 确认 `.git` 目录存在
+2. **第 2 步**：`git -C "D:/绝对/Windows/路径" rev-parse --show-toplevel` 确认仓库根
+
+#### 分支逻辑
+
+| 第 1 步结果 | 分支处理 |
+|-----------|---------|
+| `.git` 存在 | 继续第 2 步 |
+| `.git` 不存在 | → 检查用户是否声明「非 Git 文件夹」意图<br>→ 若是，跳过路径核验，直接走「通用非 Git 委托分支」<br>→ 若否，**立即暂停**，大白话告知「`<target_repo>` 不是 Git 仓库，请确认路径」 |
+
+#### 误报处理铁律
+
+若第 2 步返回 `fatal: not a git repository`：
+- **先怀疑路径格式错误**，换 `cd /d/绝对路径 && git rev-parse --show-toplevel` 重试
+- 仍失败才判定异常，暂停等用户确认
+- **禁止**直接判定「该目录不是 git 仓库」
+
+#### Windows 路径注意
+
+`ocr` 为 Go 二进制，不识别 POSIX 风格路径。Windows 下推荐：
+- cwd 方式：在目标仓库目录内直接运行 `ocr review`/`ocr scan`（不传 `--repo`）
+- 或给 `--repo` 传 **Windows 绝对路径**（如 `D:\path\to\repo`）
 
 ### Stage0：select-provider 选择器（先 `probe` 判定 Key 活/死）
 
@@ -95,6 +124,46 @@ bash ./scripts/select-provider probe [-c <config>]   # 默认读本技能目录 
 > { "custom_providers": { "<NAME>": { "api_key": "<PROVIDER_API_KEY>", "url": "https://...", "protocol": "openai", "model": "<MODEL>" } } }
 > ```
 > 兼容旧路径：也可直接 `ocr config set custom_providers.<NAME>.api_key "<PROVIDER_API_KEY>"` 写入 ocr 全局配置（此时 `select-provider` 回退读取全局配置）。无论哪种，**真实 Key 仅在本机、绝不写入技能逻辑文件或 git 历史**。resolver 优先级：**config 完整 provider > 环境变量**（实测裁决：env 被忽略），故一律用 `custom_providers` 显式配置，并以 `--provider <name>` 覆盖为准。ocr CLI 自动安装、Win11 PATH 处理、LLM 连通性验证见 `./local/setup.md`。
+
+### Stage0.5：审查前置（裁决器 + 契约面，强制）
+
+> **独立性声明**：本步骤独立于 Stage0 结果，无论 Key 活/死，均须先完成本步骤，再进入 Stage1。
+
+#### 0.5.1 定义本次审查的统一裁决器
+
+宿主在启动三路并行前，必须显式定义本次审查的裁决器（5 优先级，按序裁决）：
+
+1. **契约保真（最高）**：被审查代码的**既有对外契约**是什么？（接口声明/文档/SKILL.md/评审已共识语义）
+2. **正确性**：本次审查的「正确」边界是什么？（覆盖哪些触发路径与边界）
+3. **覆盖完整性**：必须覆盖的全部场景是什么？（不改契约前提下）
+4. **最小作用域**：本次审查**不覆盖**哪些无关模块？
+5. **可验证性**：每条 finding 需附什么可复现证据？（diff hunk/测试命令/确定性复现步骤）
+
+**裁决示例**：
+- 当「扩大覆盖」会「违反契约」时 → **宁缩小覆盖、保契约**，并在报告中明确标注剩余边界
+- 当「修 A」会「误伤 B 契约」时 → 必须同一 diff 内同时修 B 或回退 A 的越界部分
+
+#### 0.5.2 画出全局契约面（粒度自适应）
+
+| 改动规模 | 契约面绘制要求 |
+|---------|--------------|
+| 小规模（≤3 文件，局部 diff） | 简要绘制：仅画被改函数的既有语义 + 直接调用点 |
+| 中规模（>3 文件，行为影响） | 完整绘制：所有六要素（既有语义/调用点/文档声明/评审共识/耦合模块/变更波及半径） |
+| 高风险（auth/permissions/persistence/migrations/concurrency/money/security） | 完整绘制 + 显式标注「变更波及半径」 |
+
+**契约面六要素**（强制包含）：
+1. 被审查模块的**既有语义**与对外契约
+2. 全部**调用点**与调用方预期
+3. 相关**文档声明**（接口文档/SKILL.md/注释/PR 描述）
+4. **耦合模块**（改一处会牵动谁）
+5. **变更波及半径**（本改动对全仓库其它模块/构建/CI/文档的连带影响）
+6. **未画完契约面、未定位根因前，不下改**（不启动三路审查）
+
+#### 0.5.3 显式声明覆盖边界
+
+写入任务笔记作为对齐基准：
+- 「本次审查覆盖到哪 / 不覆盖到哪 / 为何不覆盖」
+- 该笔记将在 Stage1 注入为三路共享的业务上下文 `-b` 的一部分
 
 ### Stage1：OCR 原生审查 + delegate 平等主审 + review-spd 并行（多 Key / 全 Key 失效降级）→ 报告 A / A' / B
 
@@ -274,6 +343,45 @@ combo 的编排遵循「单一写者」模型（writer model），与上游执�
 - `content` 与 `comment` 双字段兼容：ocr/delegate 报告用 `content`，review-spd 报告用 `comment`，`merge_reports` 归一后**两者都保留**在输出中（下游任选其一即可）。
 
 > 注意：上文 Schema 即 `merge_reports` 的真实产物；若上游 OCR / review-spd JSON 字段增减，须同步更新 `merge_reports` 的 `cleanFindings` 白名单与 `summary` 统计，并据实更新本节。
+
+### Stage3.5：裁决器复核（强制）
+
+`merge_reports` 完成机械合并后，宿主必须对以下项执行裁决器复核：
+
+| 复核对象 | 复核动作 |
+|---------|---------|
+| `disputed` 项（severity 冲突） | 读代码核实，按裁决器优先级重新定级（契约保真 > 正确性 > 覆盖完整性 > 最小作用域 > 可验证） |
+| `ocr-only` / `review-spd-only` 单源项 | 读代码核实，确认是否为真阳性或假阳性 |
+| 所有 `critical` / `high` 项 | 强制读代码核实，禁止直接采信 |
+
+复核后更新 findings 的 `severity` / `verified_by` / `cross_check` 字段。
+
+> **⚠️ 纪律**：宿主仅复核单源项与 disputed 项，**不重判** `merge_reports` 已确定的跨源 confirmed 项。
+
+### Stage4：修复纪律（用户执行修复时适用）
+
+报告产出后，用户按 findings 修复时，遵循以下回归纪律：
+
+1. **先复现**：用失败用例或确定性复现命令证明 bug 存在，再动手
+2. **最小修复**：仅使复现用例通过的 diff，不夹带重构
+3. **锁定回归**：新增/复用回归测试锁定该 bug（纯逻辑用单测、IO 边界用集成、输出格式用 golden）
+4. **广谱验证**：按变更波及半径跑相关乃至全量测试，确认未引入新红灯
+5. **修复与改进分离**：先修 bug 保持绿，重构/优化另起一轮
+
+> **⚠️ 多轮迭代 ≠ 叠补丁**：每轮审查应基于最新代码状态重新画契约面，而非在上一轮 finding 上打补丁。
+
+#### 附录：审查反模式自检卡
+
+输出最终报告前，宿主快速过一遍：
+
+| # | 自检项 | 通过标准 |
+|---|-------|---------|
+| 1 | 有无「无统一裁决器」嫌疑？ | 本次审查已显式定义 5 优先级裁决器 |
+| 2 | 有无「补丁叠补丁」？ | 三路报告无串行 dependency，各自独立 |
+| 3 | 有无「两极摇摆」？ | 覆盖边界已在 Stage0.5 显式声明 |
+| 4 | 有无「修一漏一」？ | 所有调用点已联动验证 |
+| 5 | 有无「无全局视野」？ | 契约面已绘制并注入三路 |
+| 6 | 有无「未做回归」？ | Stage4 修复纪律已引导用户锁定回归 |
 
 ## 异常处理
 
