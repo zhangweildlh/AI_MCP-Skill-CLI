@@ -99,8 +99,13 @@ The script handles all steps automatically:
    - `sessions.cwd` → new path
    - `sessions.deleted_at` → NULL (un-archive)
    - `sessions.is_playground` → 0 (convert auto-created sessions to normal)
-5. Updates `workspaces` table: registers new workspace, removes old one
+5. Updates `workspaces` table: registers new workspace (uses `last_opened_at` column), removes old one
 6. Updates `app/sessions.json` if entries exist
+7. **Cleans up empty old slug directory** (if all JSONL files moved successfully)
+
+**Bug fixes (2026-09-02)**:
+- Fixed `workspaces` table column name: `last_opened` → `last_opened_at` (matches actual DB schema)
+- Added empty slug directory cleanup after JSONL move to prevent orphan directories
 
 If the old directory no longer exists (already moved manually), use `--no-copy`:
 

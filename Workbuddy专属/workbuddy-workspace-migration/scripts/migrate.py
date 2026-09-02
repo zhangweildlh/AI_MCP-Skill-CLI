@@ -246,6 +246,19 @@ def main():
             print(f"  {fname}: {fixed} cwd references updated")
         print()
 
+    # Clean up empty old slug directory (if moved, not copied)
+    if not args.dry_run and not args.no_copy and os.path.isdir(old_proj):
+        try:
+            remaining_files = [f for f in os.listdir(old_proj) if not f.startswith('.')]
+            if not remaining_files:
+                os.rmdir(old_proj)
+                print(f"  Cleaned up empty slug dir: {old_slug}")
+            else:
+                print(f"  WARNING: old slug dir not empty ({len(remaining_files)} files remain), skipped cleanup")
+        except OSError as e:
+            print(f"  WARN: could not clean old slug dir: {e}")
+        print()
+
     # ============================================================
     # Step 3: Update workbuddy.db (cwd + deleted_at + is_playground)
     # ============================================================
@@ -320,12 +333,12 @@ def main():
     if exists > 0:
         print(f"workspaces: {NEW_DIR} already registered — updating last_opened")
         if not args.dry_run:
-            c.execute("UPDATE workspaces SET last_opened = ? WHERE path = ?",
+            c.execute("UPDATE workspaces SET last_opened_at = ? WHERE path = ?",
                       (now_ts, NEW_DIR))
     else:
         print(f"workspaces: registering {NEW_DIR}")
         if not args.dry_run:
-            c.execute("INSERT INTO workspaces (path, last_opened) VALUES (?, ?)",
+            c.execute("INSERT INTO workspaces (path, last_opened_at) VALUES (?, ?)",
                       (NEW_DIR, now_ts))
 
     # Remove old workspace if no sessions remain with that cwd

@@ -315,8 +315,14 @@ def physically_delete_session(session, dry_run=False):
 # ============================================================
 
 def path_to_slug(path):
-    """Convert workspace path to project slug."""
-    return re.sub(r'[^a-zA-Z0-9]', '-', path).lower()
+    """Convert workspace path to project slug. MUST match dir_to_slug in migrate.py."""
+    p = path.rstrip('\\/')
+    slug = p.lower()
+    slug = slug.replace(':\\', '-')
+    slug = slug.replace('\\', '-')
+    slug = slug.replace('/', '-')
+    slug = re.sub(r'-+', '-', slug)
+    return slug
 
 
 def get_workspace_disk_usage(path, user_id=None):
@@ -970,9 +976,12 @@ SAFETY:
 
         # Vacuum
         db_path = os.path.join(WORKBUDDY_HOME, 'workbuddy.db')
-        conn = sqlite3.connect(db_path)
-        conn.execute("VACUUM")
-        conn.close()
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute("VACUUM")
+            conn.close()
+        except Exception as e:
+            print(f"  WARN: VACUUM failed (non-fatal): {e}")
 
         print(f"\nDone. Freed {format_size(freed)}. Database vacuumed.")
         return
@@ -1061,9 +1070,12 @@ SAFETY:
 
         # Vacuum the database
         db_path = os.path.join(WORKBUDDY_HOME, 'workbuddy.db')
-        conn = sqlite3.connect(db_path)
-        conn.execute("VACUUM")
-        conn.close()
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute("VACUUM")
+            conn.close()
+        except Exception as e:
+            print(f"  WARN: VACUUM failed (non-fatal): {e}")
 
         print(f"\nDone. Freed {format_size(total_freed)}. Database vacuumed.")
 
@@ -1169,9 +1181,12 @@ SAFETY:
             auto_clean_orphans_if_needed(user_id=user_id, dry_run=True)
     else:
         db_path = os.path.join(WORKBUDDY_HOME, 'workbuddy.db')
-        conn = sqlite3.connect(db_path)
-        conn.execute("VACUUM")
-        conn.close()
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute("VACUUM")
+            conn.close()
+        except Exception as e:
+            print(f"  WARN: VACUUM failed (non-fatal): {e}")
         print(f"\nDone. Freed {format_size(total_freed)}. Database vacuumed.")
 
         # Auto orphan cleanup
