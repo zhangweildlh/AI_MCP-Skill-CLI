@@ -118,18 +118,44 @@ compatibility: 需具备 Read（读取目标文件）、Write / Edit（写回或
 
 **输出：** 终止并提示「❌ 文件不存在或不是 Markdown 文件：[file_path]，请核对路径与扩展名。」不生成任何写回。
 
-## 确定性检测工具（references/structure_audit.py）
+## 确定性检测工具（references/结构 audit.py）
 
 本技能附带一个纯 Python 标准库实现的确定性检测引擎（`references/structure_audit.py`，零第三方依赖，任意环境 `python3` 可直接运行），将 `md-crossref-audit` 的四件套（检测器 / 整改法 / 避坑项 / 验证指标）落地为可一键调用的自动审计脚本。
 
+### 单文件审计入口（`references/single_audit.py`）
+
 **调用方式**：
 
-`python3 references/structure_audit.py <目标文件.md> [--json] [--report R] [--strict]`
+`python3 references/single_audit.py <目标文件.md> [--config <配置文件>] [--json] [--report R] [--strict]`
 
 - 默认输出 Markdown 检测报告（概览 + 十节结构）；
 - `--json` 输出结构化 JSON（供程序消费）；
+- `--config <配置文件>` 指定配置优先级高于 Skill 内置配置；
 - `--report R` 将报告写入文件 R；
 - `--strict` 存在 error 级问题时退出码为 1，可用于验收闸门前置校验。
+
+**三层配置优先级**：
+
+1. 命令行参数（`--config`） ← 最高优先级，会话级覆盖
+2. 项目级配置（`./config.json`） ← 项目级默认值
+3. Skill 内置配置（`config.json`，位于 Skill 根目录） ← 兜底默认值
+
+### 批量审计编排（`references/batch_audit.py`）
+
+**调用方式**：
+
+`python3 references/batch_audit.py <目标目录> [--resume] [--json] [--report R]`
+
+- 扫描目录，递归收集所有 `.md` / `.txt` 文件；
+- `--resume` 续跑模式：跳过已审计文件（基于 `.audit_checkpoint.json`）；
+- 每 10 个文件自动保存检查点，支持中断续跑；
+- 生成汇总报告，统计各文件违规数量、分布。
+
+**设计原则**：
+
+- 不修改核心检测逻辑（`structure_audit.py` 保持不变）；
+- 仅做文件扫描和任务调度；
+- 批量结果聚合为汇总报告，不修改单文件内容。
 
 **四件套映射**：
 

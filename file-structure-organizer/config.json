@@ -1,0 +1,15 @@
+{
+  "_comment": "file-structure-organizer 审计参数配置（优先级：命令行 > 项目级 > Skill内置）",
+  "banned_terms_path": "references/banned_terms.txt",
+  "default_banned_terms": ["视情况", "一般", "通常", "酌情", "尽量", "尽可能", "适当", "必要时", "原则上", "建议"],
+  "audit": {
+    "max_file_size_kb": 500,
+    "timeout_seconds": 30,
+    "parallel_workers": 4
+  },
+  "report": {
+    "output_format": "markdown",
+    "include_fix_hints": true,
+    "include_evidence": true
+  }
+}
