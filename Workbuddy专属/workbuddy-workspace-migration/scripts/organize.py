@@ -421,8 +421,8 @@ Examples:
             if any(s['id'].lower().startswith(p) for p in prefixes):
                 picked.append(s)
         if len(picked) != len(prefixes):
-            matched_prefixes = {p['id'][:len(prefixes[0])].lower() for p in picked}
-            missing = [p for p in prefixes if p not in matched_prefixes]
+            matched_prefixes = {s['id'][:len(prefixes[0])].lower() for s in picked}
+            missing = [p for p in prefixes if not any(s['id'].lower().startswith(p) for s in sessions)]
             print(f"WARNING: could not find sessions matching: {', '.join(missing)}")
 
     if not picked:
