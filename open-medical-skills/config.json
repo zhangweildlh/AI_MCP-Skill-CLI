@@ -1,0 +1,30 @@
+{
+  "package": "open-medical-skills",
+  "version": "1.0.0",
+  "description": "中文医学分析助手 · 可移植安装包（父编排 + 子 vendored 副本）。父技能负责中文适配与默沙东诊疗手册参考源注入；四个原生子技能作为与上游逐字一致的 vendored 副本入库（离线可用），由 sync_openmedical.py 跟随上游演进。",
+  "license": "MIT（原生技能与父技能均遵循 MIT）",
+  "upstream": {
+    "repo": "https://github.com/Open-Medica/open-medical-skills.git",
+    "branch": "main",
+    "skills_subdir": "skills"
+  },
+  "native_skills": [
+    "clinical-differential-diagnosis",
+    "lab-result-interpreter",
+    "clinical-treatment-plan-generator",
+    "drug-interaction-checker"
+  ],
+  "parent_skill_name": "open-medical-skills",
+  "targets": [
+    { "agent": "workbuddy",  "skills_dir": "~/.workbuddy/skills" },
+    { "agent": "claude-code", "skills_dir": "~/.claude/skills" },
+    { "agent": "cursor",     "skills_dir": "~/.cursor/skills" },
+    { "agent": "codex",      "skills_dir": "~/.codex/skills" },
+    { "agent": "windsurf",   "skills_dir": "~/.windsurf/skills" }
+  ],
+  "merck_manual": {
+    "name_zh": "默沙东诊疗手册（MSD Manuals 中文版）",
+    "pro_url": "https://www.msdmanuals.cn/",
+    "consumer_url": "https://www.msdmanuals.cn/"
+  }
+}

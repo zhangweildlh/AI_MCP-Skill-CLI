@@ -7,11 +7,11 @@
 
 ## 1 仓库结构总览
 - 1.1 单 git 仓库、多独立 Skill：本仓库是一个 git 仓库，每个一级子目录是一个独立 Skill 包（或共享基础设施），根级 Skill-*.md 为单文件 Skill；各单元互无关联。
-- 1.2 单元分类：目录型 Skill（12）/ 根级 Skill 文件（9）/ 共享基础设施（scripts、.github 等）/ 一般根级文件（@*.md、mimo_mcp.py）。
+- 1.2 单元分类：目录型 Skill（13）/ 根级 Skill 文件（9）/ 共享基础设施（scripts、.github 等）/ 一般根级文件（@*.md、mimo_mcp.py）。
 - 1.3 三类管理路径：目录型 Skill → 开 worktree（第 4 章）；根级 Skill 文件与一般根级文件 → 标准分支+PR（第 5 章）；meta 变更 → 触发全量 CI。
 
 ## 2 Scope 清单
-- 2.1 目录型 Skill（12 个，scope 标识 `dir/<目录名>`）：
+- 2.1 目录型 Skill（13 个，scope 标识 `dir/<目录名>`）：
   - `dir/chrome-devtools`
   - `dir/code-review-combo`
   - `dir/codebase-memory`
@@ -23,6 +23,7 @@
   - `dir/tender-review-kit`
   - `dir/web-search`
   - `dir/self-improvement`
+  - `dir/open-medical-skills`
   - `dir/Workbuddy专属`（无 SKILL.md，按目录 scope 处理；合集目录，内含子 Skill，统一按目录 scope 管理）
 - 2.2 根级 Skill 文件（9 个，scope 标识 `file/<name 字段>`）：
 
