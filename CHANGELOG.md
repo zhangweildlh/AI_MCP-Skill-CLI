@@ -1,5 +1,9 @@
 ---
 
+## [2026-09-03]
+### Added
+- **open-medical-skills/**：新增目录型 Skill（中文医学分析编排助手，父编排 + 子 vendored 副本，离线确定性部署）；AGENTS.md §2.1 登记 `dir/open-medical-skills`（目录型 Skill 12 → 13）。
+
 ## [2026-08-28]
 - fix(dir/self-improvement): 完善 self-improvement SKILL.md 格式规范
 - docs(Memory-Data): 更新 WorkBuddy 记忆文件说明

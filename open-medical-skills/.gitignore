@@ -1,0 +1,8 @@
+# 运行期由 scripts/sync_openmedical.py 拉取的原始上游仓库缓存，不纳入本仓版本控制（保持包「可移植、未部署」）
+upstream/
+
+# Python 编译缓存（校验脚本产生，不入库）
+__pycache__/
+
+# 依赖/缓存（如有）
+node_modules/
