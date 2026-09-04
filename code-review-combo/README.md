@@ -4,6 +4,8 @@
 > 技能的执行逻辑、参数、四阶段工作流（Stage0 选择器 → Stage1 OCR 审查 → Stage2 review-spd 交叉验证 → Stage3 合并去重）、输出 Schema 与异常处理一律以同目录的 `SKILL.md` 为准。
 > 运行本技能时只需激活 `code-review-combo`，不要单独激活其子技能。
 >
+> **v1.1.0 能力变更（相对 v1.0.1）**：① 新增 `freellmapi-auto` 本地代理 provider 作为首选 Key（直连 `http://127.0.0.1:31415/v1`，model=auto，无需 capture_proxy 中转）；② `config/providers.example.json` 模板同步更新，新增 `<FREE_LLM_API_KEY>` 占位符。详见 `SKILL.md` Stage0。
+>
 > **v1.0.1 能力变更（相对早期版本）**：① 新增 **Stage0 多 Key 轮询选择器**（`scripts/select-provider` + ocr `custom_providers`，方案 β 跨厂商多 Key，全 Key 失效降级委托）；② **非 Git 目标自 v1.0.1 起支持**（`ocr scan` 整库扫描，或全 Key 失效时走「通用非 Git 委托分支」兜底），不再拒绝非 Git 文件夹。详见 `SKILL.md` Stage0 / Stage1 / 异常处理。
 
 ## 一、技能简介
@@ -17,7 +19,7 @@
 
 本技能将 LLM provider 的 `api_key` 等凭证**外置于本技能目录内的配置文件**，不写入任何技能逻辑文件（`SKILL.md` / `scripts`），满足「任一 Agent 使用本技能时，经相对路径读取配置即可获得 Key 与对应配置，进而调用 `ocr review` / `ocr scan`」的要求。
 
-- **模板（入库）**：`code-review-combo/config/providers.example.json` —— 结构与 ocr `custom_providers` 一致，含占位符 `<NVIDIA_API_KEY>` / `<SENSENOVA_API_KEY>`。
+- **模板（入库）**：`code-review-combo/config/providers.example.json` —— 结构与 ocr `custom_providers` 一致，含占位符 `<FREE_LLM_API_KEY>`（首选，本地直连 31415）/ `<NVIDIA_API_KEY>` / `<SENSENOVA_API_KEY>`。
 - **真实配置（不入库，仅本机）**：`code-review-combo/config/providers.json` —— 由模板复制后填入真实 `api_key` / `url` / `protocol` / `model`。该文件已在 `.gitignore` 中忽略，**绝不进入 git 历史**。
 - **加载机制**：Stage0 `scripts/select-provider` 启动时，经**相对路径** `config/providers.json`（相对 `scripts/../config`）读取本地 provider 清单；若存在，则将其 `custom_providers` **合并同步**到 ocr 运行时配置（`~/.opencodereview/config.json`，备份后仅合并、不覆盖 `provider` / `llm` 等其它键），使后续 `ocr review --provider <P>` / `ocr scan --provider <P>` 可直接鉴权调用 LLM。若本地配置缺失，则回退读取 ocr 全局配置（向后兼容）。
 - **安全建议**：生产环境建议改用动态取 token——将 `api_key` 置空、改用 `ocr config set ... api_key_cmd "<动态取 token 命令>"`，或对 `config/providers.json` 进一步加密 / 权限收敛，避免明文 Key 长期落盘。

@@ -1,5 +1,11 @@
 {
   "custom_providers": {
+    "freellmapi-auto": {
+      "api_key": "<FREE_LLM_API_KEY>",
+      "url": "http://127.0.0.1:31415/v1",
+      "protocol": "openai",
+      "model": "auto"
+    },
     "nvidia": {
       "api_key": "<NVIDIA_API_KEY>",
       "url": "https://integrate.api.nvidia.com/v1",
