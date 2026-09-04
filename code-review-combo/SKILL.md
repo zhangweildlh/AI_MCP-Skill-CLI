@@ -2,7 +2,7 @@
 name: code-review-combo
 description: "功能：将两种互补的代码审查子技能（open-code-review 委托模式确定性审查 + delegate 升平等主审 + review-spd 五焦点语义深度审查）三路交叉验证，产出唯一合并审计报告（人类可读文本 + 结构化 JSON），为同一代码改动提供高置信度的单一审查结论。关键词：代码审查、代码审计、代码检查、协同审查、BUG审查、查找BUG、审查提交、审查分支、审查PR、多 Key 轮询（probe 探测 Key 活/死）、delegate 平等主审、非 Git 审查。当用户要求审查代码改动、提交、分支或工作区时触发；当用户提及上述关键词时触发。适用于 Git 仓库的代码改动审查（工作区未提交改动、单提交、分支对比、PR 式 diff），也支持非 Git 文件夹（走 scan 整库扫描或全 Key 失效时的通用非 Git 委托分支兜底）。不适用于非代码审查类任务（如文档润色、需求分析）。"
 metadata:
-  version: "1.0.1"
+  version: "1.1.0"
 ---
 
 # 联合代码审查（code-review-combo）
@@ -35,7 +35,7 @@ metadata:
 - 目标**可以是 Git 仓库（优先）或非 Git 文件夹**：
   - **Git 仓库** → Stage1 用 `ocr review` 基于 diff 审查（默认路径）。
   - **非 Git 文件夹** → Stage1 用 `ocr scan` 整库/目录扫描（`requireGit=false`，已实测支持）；若所有 LLM Key 均失效，则降级为「通用非 Git 委托分支」（宿主直读文件审查，与 git 无关，复用既有委托能力），不报错退出。
-- `open-code-review-delegate` 子技能会在首次运行时自动安装并自检 `ocr` CLI（委托模式无需 LLM Key）；使用 Stage1 的 `ocr review` / `ocr scan` 原生能力时需按**方案 β**配置**至少一个 LLM provider**：在 ocr 配置的 `custom_providers` 中注册多个跨厂商 provider（如 `nvidia`、`sensenova`），由 **Stage0 `probe`** 探测 Key 活/死、跑通即用。配置与轮询细节见 Stage0，Key 一律用占位符、绝不落明文。
+- `open-code-review-delegate` 子技能会在首次运行时自动安装并自检 `ocr` CLI（委托模式无需 LLM Key）；使用 Stage1 的 `ocr review` / `ocr scan` 原生能力时需按**方案 β**配置**至少一个 LLM provider**：在 ocr 配置的 `custom_providers` 中注册多个跨厂商 provider（如 `freellmapi-auto`（首选，本地直连 31415）、`nvidia`、`sensenova`），由 **Stage0 `probe`** 探测 Key 活/死、跑通即用。配置与轮询细节见 Stage0，Key 一律用占位符、绝不落明文。
 - 本技能自身不引入新的 LLM/SDK 依赖（ocr CLI 由 SKILL.md 指引自安装、node 为运行环境自带；运行期依赖外部 `git` 与 `ocr`，二者均不随技能打包）。
 
 ## 输入参数
