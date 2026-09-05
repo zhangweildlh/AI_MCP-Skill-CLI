@@ -34,7 +34,31 @@ description: DeusData 纯本地、离线、只读代码知识图谱引擎，15 �
 - 经 dmcp 路由统一走 `call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)`（参数键是 `args`，**不是** `arguments`）。
 - 若 `call_dynamic_tool` 报 `group must be equal to allowed values`，是 dmcp 枚举冻结，**重启 dmcp 重连后重试**。
 
+## 2.5 一键扫描注册脚本（会话启动对账推荐路径）
+
+本技能内置 `codebase-memory扫描注册脚本.ps1`，是 §3 手动对账的**自动化封装**：递归扫描预设根目录（默认 `D:\Documents\AI_MCP-Skill-CLI` 与 `D:\Documents\AI_Work_Temp`，深度 3），发现未注册 git 仓库后自动双通道注册（dmcp HTTP 优先 → CLI 备选），Agent 无需手动逐目录跑 `index_repository`。
+
+**脚本位置**：部署后 `codebase-memory扫描注册脚本.ps1` 与 `codebase-memory-mcp.exe` 同目录于 `D:\codebase-memory-mcp`（SKILL.md 部署在别处，不与该目录同址）。Agent 按下方绝对路径调用即可，无需依赖本 SKILL.md 的相对位置去反推脚本路径。
+
+**调用方式（PowerShell）**：
+```powershell
+PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory扫描注册脚本.ps1" -Log
+```
+
+**结果读取**：脚本在 `D:\codebase-memory-mcp` 写出 `.last_result.json`（含 `new_repos` / `registered` / `failed` / `skipped` 清单）与可选 `watch_git_repos.log`。Agent 读取 `.last_result.json` 即知本次对账结果（新增 N / 注册成功 M / 失败 K），无需逐目录核对。
+
+**依赖与前提**：
+- dmcp HTTP 通道需 dmcp 服务在 `http://127.0.0.1:8082/dynamic-mcp` 运行（WorkBuddy 自带 dmcp 常驻）；若该通道不可用（如返回非预期状态码），脚本**自动降级**到 CLI 通道。
+- CLI 备选通道需 `D:\codebase-memory-mcp\codebase-memory-mcp.exe` 与同目录 `data` 缓存目录（部署态满足）。
+
+**退出码**：`0`=全部成功或无新仓库；`1`=部分成功（有仓库注册失败）；`2`=前置校验失败（无有效扫描根）。
+
+**与 §3 的关系**：会话启动 / 用户说"同步 / 刷新索引"时，**优先**运行本脚本完成批量自动注册；需要精细控制单个仓库、或脚本不可用时，再走 §3 手动对账（`list_projects` + 逐目录 `index_repository`）。
+
 ## 3. 会话启动对账例程（核心：增删子目录零手动同步）
+
+> 首选 **§2.5 一键脚本**完成批量自动注册；本节约为需要精细控制单个仓库时的手动路径。
+
 DeusData **不会自动发现新子目录**（`auto_index` 仅补齐已知项目，不爬父目录）。Agent 在会话启动或用户说"同步/刷新索引"时执行：
 1. `list_projects` → 已索引根集合 A（root_path）。
 2. 列出 `D:/Documents/AI_Work_Temp` 一级子目录集合 B（PowerShell `Get-ChildItem -Directory`）。
