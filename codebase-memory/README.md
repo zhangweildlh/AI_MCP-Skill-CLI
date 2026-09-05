@@ -431,17 +431,23 @@ Stop-Process -Name dmcp -Force   # 终止后由 WorkBuddy 连接器重连重拉�
 
 ---
 
-### 8.4 dmcp HTTP 通道 (406) 不可接受 · 根因与归因分析
+### 8.4 dmcp HTTP 通道 (406) 不可接受 · 根因与归因分析（已据 dmcp 源码核实修订）
 
 **现象（实测，2026-09-05 运行日志）**：扫描注册脚本（通道 1）对全部 8 个仓库均返回 `dmcp HTTP 注册失败: 远程服务器返回错误: (406) 不可接受。`，随后均由 `注册成功 [exe]`（通道 2 CLI）补注册，最终 `total_fail: 0 / total_reg: 8`，即 406 不影响最终注册结果。
 
-**根因（协议不匹配）**：脚本假设 dmcp 暴露的是"单后端标准 MCP Streamable HTTP 端点"，因此在通道 1 发送裸 MCP JSON-RPC 2.0 `tools/call`（`method:"tools/call"`, `params:{name:"index_repository", arguments:{...}}`），只带 `params.name` 而未携带 `group` 路由上下文。但 dmcp 的 HTTP façade 是**多后端多路复用代理**，按 `group` 把请求路由到对应 backend；裸 `tools/call` 让 façade 无法判定该转发给哪个 backend，于是以 406 拒绝。
+**根因（经 dmcp 源码核实，修订旧结论）**：406 是 **MCP Streamable HTTP 传输层的"内容协商"拒绝**，不是 dmcp 业务层或分组路由的拒绝。脚本通道 1 存在两处协议错配：
+
+1. **缺少必需的 `Accept` 头（直接成因）**。dmcp 的 HTTP 端点由 `rmcp::transport::streamable_http_server::StreamableHttpService` 提供（`src/main.rs` `start_http_server`），即**标准 MCP Streamable HTTP 端点**，而非"裸 JSON-RPC HTTP 服务器"。该传输要求客户端请求必须带 `Accept: application/json, text/event-stream`（dmcp 自己作为客户端连上游时也正是这么发的，见 `src/proxy/transport.rs:278-279` 与 `:499-500`）。脚本通道 1 调用 `Invoke-RestMethod` 只设了 `ContentType:"application/json"`，**未设置 `Accept` 头**（PowerShell 默认发 `Accept: */*`），于是 rmcp 服务端做内容协商时发现客户端能力不匹配，直接返回 HTTP 406——这一步发生在 JSON-RPC 请求体被解析之前，`call_dynamic_tool` 根本没被调用。
+
+2. **请求体工具名封装错误（潜在第二缺陷，修完第 1 点后才会暴露）**。即便补上 `Accept` 头让请求越过 406，脚本当前发送的是 `params:{name:"index_repository", arguments:{...}}`——直接以**上游后端工具名**打给 dmcp façade。但 façade 只暴露 3 个工具：`list_groups` / `get_dynamic_tools` / `call_dynamic_tool`（见 `src/http/server_handler.rs` `list_tools_inner`）。façade 的 `call_tool_inner` 按 `request.name` 匹配，收到 `index_repository` 会返回 `is_error:true` 的结构化错误 `Unknown tool: index_repository`。正确封装应为：`method:"tools/call"`, `params:{name:"call_dynamic_tool", arguments:{group:"codebase-memory-mcp", name:"index_repository", args:{repo_path, mode}}}`。
+
+**为什么旧结论（"缺 `group` 导致 406"）不成立**：façade 的 `call_dynamic_tool` 在 `group` 缺失时，返回的是 `CallToolResult{is_error:true}`（含结构化错误信封 `{ok:false, code:"bad_request", message:"Missing required parameters: group and name"}`），HTTP 状态是 **200**，绝不是 406。406 只能来自 rmcp Streamable HTTP 服务端的内容协商，与 `group` 字段是否存在无关。
 
 **归因**：
-1. 脚本作者误判 dmcp 为单后端标准端点，未使用 dmcp 的分组路由契约（缺 `group` 字段或分组作用域路径），是直接成因。
-2. 406 是"HTTP façade 层契约不匹配"的信号，不是 DeusData 引擎或 `index_repository` 工具本身的问题——CLI 通道（通道 2）绕开 HTTP façade 直连 exe，部署态可 8/8 完成注册即印证此点。
-3. 该问题**仅隔离于脚本的通道 1（dmcp HTTP）**，不影响 WorkBuddy 经 `call_dynamic_tool(group="codebase-memory-mcp", ...)` 的实际图能力调用（本机 `codebase-memory-mcp` 分组 `connected`）；属脚本实现缺陷，非 codebase-memory 能力的普遍故障。
-4. 修复方向（脚本侧，非本次 Skill 改造范围）：在 HTTP 请求中补上 `group:"codebase-memory-mcp"` 路由上下文，或改用 dmcp 实际支持的分组作用域调用契约。
+1. 脚本作者把 dmcp 的 HTTP 端点**误判为"裸 JSON-RPC HTTP 服务器"**（旧版 `/dynamic-mcp/call_tool` 式思维，脚本注释 line 273-276 仍持此假设），未按 **MCP Streamable HTTP 协议**实现客户端（缺 `Accept` 头 + 未完成 `initialize` 握手）。这是直接成因。
+2. 406 是"传输层协议不匹配"的信号，**不是** DeusData 引擎、`index_repository` 工具或"分组路由缺失"的问题——CLI 通道（通道 2）绕开 HTTP façade 直连 exe，部署态 8/8 完成注册即印证此点。
+3. 该问题**仅隔离于脚本的通道 1（dmcp HTTP）**，不影响 WorkBuddy 经 `call_dynamic_tool(group="codebase-memory-mcp", ...)` 的实际图能力调用（本机 `codebase-memory-mcp` 分组 `connected`，本次会话 `DeferExecuteTool list_groups` 实测成功）；属脚本实现缺陷，非 codebase-memory 能力的普遍故障。
+4. **dmcp 本身无缺陷**，按 MCP Streamable HTTP 规范正确拒绝非法请求。修复方向（脚本侧，非本次 Skill 改造范围）：将通道 1 改为**合规的 MCP Streamable HTTP 客户端**——① 发 `Accept: application/json, text/event-stream`；② 先完成 `initialize` 握手；③ 正确封装为 `call_dynamic_tool(group="codebase-memory-mcp", name="index_repository", args={...})`。在修复前，维持"通道 1 失败自动降级通道 2 CLI"的现状即可，注册结果不受影响。
 
 ---
 
