@@ -7,7 +7,7 @@ metadata:
 
 # codebase-memory 调用与激活指南
 
-> 本文件给 WorkBuddy/Agent 看、用，是触发与调用本 Skill 的唯一权威行为定义。详细安装、部署、15 工具参数、openCypher、排错见同目录 `README.md`。
+> 本文件供你（WorkBuddy）查看与使用，是触发与调用本 Skill 的唯一权威行为定义。详细安装、部署、15 工具参数、openCypher、排错见同目录 `README.md`。
 
 ## 1. 角色与目标
 
