@@ -307,6 +307,29 @@ DeusData **不会自动发现新子目录**（`auto_index` 仅补齐已知项目
 
 ---
 
+### 5.7 一键扫描注册脚本（会话启动对账推荐路径）
+
+本 Skill 内置 `codebase-memory扫描注册脚本.ps1`，是 §5.3 手动对账的自动化封装：递归扫描预设根目录（部署态默认含本地文档目录下的 GitHub 仓库根与独立仓库根，深度 3），发现未注册 git 仓库后自动双通道注册（dmcp HTTP 优先 → CLI 备选），你无需手动逐目录跑 `index_repository`。
+
+**脚本位置**：部署后 `codebase-memory扫描注册脚本.ps1` 与 `codebase-memory-mcp.exe` 同目录于 `D:\codebase-memory-mcp`（SKILL.md 部署在别处，不与该目录同址）。Agent 按下方绝对路径调用即可，无需依赖 SKILL.md 的相对位置去反推脚本路径。
+
+**调用方式（PowerShell）**：
+```powershell
+PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory扫描注册脚本.ps1" -Log
+```
+
+**结果读取**：脚本在 `D:\codebase-memory-mcp` 写出 `.last_result.json`（含 `new_repos` / `registered` / `failed` / `skipped` 清单）与可选 `watch_git_repos.log`。读取 `.last_result.json` 即知本次对账结果（新增 N / 注册成功 M / 失败 K）。
+
+**依赖与前提**：
+- dmcp HTTP 通道需 dmcp 服务在 `http://127.0.0.1:8082/dynamic-mcp` 运行（WorkBuddy 自带 dmcp 常驻）；若该通道不可用（如返回非预期状态码，典型为 `(406) 不可接受`，见 §8.4），脚本自动降级到 CLI 通道。
+- CLI 备选通道需 `D:\codebase-memory-mcp\codebase-memory-mcp.exe` 与同目录 `data` 缓存目录（部署态满足）。
+
+**退出码**：`0`=全部成功或无新仓库；`1`=部分成功（有仓库注册失败）；`2`=前置校验失败（无有效扫描根）。
+
+**与 §5.3 的关系**：会话启动 / 用户说"同步 / 刷新索引"时，优先运行本脚本完成批量自动注册；需要精细控制单个仓库、或脚本不可用时，再走 §5.3 手动对账。
+
+---
+
 ## 6. 完整 15 工具参考（权威，从 DeusData 实时校正）
 
 > 校正（2026-08-14）：旧资料误列 `semantic_query` 为独立工具（实为 `search_graph` 的**数组参数**）；漏列 `check_index_coverage`；`trace_path` 无 `trace_call_path` 别名。以下为 `get_dynamic_tools` 实时拉取的 15 工具。
@@ -405,6 +428,20 @@ DeusData **不会自动发现新子目录**（`auto_index` 仅补齐已知项目
 Stop-Process -Name dmcp -Force   # 终止后由 WorkBuddy 连接器重连重拉枚举
 ```
 重连后 `list_groups` 应显示 `codebase-memory-mcp` = connected。
+
+---
+
+### 8.4 dmcp HTTP 通道 (406) 不可接受 · 根因与归因分析
+
+**现象（实测，2026-09-05 运行日志）**：扫描注册脚本（通道 1）对全部 8 个仓库均返回 `dmcp HTTP 注册失败: 远程服务器返回错误: (406) 不可接受。`，随后均由 `注册成功 [exe]`（通道 2 CLI）补注册，最终 `total_fail: 0 / total_reg: 8`，即 406 不影响最终注册结果。
+
+**根因（协议不匹配）**：脚本假设 dmcp 暴露的是"单后端标准 MCP Streamable HTTP 端点"，因此在通道 1 发送裸 MCP JSON-RPC 2.0 `tools/call`（`method:"tools/call"`, `params:{name:"index_repository", arguments:{...}}`），只带 `params.name` 而未携带 `group` 路由上下文。但 dmcp 的 HTTP façade 是**多后端多路复用代理**，按 `group` 把请求路由到对应 backend；裸 `tools/call` 让 façade 无法判定该转发给哪个 backend，于是以 406 拒绝。
+
+**归因**：
+1. 脚本作者误判 dmcp 为单后端标准端点，未使用 dmcp 的分组路由契约（缺 `group` 字段或分组作用域路径），是直接成因。
+2. 406 是"HTTP façade 层契约不匹配"的信号，不是 DeusData 引擎或 `index_repository` 工具本身的问题——CLI 通道（通道 2）绕开 HTTP façade 直连 exe，部署态可 8/8 完成注册即印证此点。
+3. 该问题**仅隔离于脚本的通道 1（dmcp HTTP）**，不影响 WorkBuddy 经 `call_dynamic_tool(group="codebase-memory-mcp", ...)` 的实际图能力调用（本机 `codebase-memory-mcp` 分组 `connected`）；属脚本实现缺陷，非 codebase-memory 能力的普遍故障。
+4. 修复方向（脚本侧，非本次 Skill 改造范围）：在 HTTP 请求中补上 `group:"codebase-memory-mcp"` 路由上下文，或改用 dmcp 实际支持的分组作用域调用契约。
 
 ---
 

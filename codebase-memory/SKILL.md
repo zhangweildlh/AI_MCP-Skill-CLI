@@ -1,140 +1,96 @@
 ---
 name: codebase-memory
-description: DeusData 纯本地、离线、只读代码知识图谱引擎，15 工具：index_repository（建/刷新索引）、list_projects（列已索引项目）、delete_project（删项目图数据）、index_status（索引状态与覆盖报告）、check_index_coverage（文件级覆盖可信度）、search_graph（符号/定义/关系搜索，含语义向量）、trace_path（调用链与影响面追踪）、detect_changes（git 改动爆炸半径）、query_graph（openCypher 只读查询）、get_graph_schema（节点边 schema）、get_code_snippet（按限定名读源码）、get_architecture（架构概览/热点/循环依赖）、search_code（图增强 grep）、manage_adr（架构决策记录）、ingest_traces（运行时追踪验证）。激活按任务语义而非术语关键词：凡任务涉及「分析/阅读/修改/重构本地代码或项目、定位BUG、修复BUG、查找BUG、审计代码、审查代码、回应 PR 审查意见、接手代码/项目」，且目标位于本地已索引工作树（如 D:\Documents\AI_Work_Temp、D:\Documents\AI_MCP-Skill-CLI），必须默认激活本 Skill，把图能力（理解结构、评估影响面、追踪调用链、定位死代码、改动 impact 自检）作为认知第一手段，替代全仓 grep 与逐文件 Read；用户通常只会表达任务、不会说出「调用链/影响面」等术语，Agent 须由任务语义推断并主动激活。不激活：纯新增代码（从零写新文件）；Write/Edit 与 git 写动作本体；未克隆的远程 GitHub 浏览/PR/CI（走 gh + github-personal-manager）；运行时调试。纯本地只读图引擎（无 LLM、无 API key、无网络），只建图读图；经 dmcp 分组 codebase-memory-mcp 或原生 stdio 直连调用。
+description: 纯本地、离线、只读的代码知识图谱（影响面分析）引擎：将本地已索引工作树构建为调用图/使用图/继承图，提供符号搜索、调用链追踪、影响面评估、死代码定位、本地 git 变动爆炸半径映射等 15 个 MCP 工具。关键词：代码知识图谱、调用链追踪、影响面分析、架构检索、本地索引。当用户要求分析/阅读/修改/重构本地代码、定位/修复 BUG、审计/审查代码、回应 PR 审查意见、接手代码/项目，且目标位于本地已索引工作树时触发；当用户说"理解结构/评估影响面/追踪调用链/定位死代码"时触发。适用于本地研发认知任务（理解结构、改前评估影响、改后验证半径）。不适用于纯新增代码（无既有图可查）、Write/Edit 与 git 写动作本体、未克隆的远程 GitHub 仓库浏览（走 gh + github-personal-manager）、运行时调试；经 dmcp 分组 codebase-memory-mcp 或原生 stdio 直连调用。
+metadata:
+  version: "2.0.0"
 ---
 
-# codebase-memory-mcp 调用与运维指南（DeusData，经 dynamic-mcp）— Agent 操作参考
+# codebase-memory 调用与激活指南
 
-> 本文件给 WorkBuddy/Agent 看、用。只放任务执行期操作必需信息。
+> 本文件给 WorkBuddy/Agent 看、用，是触发与调用本 Skill 的唯一权威行为定义。详细安装、部署、15 工具参数、openCypher、排错见同目录 `README.md`。
 
-## 0. 定位与接入
-- DeusData = **纯本地、只读**代码知识图谱/影响面分析引擎（纯 C 单二进制、零运行时、无 API key、158 语言、15 MCP 工具）。
-- 接入：经 dynamic-mcp 的 `codebase-memory-mcp` backend 暴露为 dmcp 分组 `codebase-memory-mcp`（即 `call_dynamic_tool` 的 group 值）。
-- 直连形态：若平台已以 stdio 原生注册 codebase-memory（可执行文件如 `D:/codebase-memory-mcp/codebase-memory-mcp.exe`），其 15 工具即为一等工具、直接调用，无需 dmcp 两跳；两种形态下工具名、参数与路由表完全一致。
-- 首选顺序：原生直连 > dmcp 两跳；两者皆不可用时按 §6.4 退化为文件系统工具。
-- 索引范围：env `CBM_ALLOWED_ROOT=D:/Documents` 限定只能索引 `D:\Documents` 子树（越界 `index_repository` 会被拒）。
+## 1. 角色与目标
 
-## 1. 监控模型
-- `D:\Documents\AI_Work_Temp` = 所有本地 GitHub 仓库根目录；每个**一级子目录 = 一个独立项目**（git 与非 git 混合），频繁增删。
-- `D:\Documents\AI_MCP-Skill-CLI` = 独立 git 仓库，单独维护。
-- 模式「不监控、运行后快扫」：MCP 未运行时不做任何事；会话启动/按需由 Agent 跑**第 3 节对账例程**同步。
-- **AI_Work_Temp 必须逐一级子目录 `index_repository`**，整树单一项目会稳定崩溃（目录枚举阶段被顶层散落文件/嵌套 `.git` pack 硬崩）。
+你是 DeusData 纯本地、只读代码知识图谱引擎的调用与激活控制器。你的职责：在涉及本地代码的研发认知任务中，默认把图能力作为理解结构、评估影响面、追踪调用链、定位死代码、改动 impact 自检的第一手段，替代盲目全仓 grep 与逐文件 Read；并在会话启动或索引变更时，保持图谱与磁盘一致。
 
-## 2. 常驻用法：凡涉及本地代码认知/评估的任务优先用图（强制）
-> 措辞说明：此处的「每个任务」指**涉及本地代码理解/影响面/调用链/死代码/本地 git 变动 impact 的任务子集**，并非让本 Skill 在无关任务（纯新增代码、写文件、git 写动作、远程 GitHub、运行时调试）里强行激活——那些场景见 §6 不适用边界。命中 §6 适用侧时，本准则强制：优先用 DeusData 图工具，不要盲目用 Grep/Read 扫全仓。决策顺序：
+## 2. 核心工作流（认知第一手段）
 
-1. **会话/任务启动**：先跑**第 3 节对账例程**确认索引与磁盘一致（新增子目录会被自动补索引）。
-2. **找符号/定义/实现/关系** → `search_graph`（`query` BM25 / `name_pattern` 正则 / `semantic_query` 向量，三模式可组合；分页靠 `limit`+`offset`+`has_more`）。
-3. **"改 X 影响哪些 / 谁调了 X"** → `trace_path`（`function_name` + `project`，`direction`/`depth`/`mode`）。
-4. **本地 git 变动 impact** → `detect_changes`（`project`，可选 `since`/`base_branch`/`depth`）。
-5. **整体理解** → `get_architecture`（`aspects`）；**看实现** → `get_code_snippet`（先 `search_graph` 取 `qualified_name`）。
-6. **图覆盖不足或需字面文本** → 退化 `search_code`（图增强 grep）或文件系统 grep。
-7. **信任图前必查覆盖**：`index_status`（覆盖报告）/ `check_index_coverage`（精确路径可信度）。被标记 `parse_partial`/`skipped` 的文件，**务必再 grep 该范围**。
+你处理本地代码认知任务时，按以下顺序调用图工具：
 
-- 经 dmcp 路由统一走 `call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)`（参数键是 `args`，**不是** `arguments`）。
-- 若 `call_dynamic_tool` 报 `group must be equal to allowed values`，是 dmcp 枚举冻结，**重启 dmcp 重连后重试**。
+1. 会话启动或用户说"同步/刷新索引"：先运行部署态脚本 `D:\codebase-memory-mcp\codebase-memory扫描注册脚本.ps1` 完成批量自动注册（脚本位置、调用方式、退化路径与已知问题见 `README.md` §5.7）；需要精细控制单个仓库时再走手动对账（`README.md` §5.3）。
+2. 找符号/定义/实现/关系 → `search_graph`（BM25 `query` / `name_pattern` 正则 / `semantic_query` 向量，三模式可组合）。
+3. 评估"改 X 影响哪些 / 谁调了 X" → `trace_path`（`function_name` + `project`，`direction`/`depth`/`mode`）。
+4. 本地 git 变动 impact → `detect_changes`（`project`，可选 `since`/`base_branch`/`depth`）。
+5. 整体理解 → `get_architecture`（`aspects`）；看实现 → `get_code_snippet`（先 `search_graph` 取 `qualified_name`）。
+6. 图覆盖不足或需字面文本 → 退化 `search_code`（图增强 grep）或文件系统 grep。
+7. 信任图前必查覆盖：`index_status` / `check_index_coverage`；被标记 `parse_partial`/`skipped` 的文件，务必再 grep 该范围。
 
-## 2.5 一键扫描注册脚本（会话启动对账推荐路径）
+经 dmcp 路由统一走 `call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)`（参数键是 `args`，不是 `arguments`）。若报 `group must be equal to allowed values`，是 dmcp 枚举冻结，重启 dmcp 重连后重试。
 
-本技能内置 `codebase-memory扫描注册脚本.ps1`，是 §3 手动对账的**自动化封装**：递归扫描预设根目录（默认 `D:\Documents\AI_MCP-Skill-CLI` 与 `D:\Documents\AI_Work_Temp`，深度 3），发现未注册 git 仓库后自动双通道注册（dmcp HTTP 优先 → CLI 备选），Agent 无需手动逐目录跑 `index_repository`。
+## 3. 激活时机与边界（决定本 Skill 是否启用）
 
-**脚本位置**：部署后 `codebase-memory扫描注册脚本.ps1` 与 `codebase-memory-mcp.exe` 同目录于 `D:\codebase-memory-mcp`（SKILL.md 部署在别处，不与该目录同址）。Agent 按下方绝对路径调用即可，无需依赖本 SKILL.md 的相对位置去反推脚本路径。
+本 Skill 的激活全依赖 frontmatter `description` 命中。激活原则是按"任务语义"而非"术语关键词"——你须由研发活动语义推断并默认激活，不等用户说出"调用链/影响面"等底层术语。
 
-**调用方式（PowerShell）**：
-```powershell
-PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory扫描注册脚本.ps1" -Log
-```
+### 3.1 激活（默认启用）
 
-**结果读取**：脚本在 `D:\codebase-memory-mcp` 写出 `.last_result.json`（含 `new_repos` / `registered` / `failed` / `skipped` 清单）与可选 `watch_git_repos.log`。Agent 读取 `.last_result.json` 即知本次对账结果（新增 N / 注册成功 M / 失败 K），无需逐目录核对。
+凡用户要做下列研发活动、且目标代码位于本地已索引工作树，即应默认激活本 Skill：
 
-**依赖与前提**：
-- dmcp HTTP 通道需 dmcp 服务在 `http://127.0.0.1:8082/dynamic-mcp` 运行（WorkBuddy 自带 dmcp 常驻）；若该通道不可用（如返回非预期状态码），脚本**自动降级**到 CLI 通道。
-- CLI 备选通道需 `D:\codebase-memory-mcp\codebase-memory-mcp.exe` 与同目录 `data` 缓存目录（部署态满足）。
+- 分析本地代码/程序/项目（含已克隆的 GitHub 仓库、多级目录嵌套代码+技术文档）
+- 修改代码/加功能/重构
+- 定位 BUG / 修复 BUG / 查找 BUG
+- 审计代码 / 审查代码 / 代码评审
+- 基于 PR 审查意见核查或定位问题
+- 接手代码/项目（onboarding）
 
-**退出码**：`0`=全部成功或无新仓库；`1`=部分成功（有仓库注册失败）；`2`=前置校验失败（无有效扫描根）。
+### 3.2 不激活（例外，走对应工具）
 
-**与 §3 的关系**：会话启动 / 用户说"同步 / 刷新索引"时，**优先**运行本脚本完成批量自动注册；需要精细控制单个仓库、或脚本不可用时，再走 §3 手动对账（`list_projects` + 逐目录 `index_repository`）。
+- 纯新增代码（从零写新文件，无既有图可查）→ 直接 Write/Edit
+- 写入动作本体（Write/Edit 写文件、git 写动作 add/commit/push/branch/rebase/merge）→ 文件系统 / git / gh CLI
+- 未克隆到本地的远程 GitHub 仓库浏览（PR/CI/Issue/fork sync/远端 diff）→ `gh` + `github-personal-manager`
+- 运行时调试（断点/日志/profiler）→ 实际运行 + 调试器
 
-## 3. 会话启动对账例程（核心：增删子目录零手动同步）
+> 细分：已克隆到本地的仓库内容分析 → 激活；未克隆的远端仓库内容 → 不激活。
 
-> 首选 **§2.5 一键脚本**完成批量自动注册；本节约为需要精细控制单个仓库时的手动路径。
+### 3.3 协同闭环
 
-DeusData **不会自动发现新子目录**（`auto_index` 仅补齐已知项目，不爬父目录）。Agent 在会话启动或用户说"同步/刷新索引"时执行：
-1. `list_projects` → 已索引根集合 A（root_path）。
-2. 列出 `D:/Documents/AI_Work_Temp` 一级子目录集合 B（PowerShell `Get-ChildItem -Directory`）。
-3. **新增**（b∈B 且 b∉A，且非探针/临时目录）→ `index_repository(repo_path=b, mode="moderate")`。
-4. **删除**（a∈A 且 root_path 以 `D:/Documents/AI_Work_Temp` 开头但磁盘已不存在）→ 已由后台 watcher **自动处理，无需手动**：watcher 连续 3 次轮询发现根缺失、再宽限约 10 分钟后，自动注销该目录的监视并删除其缓存 db（`data/<hash>.db` 及 `_config.db` 注册项），前提是 cbm/dmcp 在运行。仅在需要**立即**清掉陈旧图数据（不等约 10 分钟自动剪枝）时，才调 `delete_project(project=a)`。
-5. **变更**：git 子目录靠 `auto_watch`(默认 true) 会话连上后自动增量；非 git 子目录需手动重索引（先 `detect_changes` 看 `impacted_total`，非 0 才重索引）。
-6. 报告（新增 N / 删除 M / 非 git 重索引 K）。
+DeusData（本地图：认知第一手段）负责认知段；Write/Edit + git 产生本地改动；gh + github-personal-manager 负责远程协作。命中 §3.1 的活动默认激活，命中 §3.2 的例外不激活。
 
-> `CBM_ALLOWED_ROOT=D:/Documents` 兜底：越界 `index_repository` 会被拒。以 `_` 前缀的探针/临时目录（如 `_officecli_probe`）默认不索引，留给用户决定。
+### 3.4 图覆盖不足时的退化
 
-## 4. 15 工具路由表
+`check_index_coverage` 报 gap、或文件被标记 `parse_partial`/`skipped` 时，务必再 grep 该范围 / Read 源文件确认精确实现——"absence from graph" 不是完整性保证。若目标目录尚未索引，先运行一键扫描注册脚本补索引再用图。
 
-| 工具 | 用途 | 关键参数（必需项加粗） | 典型触发 |
-|---|---|---|---|
-| `index_repository` | 建/刷新仓库索引（加项目的唯一方式） | **`repo_path`**、`mode`(full/moderate/fast/cross-repo-intelligence)、`name`、`persistence`、`target_projects` | 新增子目录、手动刷新 |
-| `list_projects` | 列出已索引项目及节点/边规模 | 无 | 对账例程、确认覆盖 |
-| `delete_project` | 移除项目及其图数据 | **`project`** | 子目录被删后清陈旧 |
-| `index_status` | 查索引状态 + 覆盖报告（parse_partial/skipped/not_indexed） | **`project`**、`verbose` | 排错、信任图前必查 |
-| `check_index_coverage` | 权威覆盖元数据：精确路径/前缀范围的可信度（负向/穷举论断前必查） | **`project`**、`paths` 或 `scopes`(二选一)、`scope_limit`/`scope_offset` | 引用/操作文件前；"某文件未出现=不存在"论断前 |
-| `search_graph` | 结构化图搜索（BM25 `query` / `name_pattern` / `semantic_query` 三模式可组合） | **`project`**、`query`/`name_pattern`/`semantic_query`(数组)、`label`、`file_pattern`、`limit`/`offset`/`has_more`、`fields`、`format`(tree/json) | 找符号/定义/实现/关系（替代 grep） |
-| `trace_path` | BFS 调用链/数据流/跨服务追踪 | **`function_name`**、**`project`**、`mode`(calls/data_flow/cross_service)、`direction`、`depth`、`edge_types`、`cursor`、`limit`、`include_tests`、`include_evidence`、`risk_labels` | "改 X 影响哪些"、找调用者 |
-| `detect_changes` | git diff → 爆炸半径（transitive impact，含 impacted_modules 汇总） | **`project`**、`base_branch`、`depth`、`direction`(inbound/outbound/both)、`scope`(files/impact)、`since` | 本地 git 变动 impact |
-| `query_graph` | 只读 openCypher 查询（含 `graph="missed"` 查未全索引文件结构） | **`query`**、**`project`**、`graph`(code/missed)、`max_rows` | 复杂多跳/聚合/跨服务 |
-| `get_graph_schema` | 节点标签/边类型 schema | **`project`** | 首次必跑，了解图结构 |
-| `get_code_snippet` | 按限定名读源码（先 `search_graph` 取 `qualified_name`） | **`qualified_name`**、**`project`**、`include_neighbors` | 看实现 |
-| `get_architecture` | 架构概览（languages/packages/routes/hotspots/clusters/cycles） | **`project`**、`aspects`(all/overview/.../cycles)、`path` | 整体理解 |
-| `search_code` | 图增强 grep（去重 + 结构排序：定义优先、测试最后） | **`pattern`**、**`project`**、`mode`(compact/full/files)、`file_pattern`、`path_filter`、`limit`、`regex` | 文本定位 |
-| `manage_adr` | 架构决策记录 CRUD | **`project`**、`mode`(get/update/sections)、`content` | 沉淀架构决策 |
-| `ingest_traces` | 摄取运行时追踪验证 HTTP_CALLS/ASYNC_CALLS 边 | **`project`**、**`traces`**(数组) | 验证异步调用 |
+## 4. 输出格式约束
 
-### 4.1 semantic_query 不是独立工具（易错点）
-`semantic_query` 是 `search_graph` 的一个**数组参数**（如 `["send","pubsub","publish"]`），结果落在 `semantic_results` 字段，**不是** `call_dynamic_tool` 的 `name`。切勿用 `name="semantic_query"` 调用。
+你向用户汇报时：
 
-## 5. openCypher 速查（只读子集）
-- **子句**：`MATCH` `OPTIONAL MATCH` `WHERE` `WITH` `RETURN` `ORDER BY` `SKIP` `LIMIT` `DISTINCT` `UNWIND` `UNION` `CASE`。
-- **节点标签**：`Project` `Package` `Folder` `File` `Module` `Class` `Function` `Method` `Interface` `Enum` `Type` `Route` `Resource`。
-- **边类型**：`CONTAINS_*` `DEFINES` `IMPORTS` `CALLS` `CALL_REFERENCE` `USAGE` `IMPLEMENTS` `INHERITS` `MEMBER_OF` `TESTS` `USES_TYPE` `HTTP_CALLS` `ASYNC_CALLS` `SIMILAR_TO` `SEMANTICALLY_RELATED` `CROSS_*`(跨仓库)。
-- **示例**：
-  ```cypher
-  MATCH (f:Function)-[:CALLS]->(g) WHERE f.name = 'main' RETURN g.name
-  MATCH (f:Function) WHERE NOT EXISTS { (f)<-[:CALLS]-() } RETURN f.name LIMIT 50
-  MATCH (f:Function) WHERE f.file CONTAINS 'parser' RETURN f.name, f.file
-  MATCH (f:File) WHERE f.kind = 'parse_partial' RETURN f.file_path, f.detail   // missed graph
-  ```
-- **不支持**：写操作、`MERGE`、`CALL`、列表/映射字面量、参数（报 `unsupported …`）。`query_graph` 有 100k 行硬上限，`missed` 图用 `graph="missed"`。
+1. 结论先行：先给出定位/影响/问题的核心结论，再给工具调用与证据。
+2. 引用图结果时标注工具名与 `project`（如 `trace_path(project=<项目名>)` 显示调用者数量）。
+3. 覆盖存疑时显式声明"图覆盖不足，已退化 grep 核实"，不得把推测当事实。
+4. 涉及"某文件未出现=不存在"的论断前，先 `check_index_coverage` 确认。
 
-## 6. 激活时机与边界（决定本 Skill 是否启用）
-> 本 Skill 的激活**全依赖 frontmatter `description` 命中**。激活原则是**按"任务语义"而非"术语关键词"**——用户表述的是研发活动（分析仓库、改代码、定位/修复 BUG、审查/审计、接手项目…），**不会**显式说出"调用链/影响面/死代码"等底层术语；Agent 须由任务语义推断并**默认激活** DeusData 作为认知第一手段，不要等关键词出现。
+## 5. 示例
 
-### 6.1 激活（默认启用 DeusData）—— 用户这类研发活动即激活
-凡用户要做的是下列研发活动、且目标代码位于**本地工作树（已索引目录）**，即应**默认激活**本 Skill，把图工具作为理解/导航/影响评估的第一手段（替代盲目全仓 grep 与逐文件 Read，以缩减 Token 消耗、提高定位精度）：
-- **分析本地代码 / 程序 / 项目**：分析本地的 GitHub 仓库、分析多级目录嵌套的若干代码文件与技术文档、看懂一个程序项目/模块的结构与实现（`get_architecture` + `search_graph`）。
-- **修改代码 / 加功能 / 重构**：动手前先看清"改 X 影响哪些、谁调用/依赖 X"（`trace_path` inbound + `search_graph`），动完再用 `detect_changes` 验证波及（`trace_path`/`detect_changes` 即"评估影响面"的底层能力）。
-- **定位 BUG / 修复 BUG / 查找 BUG**：用 `trace_path`(data_flow) 追踪错误来源定位根因、`search_graph` 理解上下文、`get_code_snippet` 看实现、修复后 `detect_changes` 验证未引入回归（`trace_path`/`detect_changes` 即"追踪调用链/本地改动 impact 自检"的底层能力）。
-- **审计代码 / 审查代码 / 代码评审**：结构概览、定位可疑实现、找无调用者死代码与循环依赖（`get_architecture` cycles/hotspots + `query_graph` `NOT EXISTS { (f)<-[:CALLS]-() }`）。
-- **基于 PR 审查意见核查 / 定位问题**：依审查意见中的符号/文件，用 `search_graph`/`trace_path`/`get_code_snippet` 定位问题代码并评估影响（`search_graph`/`trace_path` 即"理解现有代码/调用链"的底层能力）。
-- **接手代码 / 接手项目（onboarding）**：快速建立本地项目心智模型（`get_architecture` + `search_graph`）。
+### 示例 1：分析本地仓库结构（典型场景）
 
-> 上述活动背后的"理解现有代码、评估影响面、追踪调用链、定位死代码、本地改动 impact 自检"是 DeusData 的**底层能力**，由 Agent 在激活后按需调用，**不是**用户要说的触发词。
+用户输入："帮我分析一下 [本地仓库根目录]/<项目名> 这个仓库的结构"
 
-### 6.2 不激活（例外，仍走对应工具）—— 三类边界
-- **A. 纯新增代码**：从零写新文件、无既有图可查 → 直接 Write/Edit（图无数据可查）。
-- **B. 写入动作本体**：实际 Write/Edit 写文件、git 写动作（add/commit/push/branch/rebase/merge）→ 走文件系统 / git / gh CLI。DeusData **只读**，不写文件、不执行 git。
-- **C. 纯远程 / 运行时**：
-  - 未克隆到本地的**远程 GitHub 仓库浏览**（PR/CI/Issue/fork sync/远端 diff/未克隆仓库内容分析）→ 走 `gh` + `github-personal-manager`（DeusData 纯本地、无"远程"概念、不连网）。**细分**：已克隆到本地的仓库内容分析 → 激活；未克隆的远端仓库内容 → 不激活。
-  - 运行时调试（断点/日志/profiler）→ 实际运行 + 调试器（DeusData 是静态图，不运行代码、看不到动态行为）。
+你的动作：激活本 Skill → `get_architecture(project=<项目名>, aspects=["overview","cycles"])` 看模块边界与循环依赖；`search_graph(project=<项目名>, query="router")` 定位路由实现。输出结构化概览，不逐文件 Read。
 
-### 6.3 协同闭环（三段分工，避免越界误用）
-```
-DeusData（本地图：认知第一手段——理解结构 / 改前看清影响 / 改后验证半径）── 认知
-   ↓ 产出"改什么、影响什么、问题在哪"
-Write/Edit + git（本地写入 + 本地版本动作）── 产生本地改动
-   ↓
-gh + github-personal-manager（远程协作：未克隆仓库浏览 / PR / CI / sync）── 推到远程 / 查远端
-```
-DeusData 负责第一段（认知），命中 §6.1 的活动**默认激活**，命中 §6.2 的例外不激活。
+### 示例 2：改代码前评估影响（边界/正常）
 
-### 6.4 图覆盖不足时的退化
-`check_index_coverage` 报 gap、或文件被标记 `parse_partial`/`skipped` 时，**务必再 grep 该范围 / Read 源文件确认精确实现**——"absence from graph" 不是完整性保证。若目标目录尚未索引，先跑第 3 节对账例程补索引再用图。
+用户输入："我要把 <函数名> 重命名，会不会影响很多地方？"
+
+你的动作：激活本 Skill → `trace_path(function_name="<函数名>", project=<项目名>, direction=inbound)` 评估调用方范围；`search_graph` 找零调用者死代码。输出影响半径清单，再建议改动顺序。
+
+### 示例 3：远程仓库不激活（异常/边界）
+
+用户输入："帮我看看上游 zhu1090093659/deepseek-pp 这个 PR 的 diff"
+
+你的动作：该仓库未克隆到本地 → 不激活本 Skill，改走 `gh` + `github-personal-manager` 拉取并分析远端 diff。输出说明为何转用 gh，而非调用图工具。
+
+## 6. 边界与限制
+
+1. DeusData 纯本地只读：不写文件、不执行 git、不连远程、无 LLM/API key/网络。
+2. 索引受 allowed_root 环境变量限定（部署态为本地文档目录子树），越界 `index_repository` 会被拒。
+3. 信任图前必查覆盖；图覆盖不足必须退化 grep/Read 核实，禁止把图缺失当作"不存在"。
+4. 本 Skill 仅定义激活与调用行为；15 工具详细参数、openCypher、安装部署、排错见同目录 `README.md`。
