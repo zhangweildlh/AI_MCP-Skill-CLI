@@ -567,7 +567,11 @@ function Output-Result {
     $script:Result.total_reg = $script:Result.registered.Count
     $script:Result.total_fail = $script:Result.failed.Count
     $script:Result.total_skip = $script:Result.skipped.Count
-    $script:Result.status = if ($script:Result.total_fail -gt 0) { "partial_success" } else { "success" }
+    # 状态推导：若调用方已显式置为 "error"（前置校验失败分支），必须保留，不得被覆盖为 success；
+    # 否则按失败数推导 partial_success / success。避免前置校验失败被谎报成 success 误导 Agent。
+    if ($script:Result.status -ne "error") {
+        $script:Result.status = if ($script:Result.total_fail -gt 0) { "partial_success" } else { "success" }
+    }
 
     # 将 List 转为数组再序列化
     $output = @{
@@ -587,12 +591,6 @@ function Output-Result {
         end_time     = $script:Result.end_time
         duration_ms  = $script:Result.duration_ms
         status       = $script:Result.status
-    }
-
-    # 保留调用方显式设置的 error 状态（无有效扫描根 / 扫描深度非法等前置校验失败分支），
-    # 否则按失败数推导 success / partial_success。避免前置校验失败被覆盖成 success 而误导 Agent。
-    if ($script:Result.status -ne "error") {
-        $script:Result.status = if ($script:Result.total_fail -gt 0) { "partial_success" } else { "success" }
     }
 
     $json = $output | ConvertTo-Json -Depth 5 -Compress

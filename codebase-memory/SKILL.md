@@ -2,7 +2,7 @@
 name: codebase-memory
 description: 纯本地、离线、只读的代码知识图谱（影响面分析）引擎：将本地已索引工作树构建为调用图/使用图/继承图，提供符号搜索、调用链追踪、影响面评估、死代码定位、本地 git 变动爆炸半径映射等 15 个 MCP 工具。关键词：代码知识图谱、调用链追踪、影响面分析、架构检索、本地索引。当用户要求分析/阅读/修改/重构本地代码、定位/修复 BUG、审计/审查代码、回应 PR 审查意见、接手代码/项目，且目标位于本地已索引工作树时触发；当用户说"理解结构/评估影响面/追踪调用链/定位死代码"时触发。适用于本地研发认知任务（理解结构、改前评估影响、改后验证半径）。不适用于纯新增代码（无既有图可查）、Write/Edit 与 git 写动作本体、未克隆的远程 GitHub 仓库浏览（走 gh + github-personal-manager）、运行时调试；经 dmcp 分组 codebase-memory-mcp 或原生 stdio 直连调用。
 metadata:
-  version: "2.2.0"
+  version: "2.2.1"
 ---
 
 # codebase-memory 调用与激活指南
@@ -25,7 +25,7 @@ metadata:
 
    脚本递归扫描预设根目录（本地文档目录下的 GitHub 仓库根与独立仓库根，深度 3），发现未注册 git 仓库后经 **dmcp HTTP 通道**注册（`call_dynamic_tool(group="codebase-memory-mcp", name="index_repository", …)`）。
 
-   > **通道事实（v0.10.8 实测确立）**：MCP 与 CLI **不是平行双通道**，二者共享同一 OS 准入屏障（同版本 / 同可执行构建 / 同协调 ABI / 同 `CBM_CACHE_DIR`）。CLI 不是 MCP 的兜底通道——脚本不实现"MCP 失败 → 降级 CLI"。任一通道要能用，必须满足全部准入条件；脚本在注册前先经 `Test-DmcpGroupConnected` 探查 dmcp 分组连通性，连不通则跳过 HTTP 注册并明确报错，不静默降级到 CLI。
+   > **通道事实（v0.10.8 实测确立）**：MCP 与 CLI **共享同一 OS 准入屏障**（同版本 / 同可执行构建 / 同协调 ABI / 同 `CBM_CACHE_DIR`），CLI 并非可靠的"兜底"通道——二者任一能用都必须满足全部准入条件。脚本注册前先经 `Test-DmcpGroupConnected` 探查 dmcp 分组连通性：**连不通则跳过 HTTP 注册、直接走本地 exe CLI**；若 dmcp HTTP 业务调用失败，脚本会 best-effort 以本地 exe CLI 作最后一手尝试。因共享屏障，CLI 成功与否不保证；失败时脚本如实回报失败（`status=error` / `partial_success`），**绝不静默成功**。
 
    结果读取：脚本在同目录写出 `.last_result.json`（含 `new_repos` / `registered` / `failed` / `skipped` 清单）与可选 `watch_git_repos.log`；读取该文件即知本次对账结果。
 
@@ -43,6 +43,45 @@ metadata:
 经 dmcp 路由统一走 `call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)`（参数键是 `args`，不是 `arguments`）。若报 `group must be equal to allowed values`，是 dmcp 枚举冻结，重启 dmcp 重连后重试。
 
 **图边类型（节选，v0.10.8）**：`CALLS`（调用）、`IMPORTS`（导入）、`INHERITS`/`IMPLEMENTS`/`OVERRIDES`（继承/实现/重写）、`EMITS`/`LISTENS_ON`（事件/消息发布订阅，如 Socket.IO、EventEmitter、通用消息总线）、`DATA_FLOWS`（跨服务数据流，含 HTTP 路由 ↔ 调用点、gRPC/GraphQL/tRPC 匹配）、`SEMANTICALLY_RELATED`/`SIMILAR_TO`（语义/近克隆边）、`CROSS_*`（跨仓库边）。`trace_path` 的 `direction` 可选 `inbound`/`outbound`/`data_flow`，排查数据血缘/异常来源用 `data_flow`。
+
+### 2.1 调用事实速查（v0.10.8 实测确立，避免踩坑）
+
+以下事实由实时协议探测与引擎 schema 拉取坐实，覆盖"调不通 / 解析失败 / 参数报错"三类高频误用。
+
+**① 两种调用入口（facade-direct vs 封装调用）**：绝大多数后端工具经 dmcp 统一走 `call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)`；但 `list_groups` 与 `get_dynamic_tools` 是 **dmcp 的 facade-direct 工具**——须直接 `tools/call`、并传 `group="codebase-memory-mcp"` 参数（不能包进 `call_dynamic_tool`，否则报 `unknown tool`）。`get_dynamic_tools` 用于实时拉取 15 工具 schema（含参数定义与是否含 `format`），是调用前查证参数名 / 返回格式的权威来源。
+
+**② 响应双层信封（需二次解析）**：经 `call_dynamic_tool` 返回的结果，外层是 facade 信封 `result.content[0].text`，其内还包一层引擎信封 `{"content":[{"text":"<真实 JSON 或文本>"}]}`。需二次解析才得真实数据：先取 `result.content[0].text`，尝试 `ConvertFrom-Json`；若内层 `content[0].text` 仍是 JSON 则再解一层，否则即为人类可读文本协议（compact tree）。
+
+**③ 各工具返回格式**：
+
+| 返回格式 | 工具 |
+|---|---|
+| 人类可读文本协议（compact tree，默认，token 经济） | query_graph / get_architecture / search_code / get_code_snippet / check_index_coverage |
+| JSON-native（始终返回 JSON） | list_projects / index_status |
+| 文本协议，但支持可选 `format:"json"`（enum=tree\|json，默认 tree） | search_graph / trace_path / detect_changes |
+
+> 文本协议可直接消费（为 LLM token 经济性优化）；仅在需程序化抽取 / 再加工某工具结果时，对 search_graph / trace_path / detect_changes 传 `format:"json"`。
+
+**④ 关键参数名速查（避免 "X is required"）**：
+
+| 工具 | 易错点 | 正确参数 |
+|---|---|---|
+| query_graph | 误用 `cypher` | `query`（openCypher 语句） |
+| search_code | 误用 `query` | `pattern`（正则） |
+| check_index_coverage | 缺 `paths`/`scopes` | 传 `paths`（路径数组）或 `scopes`（范围数组） |
+| trace_path | — | `function_name`（非 name） |
+| get_code_snippet | — | `qualified_name`（先用 search_graph 取） |
+| list_projects | — | 完整字段传 `include_details=true` + `offset`/`limit` 分页 |
+
+**⑤ 常见报错与处置**：
+
+| 报错 | 成因 | 处置 |
+|---|---|---|
+| `group must be equal to allowed values` | dmcp 分组枚举冻结 | 重启 dmcp 重连后重试 |
+| `unknown tool` | 把 facade-direct 工具（get_dynamic_tools / list_groups）包进了 call_dynamic_tool | 改为直接 `tools/call` + `group` 参数 |
+| `query is required` / `pattern is required` / `paths or scopes is required` | 参数名错（见④） | 改用正确参数名 |
+| `无效的 JSON 基元` / 解析失败 | 把文本协议当 JSON 解析 | 文本协议非 JSON；按②先取 text，失败则视为文本 |
+| 空结果但应有数据 | 图覆盖不足或项目未索引 | 先 `check_index_coverage` / `index_status` 确认覆盖，必要时退化 grep |
 
 ## 3. 激活时机与边界（唯一事源）
 
