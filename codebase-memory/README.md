@@ -29,7 +29,7 @@
 
 ### 1.1 这是什么
 
-**DeusData / codebase-memory-mcp** 是一个**纯本地、只读**的代码知识图谱（影响面分析）引擎。当前接入版本 **v0.10.2**。
+**DeusData / codebase-memory-mcp** 是一个**纯本地、只读**的代码知识图谱（影响面分析）引擎。当前接入版本 **v0.10.8**。
 
 - 形态：**纯 C 单二进制**（`codebase-memory-mcp.exe`，约 296MB），**零运行时依赖、无 API key、无外网**。
 - 能力：158 种语言解析；构建调用图/使用图/导入图/继承图；影响面分析、调用链追踪、死代码定位、本地 git 变动爆炸半径映射。
@@ -59,8 +59,9 @@
 
 ### 2.1 获取引擎二进制
 
-- 上游：DeusData 官方发布页 / GitHub Releases，下载 **Windows exe**。
-- 本机落点：`D:\codebase-memory-mcp\codebase-memory-mcp.exe`。
+- 上游：DeusData 官方发布页 / GitHub Releases（[v0.10.8](https://github.com/DeusData/codebase-memory-mcp/releases/tag/v0.10.8)），下载 **Windows amd64** 包 `codebase-memory-mcp-windows-amd64.zip`，解压得 `codebase-memory-mcp.exe`。
+- 官方 SHA-256（windows-amd64，v0.10.8）：`b4b403b1d7c4def3785f148b93f345ce8427858f4f5489ce28580c4387a336a6`。下载后务必 `sha256sum` 比对一致再替换。
+- 本机落点：`D:\codebase-memory-mcp\codebase-memory-mcp.exe`（296,140,288 字节，约 296 MB）。
 - **目录放置铁律**：必须放在"仅以卷根为祖先"的路径（如 `D:\codebase-memory-mcp`）。**切勿放 `D:\Tools\*` 或 `D:\Tools\Assembly\*`**——这些中间祖先目录给 Authenticated Users 授予了变更权，会触发引擎的 `cache-private` 拒绝（根因见 `### 2.3 三层私有锁（ACL）`）。
 
 ### 2.2 Defender 误报与区域标记
@@ -122,7 +123,7 @@ Set-Acl -Path $path -AclObject $acl
 
 #### 2.6.1 全局用户配置文件
 
-**Windows 实测落点（本机 v0.10.2，权威）**：
+**Windows 实测落点（本机 v0.10.8，权威）**：
 
 > `%LOCALAPPDATA%\codebase-memory-mcp\config.json`
 > 即本机：`C:\Users\15794\AppData\Local\codebase-memory-mcp\config.json`
@@ -260,7 +261,7 @@ call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)
 
 ### 4.7 一键扫描注册脚本
 
-脚本是 `### 4.3 对账例程` 的自动化封装：递归扫描预设根目录（部署态默认含本地文档目录下的 GitHub 仓库根与独立仓库根，深度 3），发现未注册 git 仓库后自动双通道注册。
+脚本是 `### 4.3 对账例程` 的自动化封装：递归扫描预设根目录（部署态默认含本地文档目录下的 GitHub 仓库根与独立仓库根，深度 3），发现未注册 git 仓库后**经 dmcp HTTP 通道注册**；dmcp 不可用时可改走直连 CLI（同目录 `codebase-memory-mcp.exe`），但两条路径**共享同一 OS 准入屏障**（同版本 / 同构建 / 同 ABI / 同 `CBM_CACHE_DIR`），CLI 仅在缓存根与守护进程一致时才可用，**非无条件兜底通道**。
 
 **脚本位置**：部署态 `D:\codebase-memory-mcp\codebase-memory扫描注册脚本.ps1`。
 
@@ -274,12 +275,12 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 
 **退出码**：`0`=全部成功或无新仓库；`1`=部分成功（有仓库注册失败）；`2`=前置校验失败（无有效扫描根）。
 
-**双通道与实时探查机制**：
+**通道选择与实时探查机制（v0.10.8 校正）**：
 
 1. 批量注册前先做一次分组实时探查（调用 dmcp 的 `list_groups`），确认目标 group 为 `connected`。
-2. 探查通过 → 走**通道 1（dmcp HTTP）**；探查不通过 → 直接走**通道 2（CLI）**，不做无谓重试。
-3. 通道 1 按 MCP Streamable HTTP 协议实现：带 `Accept: application/json, text/event-stream`；先 `initialize` 握手取会话标识；**协议版本从握手响应实时解析**，并用于后续全部请求；上游工具封装为 `call_dynamic_tool(group, name, args)`。
-4. 通道 2 直接调用同目录 `codebase-memory-mcp.exe` 的 CLI 模式，需该 exe 与同目录 `data` 缓存目录可用。
+2. 探查通过（dmcp 在线且 group `connected`）→ 走 **dmcp HTTP 通道**；探查不通过（dmcp 离线）→ 可改走**直连 CLI**（同目录 `codebase-memory-mcp.exe`），但 CLI 同样受准入屏障约束：若 `CBM_CACHE_DIR` 与守护进程缓存根不一致，CLI 会立即失败。此时代理不重试、直接报错，**绝不静默假定"CLI 兜底可用"**——MCP 与 CLI 不是平行双通道。
+3. dmcp HTTP 通道按 MCP Streamable HTTP 协议实现：带 `Accept: application/json, text/event-stream`；先 `initialize` 握手取会话标识；**协议版本从握手响应实时解析**，并用于后续全部请求；上游工具封装为 `call_dynamic_tool(group, name, args)`。
+4. 直连 CLI 调用同目录 `codebase-memory-mcp.exe` 的 CLI 模式，需该 exe 与同目录 `data` 缓存目录可用，且 `CBM_CACHE_DIR` 与守护进程一致。
 
 **可配置参数（禁止硬编码，一律变量化）**：
 
@@ -304,7 +305,7 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 
 ### 5.2 list_projects — 列出已索引项目
 
-- 参数：无。返回每项 `name`/`root_path`/`branch`/`nodes`/`edges`/`size_bytes`。
+- 参数：无（默认精简响应）。可选分页：`offset`(起始偏移)、`limit`(返回数量)、`include_details`(true 时返回完整字段 `name`/`root_path`/`branch`/`nodes`/`edges`/`size_bytes` 等)。v0.10.8 #1181：不传 `include_details` 时仅返回 `name`/`root_path` 等精简字段，脚本或手动对账需完整字段须显式传 `include_details=true`。
 
 ### 5.3 delete_project — 删除项目
 
@@ -377,12 +378,12 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 
 - 子句：`MATCH` `OPTIONAL MATCH` `WHERE` `WITH` `RETURN` `ORDER BY` `SKIP` `LIMIT` `DISTINCT` `UNWIND` `UNION` `CASE`。
 - 节点标签：`Project` `Package` `Folder` `File` `Module` `Class` `Function` `Method` `Interface` `Enum` `Type` `Route` `Resource`。
-- 边类型：`CONTAINS_*` `DEFINES` `IMPORTS` `CALLS` `CALL_REFERENCE` `USAGE` `IMPLEMENTS` `INHERITS` `MEMBER_OF` `TESTS` `USES_TYPE` `HTTP_CALLS` `ASYNC_CALLS` `SIMILAR_TO` `SEMANTICALLY_RELATED` `CROSS_*`。
+- 边类型：`CONTAINS_*` `DEFINES` `IMPORTS` `CALLS` `CALL_REFERENCE` `USAGE` `IMPLEMENTS` `INHERITS` `MEMBER_OF` `TESTS` `USES_TYPE` `HTTP_CALLS` `ASYNC_CALLS` `SIMILAR_TO` `SEMANTICALLY_RELATED` `CROSS_*` `EMITS` `LISTENS_ON` `DATA_FLOWS`（跨服务事件/消息/数据流边，v0.10.8 确认）。
 - 示例：
 
   ```cypher
   MATCH (f:Function)-[:CALLS]->(g) WHERE f.name = 'main' RETURN g.name
-  MATCH (f:Function) WHERE NOT EXISTS { (f)<-[:CALLS]-() } RETURN f.name LIMIT 50
+  MATCH (f:Function) WHERE NOT EXISTS { (f)<-[:CALLS]-() } AND NOT f:EntryPoint AND NOT f.is_exported RETURN f.name LIMIT 50  // 须排除入口点，否则 main/路由处理器/导出 API 被误判为死代码
   MATCH (f:File) WHERE f.kind = 'parse_partial' RETURN f.file_path, f.detail
   ```
 
@@ -398,6 +399,7 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 |---|---|---|---|
 | **开发态** | 本 Skill 的源码与文档真身，所有改动先落在这里 | git 仓库 `D:\Documents\AI_MCP-Skill-CLI` 的 `codebase-memory\` 目录 | 是（须走 worktree 分支） |
 | **部署态** | 引擎实际运行、被 dmcp 拉起、被脚本调用的地方 | `D:\codebase-memory-mcp\` | 否（独立目录，不在仓库内） |
+| **部署态 B** | WorkBuddy 实际加载的技能副本（由开发态 `SKILL.md` 同步生成） | `C:\Users\Administrator\.workbuddy\skills\codebase-memory\` | 否（部署态副本，不参与开发，改完开发态后同步覆盖此处） |
 
 ### 7.2 文件映射表
 
@@ -460,7 +462,9 @@ gh release view --repo DeusData/codebase-memory-mcp
 ```
 
 - 取最新 release 的 tag（即上游版本号）。
-- 本机版本见 `### 1.1 这是什么` 记录的当前接入版本（v0.10.2）。
+- 本机版本见 `### 1.1 这是什么` 记录的当前接入版本（v0.10.8）。
+- **校验官方 SHA-256（升级前必做）**：从 release 说明的 *Security Verification* 表或 `checksums.txt` 取 `windows-amd64` 哈希（v0.10.8 为 `b4b403b1d7c4def3785f148b93f345ce8427858f4f5489ce28580c4387a336a6`），下载后 `sha256sum` 比对一致方可替换；哈希不符一律弃用并报告用户。
+- **落后判定阈值**：本机落后上游 ≥1 个版本即应跟进；release 说明含 `breaking` / `schema` / `migration` 关键字或图谱 schema 变更时，必须重建全部索引（见 `### 10.2 步骤一`）。
 
 ### 9.3 检查上游变更内容
 
@@ -503,11 +507,13 @@ gh api repos/DeusData/codebase-memory-mcp/commits --paginate -X GET -f per_page=
 
 ### 10.2 步骤一：更新引擎二进制（部署态）
 
-1. 从上游 release 下载 Windows exe，落点见 `### 2.1 获取引擎二进制`。
-2. 按 `### 2.2 Defender 误报与区域标记` 解除区域标记。
-3. 替换 `D:\codebase-memory-mcp\codebase-memory-mcp.exe`。
-4. 重新对受影响项目执行 `index_repository`；**图谱 schema 变更时删除旧 `.db` 后重建**（迁移铁律见 `### 2.4 数据库迁移铁律`）。
-5. 若新二进制冷启动更慢，经 dmcp 接入需调大 backend 的 `initialize` 超时（属 dmcp 侧配置，见 `### 3.1 backend 规格`）。
+1. **停守护进程**：替换前先停止 dmcp / 守护进程，避免 exe 文件被进程持有导致替换失败（注：Agent 工具无法启动本地 exe 属独立环境约束，与守护进程是否运行无关；但替换文件前仍须确保无进程持有该文件句柄）。
+2. 从上游 release 下载 Windows exe，落点见 `### 2.1 获取引擎二进制`，并校验 SHA-256（见 `### 9.2`）。
+3. 按 `### 2.2 Defender 误报与区域标记` 解除区域标记。
+4. 替换 `D:\codebase-memory-mcp\codebase-memory-mcp.exe`；新文件 ACL 需重置，重跑 `### 2.3 三层私有锁（ACL）`。
+5. 重新对受影响项目执行 `index_repository`；**图谱 schema 变更时删除旧 `.db` 后重建**（迁移铁律见 `### 2.4 数据库迁移铁律`）。升级后须**重建索引并去重**：消除 MCP 通道（`D-Documents-…-dynamic-mcp`）与 CLI 通道（`dynamic-mcp`）并存导致的重复 project，以及中文路径项目名被十六进制转义（如 `WorkBuddye887aae5…`）的问题，统一命名口径。
+6. 重启 dmcp，确认 `list_groups` 中 `codebase-memory-mcp` = `connected`。
+7. 若新二进制冷启动更慢，经 dmcp 接入需调大 backend 的 `initialize` 超时（属 dmcp 侧配置，见 `### 3.1 backend 规格`）。
 
 ### 10.3 步骤二：更新本手册与激活定义（开发态）
 
@@ -523,7 +529,7 @@ gh api repos/DeusData/codebase-memory-mcp/commits --paginate -X GET -f per_page=
 
 1. 在开发态修改 `<仓库>\codebase-memory\codebase-memory-mcp\codebase-memory扫描注册脚本.ps1`（映射关系见 `### 7.2 文件映射表`）。
 2. 复制到部署态 `D:\codebase-memory-mcp\codebase-memory扫描注册脚本.ps1`（覆盖前先备份为 `.bak`）。
-3. 改动若涉及 dmcp HTTP 通道，须复测双通道与分组探查（判据见 `### 4.7 一键扫描注册脚本`）。
+3. 改动若涉及 dmcp HTTP 通道，须复测分组探查与 HTTP/CLI 两条路径（二者共享准入屏障，非平行兜底，判据见 `### 4.7 一键扫描注册脚本`）。
 
 ### 10.5 步骤四：更新后验证
 
@@ -551,6 +557,7 @@ Stop-Process -Name dmcp -Force   # 终止后由 WorkBuddy 连接器重连重拉�
 | 症状 | 根因 | 修复 |
 |---|---|---|
 | `cache-private` 拒绝 / 守护进程 30s 超时 | 三层 ACL 任一层不满足 / 目录在 `D:\Tools\*` | 见 `### 2.3 三层私有锁（ACL）`；移出 `D:\Tools\*` |
+| CLI 直连报 `cache-private` / `different cache directory` | CLI 与守护进程 `CBM_CACHE_DIR` 不一致，触发**准入屏障**拒绝（MCP 与 CLI 共享同一屏障） | 确认二者用同一 `CBM_CACHE_DIR`（本机 `D:\codebase-memory-mcp\data`）；脚本已固定导出该变量，手动直连 CLI 须自行 `$env:CBM_CACHE_DIR` 导出同值，否则 CLI 启动即失败，并非"换 CLI 就能绕过" |
 | 整树索引崩溃 | AI_Work_Temp 未逐子目录 | 改逐子目录索引（`### 4.2 逐子目录索引铁律`） |
 | `git status` 见 `?? nul` 且索引 Pipeline failed | Windows 保留名文件 | 移出/删除后再索引 |
 | 经 dmcp 接入时 backend 初始化超时 / `group must be equal to allowed values` | 属 **dmcp 聚合器侧**问题 | 参考 dmcp 项目文档（本机 `D:\Documents\AI_Work_Temp\dynamic-mcp`），不在本文件范围 |
@@ -569,7 +576,7 @@ Stop-Process -Name dmcp -Force   # 终止后由 WorkBuddy 连接器重连重拉�
 
 **旧结论为何不成立**：曾归因于"缺 `group` 导致 406"——façade 的 `call_dynamic_tool` 在 `group` 缺失时返回的是 `CallToolResult{is_error:true}` 信封，HTTP 状态是 **200**，不是 406。406 只能来自 rmcp 的内容协商，与 `group` 字段无关。
 
-**当前实现**：见 `### 4.7 一键扫描注册脚本` 的双通道与实时探查机制，以及可配置参数表。
+**当前实现**：见 `### 4.7 一键扫描注册脚本` 的通道选择与实时探查机制，以及可配置参数表。
 
 ### 11.5 路径速查与常用调用
 
