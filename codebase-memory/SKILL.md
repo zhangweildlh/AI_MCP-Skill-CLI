@@ -2,7 +2,7 @@
 name: codebase-memory
 description: 纯本地、离线、只读的代码知识图谱（影响面分析）引擎：将本地已索引工作树构建为调用图/使用图/继承图，提供符号搜索、调用链追踪、影响面评估、死代码定位、本地 git 变动爆炸半径映射等 15 个 MCP 工具。关键词：代码知识图谱、调用链追踪、影响面分析、架构检索、本地索引。当用户要求分析/阅读/修改/重构本地代码、定位/修复 BUG、审计/审查代码、回应 PR 审查意见、接手代码/项目，且目标位于本地已索引工作树时触发；当用户说"理解结构/评估影响面/追踪调用链/定位死代码"时触发。适用于本地研发认知任务（理解结构、改前评估影响、改后验证半径）。不适用于纯新增代码（无既有图可查）、Write/Edit 与 git 写动作本体、未克隆的远程 GitHub 仓库浏览（走 gh + github-personal-manager）、运行时调试；经 dmcp 分组 codebase-memory-mcp 或原生 stdio 直连调用。
 metadata:
-  version: "2.2.1"
+  version: "2.2.2"
 ---
 
 # codebase-memory 调用与激活指南
@@ -23,7 +23,7 @@ metadata:
    PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory扫描注册脚本.ps1" -Log
    ```
 
-   脚本递归扫描预设根目录（本地文档目录下的 GitHub 仓库根与独立仓库根，深度 3），发现未注册 git 仓库后经 **dmcp HTTP 通道**注册（`call_dynamic_tool(group="codebase-memory-mcp", name="index_repository", …)`）。
+   > 路径为**部署态**事实常量（脚本确实位于此路径，见同目录 README §7 开发态/部署态映射）。脚本递归扫描预设根目录（本地文档目录下的 GitHub 仓库根与独立仓库根，深度 3），发现未注册 git 仓库后经 **dmcp HTTP 通道**注册（`call_dynamic_tool(group="codebase-memory-mcp", name="index_repository", …)`）。
 
    > **通道事实（v0.10.8 实测确立）**：MCP 与 CLI **共享同一 OS 准入屏障**（同版本 / 同可执行构建 / 同协调 ABI / 同 `CBM_CACHE_DIR`），CLI 并非可靠的"兜底"通道——二者任一能用都必须满足全部准入条件。脚本注册前先经 `Test-DmcpGroupConnected` 探查 dmcp 分组连通性：**连不通则跳过 HTTP 注册、直接走本地 exe CLI**；若 dmcp HTTP 业务调用失败，脚本会 best-effort 以本地 exe CLI 作最后一手尝试。因共享屏障，CLI 成功与否不保证；失败时脚本如实回报失败（`status=error` / `partial_success`），**绝不静默成功**。
 
@@ -46,13 +46,23 @@ metadata:
 
 ### 2.1 调用事实速查（v0.10.8 实测确立，避免踩坑）
 
-以下事实由实时协议探测与引擎 schema 拉取坐实，覆盖"调不通 / 解析失败 / 参数报错"三类高频误用。
+> 本节是**调用事实速查表**，不重复 §2 的流程编排。以下事实由实时协议探测与引擎 schema 拉取坐实，覆盖"调不通 / 解析失败 / 参数报错"三类高频误用。
 
 **① 两种调用入口（facade-direct vs 封装调用）**：绝大多数后端工具经 dmcp 统一走 `call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)`；但 `list_groups` 与 `get_dynamic_tools` 是 **dmcp 的 facade-direct 工具**——须直接 `tools/call`、并传 `group="codebase-memory-mcp"` 参数（不能包进 `call_dynamic_tool`，否则报 `unknown tool`）。`get_dynamic_tools` 用于实时拉取 15 工具 schema（含参数定义与是否含 `format`），是调用前查证参数名 / 返回格式的权威来源。
 
-**② 响应双层信封（需二次解析）**：经 `call_dynamic_tool` 返回的结果，外层是 facade 信封 `result.content[0].text`，其内还包一层引擎信封 `{"content":[{"text":"<真实 JSON 或文本>"}]}`。需二次解析才得真实数据：先取 `result.content[0].text`，尝试 `ConvertFrom-Json`；若内层 `content[0].text` 仍是 JSON 则再解一层，否则即为人类可读文本协议（compact tree）。
+**② MCP Streamable HTTP 握手事实（v2.2.1 实测确立）**：经 dmcp HTTP 通道（渠道 2）调用时，握手顺序与字段有硬性要求，错一步即连锁失败：
 
-**③ 各工具返回格式**：
+1. **`initialize` 请求**：`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{...}}}`。响应 200，返回 `Mcp-Session-Id` 响应头（UUID）——**后续所有请求必须带该头**，否则 401 `Session not found`。
+2. **`initialized` 通知**：`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`，**method 必须带斜杠**（`notifications/initialized`，MCP 规范全称）。写成 `"method":"initialized"`（无斜杠）会被 rmcp 状态机判为 `422 Unexpected message, expect initialize request`，当前 session 立即作废，后续所有调用连锁 401。通知本身也要带 `Mcp-Session-Id` 头。
+3. **每个 POST 必须带 `Content-Length: <body字节数>` 头**，否则 dmcp 返回 `415 Unsupported Media Type` / `fail to deserialize request body EOF`。
+4. **`Accept` 头须同时含 `application/json` 与 `text/event-stream`**，否则 SSE 流可能不返回 `data:` 行。
+5. 握手完成后即可正常调用 `tools/list`、`list_groups`、`get_dynamic_tools`、`call_dynamic_tool`。
+
+> 以上同样适用于直连 stdio 渠道（渠道 1）：`initialize` → `initialized`（method 同样须为 `notifications/initialized`）→ `tools/list` → `tools/call`，仅传输层从 HTTP 换成 stdin/stdout pipe。
+
+**③ 响应双层信封（需二次解析）**：经 `call_dynamic_tool` 返回的结果，外层是 facade 信封 `result.content[0].text`，其内还包一层引擎信封 `{"content":[{"text":"<真实 JSON 或文本>"}]}`。需二次解析才得真实数据：先取 `result.content[0].text`，尝试 `ConvertFrom-Json`；若内层 `content[0].text` 仍是 JSON 则再解一层，否则即为人类可读文本协议（compact tree）。
+
+**④ 各工具返回格式**：
 
 | 返回格式 | 工具 |
 |---|---|
@@ -62,18 +72,20 @@ metadata:
 
 > 文本协议可直接消费（为 LLM token 经济性优化）；仅在需程序化抽取 / 再加工某工具结果时，对 search_graph / trace_path / detect_changes 传 `format:"json"`。
 
-**④ 关键参数名速查（避免 "X is required"）**：
+**⑤ 关键参数名速查（避免 "X is required"）**：
 
-| 工具 | 易错点 | 正确参数 |
-|---|---|---|
-| query_graph | 误用 `cypher` | `query`（openCypher 语句） |
-| search_code | 误用 `query` | `pattern`（正则） |
-| check_index_coverage | 缺 `paths`/`scopes` | 传 `paths`（路径数组）或 `scopes`（范围数组） |
-| trace_path | — | `function_name`（非 name） |
-| get_code_snippet | — | `qualified_name`（先用 search_graph 取） |
-| list_projects | — | 完整字段传 `include_details=true` + `offset`/`limit` 分页 |
+| 工具 | 易错点 | 正确参数 | 类型 | 必填 |
+|---|---|---|---|---|
+| query_graph | 误用 `cypher` | `query`（openCypher 语句） | 字符串 | 是 |
+| search_code | 误用 `query` | `pattern`（正则） | 字符串 | 是 |
+| check_index_coverage | 缺 `paths`/`scopes` | 传 `paths`（字符串数组，≤128）或 `scopes`（字符串数组，≤32） | 字符串数组 | 二选一 |
+| trace_path | — | `function_name`（非 name） | 字符串 | 是 |
+| get_code_snippet | — | `qualified_name`（先用 search_graph 取） | 字符串 | 是 |
+| list_projects | — | 完整字段传 `include_details=true`（布尔）+ `offset`（整数）/`limit`（整数）分页 | 布尔/整数 | 否 |
 
-**⑤ 常见报错与处置**：
+> 其余工具的完整参数定义（含默认值、取值范围、可选字段）以实时 `get_dynamic_tools` 拉取结果为准——上游演进后按实时结果调用即可，不依赖任何静态文档（与 §6 边界第 4 条一致）。
+
+**⑥ 常见报错与处置**：
 
 | 报错 | 成因 | 处置 |
 |---|---|---|
@@ -81,7 +93,17 @@ metadata:
 | `unknown tool` | 把 facade-direct 工具（get_dynamic_tools / list_groups）包进了 call_dynamic_tool | 改为直接 `tools/call` + `group` 参数 |
 | `query is required` / `pattern is required` / `paths or scopes is required` | 参数名错（见④） | 改用正确参数名 |
 | `无效的 JSON 基元` / 解析失败 | 把文本协议当 JSON 解析 | 文本协议非 JSON；按②先取 text，失败则视为文本 |
-| 空结果但应有数据 | 图覆盖不足或项目未索引 | 先 `check_index_coverage` / `index_status` 确认覆盖，必要时退化 grep |
+| 空结果但应有数据 | 图覆盖不足或项目未索引 | 先 `check_index_coverage` / `index_status` 确认覆盖：若返回覆盖缺口（`parse_partial`/`skipped`/`not_indexed`），退化 grep 该范围；若覆盖正常但仍无结果，视为图中确实不存在 |
+| `422 Unexpected message, expect initialize request` | **initialized 通知的 method 写错**：写成 `"method":"initialized"`（无斜杠）会被 rmcp 状态机拒收，后续所有调用连锁 401 `Session not found` | **必须用 `"method":"notifications/initialized"`**（MCP 规范全称，带斜杠）；通知也要带 `Mcp-Session-Id` 头。收到 422 后当前 session 已废，须重新 `initialize` 取新 session 再走完整握手 |
+| `401 Unauthorized: Session not found` | 上游 422 的连锁反应，或 `initialize` 后未发 `notifications/initialized` 就直接调工具 | 按上一行修好 method 即可；若仍 401，检查是否漏发 initialized 通知、或是否漏带 `Mcp-Session-Id` 头 |
+| `415 Unsupported Media Type` / `fail to deserialize request body EOF` | 请求缺 `Content-Length` 头，dmcp 无法解析 body | 每个 POST 都必须带 `Content-Length: <body字节数>` |
+
+**⑦ 双渠道实测结论（v2.2.1，2026-09-06）**：两个调用渠道均已端到端实测通过，且共享同一套握手规则：
+
+- **渠道 1（直连 stdio）**：`Popen([EXE], stdin/stdout PIPE)` → `initialize` → `notifications/initialized` → `tools/list` → `tools/call`。实测通过：`list_projects`（8 项目）、`index_status`（8/8 全部 `status=ready`）、`get_graph_schema`。Windows pipe 不支持 `select.select`，须用 `threading.Thread` + `queue.Queue` 异步读 `proc.stdout.readline()`。
+- **渠道 2（dmcp HTTP 中转）**：`http.client` 持久连接 → `initialize`（取 `Mcp-Session-Id`）→ `notifications/initialized`（带 session 头）→ `list_groups`（facade-direct）→ `get_dynamic_tools`（facade-direct）→ `call_dynamic_tool(index_status / list_projects / search_graph / trace_path / get_architecture / check_index_coverage)`。实测通过：8 项目全部 `status=ready`，节点 4,908–23,475 / 边 4,339–124,995；`search_graph` 返回 15 条命中；`get_architecture` 返回 14 类节点标签 / 20 类边类型。
+- **双层信封解包**：渠道 2 的 `call_dynamic_tool` 返回 `result.content[0].text`，其内可能再包一层 `{"content":[{"text":...}]}`。解包时先整块 `json.loads`，失败再逐行回退（SSE `data:` 行 / 逐行 `{` 起始）。`initialize` 响应无 `content` 字段，直接取 `result`。
+- **`index_status` / `check_index_coverage` / `search_graph` / `trace_path` 均需 `project` 参数**（从 `list_projects` 取到的项目名，如 `D-Documents-AI_MCP-Skill-CLI`），漏传报 `missing required argument: project`。
 
 ## 3. 激活时机与边界（唯一事源）
 
