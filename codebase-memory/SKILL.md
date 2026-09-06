@@ -2,7 +2,7 @@
 name: codebase-memory
 description: 纯本地、离线、只读的代码知识图谱（影响面分析）引擎：将本地已索引工作树构建为调用图/使用图/继承图，提供符号搜索、调用链追踪、影响面评估、死代码定位、本地 git 变动爆炸半径映射等 15 个 MCP 工具。关键词：代码知识图谱、调用链追踪、影响面分析、架构检索、本地索引。当用户要求分析/阅读/修改/重构本地代码、定位/修复 BUG、审计/审查代码、回应 PR 审查意见、接手代码/项目，且目标位于本地已索引工作树时触发；当用户说"理解结构/评估影响面/追踪调用链/定位死代码"时触发。适用于本地研发认知任务（理解结构、改前评估影响、改后验证半径）。不适用于纯新增代码（无既有图可查）、Write/Edit 与 git 写动作本体、未克隆的远程 GitHub 仓库浏览（走 gh + github-personal-manager）、运行时调试；经 dmcp 分组 codebase-memory-mcp 或原生 stdio 直连调用。
 metadata:
-  version: "2.2.3"
+  version: "2.2.4"
 ---
 
 # codebase-memory 调用与激活指南
@@ -41,6 +41,13 @@ metadata:
 7. 信任图前必查覆盖：`index_status` / `check_index_coverage`；被标记 `parse_partial`/`skipped` 的文件，务必再 grep 该范围。
 
 调用后端工具时，**直连可用则优先直连** codebase-memory-mcp（原生 stdio MCP：直接 `tools/call` + `name=<后端工具>` + `arguments=<…>`，参数键是 `arguments`）；**直连不可用时降级走 dmcp 中转**——`call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)`（注意中转层参数键是 `args`，与直连层的 `arguments` 不同）。若报 `group must be equal to allowed values`，是 dmcp 枚举冻结，重启 dmcp 重连后重试。
+
+**「直连可用」的判定（唯一判据，勿凭猜测）**：直连是否可用，**只能通过实测握手判定，没有静态判据**——引擎二进制 `codebase-memory-mcp.exe` 是否存在、`CBM_CACHE_DIR` 环境变量是否设置、甚至 dmcp 分组是否连通，**都不构成直连可用的证据**（v2.2.4 实测：二进制在、环境变量设了、dmcp 也连得上，直连 stdio 仍可能因 DACL 等 OS 准入屏障不可用）。标准探测流程（**每次会话首次调用前执行一次，结论后续复用，勿每次调用都探测**）：
+
+1. 用原生 stdio 发起 `initialize` 请求：`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codebase-memory-probe","version":"2.2.4"}}}`，读取响应；
+2. 紧接着发 `notifications/initialized` 通知（`method` 必须带斜杠，写成 `"initialized"` 无斜杠会被状态机判为 422、当前 session 作废）；
+3. 再发 `tools/list`：**若能取到 15 个后端工具的清单 → 直连可用**，后续一律走直连 `tools/call`；
+4. 若以上任一步超时、报错、或返回的工具清单为空 / 不含后端工具（含 `get_graph_schema` 等）→ **直连不可用，立即降级走 dmcp 中转**，且**不要反复重试直连**——MCP 与 CLI 共享同一 OS 准入屏障，重试不会变通，只会白白增加延迟与失败面。
 
 **图边类型（节选，v0.10.8）**：`CALLS`（调用）、`IMPORTS`（导入）、`INHERITS`/`IMPLEMENTS`/`OVERRIDES`（继承/实现/重写）、`EMITS`/`LISTENS_ON`（事件/消息发布订阅，如 Socket.IO、EventEmitter、通用消息总线）、`DATA_FLOWS`（跨服务数据流，含 HTTP 路由 ↔ 调用点、gRPC/GraphQL/tRPC 匹配）、`SEMANTICALLY_RELATED`/`SIMILAR_TO`（语义/近克隆边）、`CROSS_*`（跨仓库边）。`trace_path` 的 `direction` 可选 `inbound`/`outbound`/`data_flow`，排查数据血缘/异常来源用 `data_flow`。
 

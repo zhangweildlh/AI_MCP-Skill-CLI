@@ -378,7 +378,7 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 
 ### 5.15 ingest_traces — 摄取运行时追踪
 
-- 必需：`project`、`traces`(数组：caller/callee/count)。验证 HTTP_CALLS/ASYNC_CALLS 边。
+- 必需：`project`、`traces`(数组：caller/callee/count)。**接受 traces 输入，当前不产出任何图边**（v0.10.8 实测：返回 `status:"accepted"`，但 `note:"Runtime edge creation from traces not yet implemented"`）。若调用方期望"提交 traces 后图中出现新边"，当前会落空；**不得把 `status=accepted` 误读为"边已建好"**，也不得据此"验证 HTTP_CALLS/ASYNC_CALLS 边"。
 
 ---
 
@@ -451,13 +451,13 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 - [ ] `detect_changes`（`project`）：git 变动 impact 正常返回。
 - [ ] 扫描脚本：运行后 `.last_result.json` 的 `total_fail` 为 0，且 `watch_git_repos.log` 出现分组探查行与 `注册成功 [dmcp_http]`（通道判据见 `### 4.7 一键扫描注册脚本`）。
 
-### 8.1 双渠道端到端实测（v2.2.2，2026-09-06）
+### 8.1 双渠道端到端实测（v2.2.3，2026-09-06）
 
 两个调用渠道均已端到端实测通过，共享同一套握手规则：
 
 - **渠道 1（直连 stdio）**：`Popen([EXE], stdin/stdout PIPE)` → `initialize` → `notifications/initialized` → `tools/list` → `tools/call`。实测通过：`list_projects`（8 项目）、`index_status`（8/8 全部 `status=ready`）、`get_graph_schema`。Windows pipe 不支持 `select.select`，须用 `threading.Thread` + `queue.Queue` 异步读 `proc.stdout.readline()`。
 - **渠道 2（dmcp HTTP 中转）**：`http.client` 持久连接 → `initialize`（取 `Mcp-Session-Id`）→ `notifications/initialized`（带 session 头）→ `list_groups`（facade-direct）→ `get_dynamic_tools`（facade-direct）→ `call_dynamic_tool(index_status / list_projects / search_graph / trace_path / get_architecture / check_index_coverage)`。实测通过：8 项目全部 `status=ready`，节点 4,908–23,475 / 边 4,339–124,995；`search_graph` 返回 15 条命中；`get_architecture` 返回 14 类节点标签 / 20 类边类型。
-- **双层信封解包**：渠道 2 的 `call_dynamic_tool` 返回 `result.content[0].text`，其内可能再包一层 `{"content":[{"text":...}]}`。解包时先整块 `json.loads`，失败再逐行回退（SSE `data:` 行 / 逐行 `{` 起始）。`initialize` 响应无 `content` 字段，直接取 `result`。
+- **信封解包（按渠道区分）**：渠道 2（dmcp 中转）的 `call_dynamic_tool` 返回 `result.content[0].text`，其内可能再包一层 `{"content":[{"text":...}]}`，需二次解析——先整块 `json.loads`，失败再逐行回退（SSE `data:` 行 / 逐行 `{` 起始）；渠道 1（直连 stdio）的 `result.content[0].text` **就是**引擎真实数据，直接消费即可，**不要套用中转层的解包逻辑**（否则会把真实 JSON 当成字符串再包一层，导致解析失败）。`initialize` 响应无 `content` 字段，直接取 `result`。
 - **`index_status` / `check_index_coverage` / `search_graph` / `trace_path` 均需 `project` 参数**（从 `list_projects` 取到的项目名，如 `D-Documents-AI_MCP-Skill-CLI`），漏传报 `missing required argument: project`。
 
 ---
