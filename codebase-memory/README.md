@@ -275,11 +275,19 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 
 **退出码**：`0`=全部成功或无新仓库；`1`=部分成功（有仓库注册失败）；`2`=前置校验失败（无有效扫描根）。
 
+**脚本自身合规性（v2.2.2 实测确认）**：脚本的 `initialized` 通知已正确使用 `"method":"notifications/initialized"`（带斜杠），与 `### 11.3 常见问题对照表` 的 422 处置一致；`initialize` 握手从响应实时解析协议版本，`Post-McpJson` 正确设置 `ContentLength` / `Accept` / `Mcp-Session-Id`。按上述调用方式真实运行一次（`PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory扫描注册脚本.ps1" -Log`），287ms 返回 `status=success`、`total_found=8`、`new_repos=[]`、`total_fail=0`，`watch_git_repos.log` 与 `.last_result.json` 正常写出——**脚本调用说明合格、充分、全面**。
+
 **通道选择与实时探查机制（v0.10.8 校正）**：
 
 1. 批量注册前先做一次分组实时探查（调用 dmcp 的 `list_groups`），确认目标 group 为 `connected`。
 2. 探查通过（dmcp 在线且 group `connected`）→ 走 **dmcp HTTP 通道**；探查不通过（dmcp 离线）→ 可改走**直连 CLI**（同目录 `codebase-memory-mcp.exe`），但 CLI 同样受准入屏障约束：若 `CBM_CACHE_DIR` 与守护进程缓存根不一致，CLI 会立即失败。此时代理不重试、直接报错，**绝不静默假定"CLI 兜底可用"**——MCP 与 CLI 不是平行双通道。
-3. dmcp HTTP 通道按 MCP Streamable HTTP 协议实现：带 `Accept: application/json, text/event-stream`；先 `initialize` 握手取会话标识；**协议版本从握手响应实时解析**，并用于后续全部请求；上游工具封装为 `call_dynamic_tool(group, name, args)`。
+3. dmcp HTTP 通道按 MCP Streamable HTTP 协议实现，握手有 5 条硬性要求（缺一即连锁失败）：
+   - 带 `Accept: application/json, text/event-stream`；
+   - 先 `initialize` 握手取 `Mcp-Session-Id` 响应头，**后续全部请求必须带该头**（漏带 → 401 `Session not found`）；
+   - **`initialized` 通知的 method 必须是 `notifications/initialized`（带斜杠）**——写成 `"method":"initialized"`（无斜杠）会被 rmcp 状态机判为 `422 Unexpected message, expect initialize request`，当前 session 立即作废，后续所有调用连锁 401；
+   - **每个 POST 必须带 `Content-Length: <body字节数>` 头**，否则 dmcp 返回 `415 Unsupported Media Type` / `fail to deserialize request body EOF`；
+   - **协议版本从握手响应实时解析**，并用于后续全部请求。
+   上游工具封装为 `call_dynamic_tool(group, name, args)`。完整握手规则与排错处置见 `### 11.3 常见问题对照表` 的 422/401/415 行。
 4. 直连 CLI 调用同目录 `codebase-memory-mcp.exe` 的 CLI 模式，需该 exe 与同目录 `data` 缓存目录可用，且 `CBM_CACHE_DIR` 与守护进程一致。
 
 **可配置参数（禁止硬编码，一律变量化）**：
@@ -443,6 +451,15 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 - [ ] `detect_changes`（`project`）：git 变动 impact 正常返回。
 - [ ] 扫描脚本：运行后 `.last_result.json` 的 `total_fail` 为 0，且 `watch_git_repos.log` 出现分组探查行与 `注册成功 [dmcp_http]`（通道判据见 `### 4.7 一键扫描注册脚本`）。
 
+### 8.1 双渠道端到端实测（v2.2.2，2026-09-06）
+
+两个调用渠道均已端到端实测通过，共享同一套握手规则：
+
+- **渠道 1（直连 stdio）**：`Popen([EXE], stdin/stdout PIPE)` → `initialize` → `notifications/initialized` → `tools/list` → `tools/call`。实测通过：`list_projects`（8 项目）、`index_status`（8/8 全部 `status=ready`）、`get_graph_schema`。Windows pipe 不支持 `select.select`，须用 `threading.Thread` + `queue.Queue` 异步读 `proc.stdout.readline()`。
+- **渠道 2（dmcp HTTP 中转）**：`http.client` 持久连接 → `initialize`（取 `Mcp-Session-Id`）→ `notifications/initialized`（带 session 头）→ `list_groups`（facade-direct）→ `get_dynamic_tools`（facade-direct）→ `call_dynamic_tool(index_status / list_projects / search_graph / trace_path / get_architecture / check_index_coverage)`。实测通过：8 项目全部 `status=ready`，节点 4,908–23,475 / 边 4,339–124,995；`search_graph` 返回 15 条命中；`get_architecture` 返回 14 类节点标签 / 20 类边类型。
+- **双层信封解包**：渠道 2 的 `call_dynamic_tool` 返回 `result.content[0].text`，其内可能再包一层 `{"content":[{"text":...}]}`。解包时先整块 `json.loads`，失败再逐行回退（SSE `data:` 行 / 逐行 `{` 起始）。`initialize` 响应无 `content` 字段，直接取 `result`。
+- **`index_status` / `check_index_coverage` / `search_graph` / `trace_path` 均需 `project` 参数**（从 `list_projects` 取到的项目名，如 `D-Documents-AI_MCP-Skill-CLI`），漏传报 `missing required argument: project`。
+
 ---
 
 ## 9. 上游状态检查 SOP（Agent 定期执行）
@@ -562,6 +579,9 @@ Stop-Process -Name dmcp -Force   # 终止后由 WorkBuddy 连接器重连重拉�
 | `git status` 见 `?? nul` 且索引 Pipeline failed | Windows 保留名文件 | 移出/删除后再索引 |
 | 经 dmcp 接入时 backend 初始化超时 / `group must be equal to allowed values` | 属 **dmcp 聚合器侧**问题 | 参考 dmcp 项目文档（本机 `D:\Documents\AI_Work_Temp\dynamic-mcp`），不在本文件范围 |
 | 扫描脚本全部仓库走 CLI 通道 | dmcp 分组探查未通过 | 看 `watch_git_repos.log` 的探查行；确认 dmcp 在运行且 group 为 `connected`，否则执行 `### 11.2 重启 dmcp` |
+| `422 Unexpected message, expect initialize request` | **`initialized` 通知的 method 写错**：写成 `"method":"initialized"`（无斜杠）会被 rmcp 状态机拒收 | **必须用 `"method":"notifications/initialized"`**（MCP 规范全称，带斜杠）；通知本身也要带 `Mcp-Session-Id` 头。收到 422 后当前 session 已废，须重新 `initialize` 取新 session 再走完整握手 |
+| `401 Unauthorized: Session not found` | 上游 422 的连锁反应，或 `initialize` 后未发 `notifications/initialized` 就直接调工具，或漏带 `Mcp-Session-Id` 头 | 按上一行修好 method 即可；若仍 401，检查是否漏发 initialized 通知、或是否漏带 `Mcp-Session-Id` 头 |
+| `415 Unsupported Media Type` / `fail to deserialize request body EOF` | 请求缺 `Content-Length` 头，dmcp 无法解析 body | 每个 POST 都必须带 `Content-Length: <body字节数>` |
 
 ### 11.4 历史问题：dmcp HTTP 通道 406（已修复，留档备查）
 
