@@ -2,7 +2,7 @@
 name: codebase-memory
 description: 纯本地、离线、只读的代码知识图谱（影响面分析）引擎：将本地已索引工作树构建为调用图/使用图/继承图，提供符号搜索、调用链追踪、影响面评估、死代码定位、本地 git 变动爆炸半径映射等 15 个 MCP 工具。关键词：代码知识图谱、调用链追踪、影响面分析、架构检索、本地索引。当用户要求分析/阅读/修改/重构本地代码、定位/修复 BUG、审计/审查代码、回应 PR 审查意见、接手代码/项目，且目标位于本地已索引工作树时触发；当用户说"理解结构/评估影响面/追踪调用链/定位死代码"时触发。适用于本地研发认知任务（理解结构、改前评估影响、改后验证半径）。不适用于纯新增代码（无既有图可查）、Write/Edit 与 git 写动作本体、未克隆的远程 GitHub 仓库浏览（走 gh + github-personal-manager）、运行时调试；经 dmcp 分组 codebase-memory-mcp 或原生 stdio 直连调用。
 metadata:
-  version: "2.2.2"
+  version: "2.2.3"
 ---
 
 # codebase-memory 调用与激活指南
@@ -40,7 +40,7 @@ metadata:
 6. 图覆盖不足或需字面文本 → 退化 `search_code`（图增强 grep）或文件系统 grep。
 7. 信任图前必查覆盖：`index_status` / `check_index_coverage`；被标记 `parse_partial`/`skipped` 的文件，务必再 grep 该范围。
 
-经 dmcp 路由统一走 `call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)`（参数键是 `args`，不是 `arguments`）。若报 `group must be equal to allowed values`，是 dmcp 枚举冻结，重启 dmcp 重连后重试。
+调用后端工具时，**直连可用则优先直连** codebase-memory-mcp（原生 stdio MCP：直接 `tools/call` + `name=<后端工具>` + `arguments=<…>`，参数键是 `arguments`）；**直连不可用时降级走 dmcp 中转**——`call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)`（注意中转层参数键是 `args`，与直连层的 `arguments` 不同）。若报 `group must be equal to allowed values`，是 dmcp 枚举冻结，重启 dmcp 重连后重试。
 
 **图边类型（节选，v0.10.8）**：`CALLS`（调用）、`IMPORTS`（导入）、`INHERITS`/`IMPLEMENTS`/`OVERRIDES`（继承/实现/重写）、`EMITS`/`LISTENS_ON`（事件/消息发布订阅，如 Socket.IO、EventEmitter、通用消息总线）、`DATA_FLOWS`（跨服务数据流，含 HTTP 路由 ↔ 调用点、gRPC/GraphQL/tRPC 匹配）、`SEMANTICALLY_RELATED`/`SIMILAR_TO`（语义/近克隆边）、`CROSS_*`（跨仓库边）。`trace_path` 的 `direction` 可选 `inbound`/`outbound`/`data_flow`，排查数据血缘/异常来源用 `data_flow`。
 
@@ -48,7 +48,10 @@ metadata:
 
 > 本节是**调用事实速查表**，不重复 §2 的流程编排。以下事实由实时协议探测与引擎 schema 拉取坐实，覆盖"调不通 / 解析失败 / 参数报错"三类高频误用。
 
-**① 两种调用入口（facade-direct vs 封装调用）**：绝大多数后端工具经 dmcp 统一走 `call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)`；但 `list_groups` 与 `get_dynamic_tools` 是 **dmcp 的 facade-direct 工具**——须直接 `tools/call`、并传 `group="codebase-memory-mcp"` 参数（不能包进 `call_dynamic_tool`，否则报 `unknown tool`）。`get_dynamic_tools` 用于实时拉取 15 工具 schema（含参数定义与是否含 `format`），是调用前查证参数名 / 返回格式的权威来源。
+**① 调用入口与渠道相关**：
+
+- **dmcp 中转层**：绝大多数后端工具经 dmcp 统一走 `call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)`；但 `list_groups` 与 `get_dynamic_tools` 是 **dmcp 的 facade-direct 工具**——须直接 `tools/call`、并传 `group="codebase-memory-mcp"` 参数（不能包进 `call_dynamic_tool`，否则报 `unknown tool`）。`get_dynamic_tools` 用于实时拉取 15 工具 schema（含参数定义与是否含 `format`），是调用前查证参数名 / 返回格式的权威来源。
+- **原生 stdio 直连**：不经过 dmcp，**直接对 15 个后端工具做 `tools/call`**（`name=<后端工具>` + `arguments=<…>`），**没有** `list_groups` / `get_dynamic_tools` 这两个 facade 工具。需查 schema 时改用引擎自带的 `get_graph_schema` 工具（直连同样直接调用，参数键 `arguments`）。
 
 **② MCP Streamable HTTP 握手事实（v2.2.1 实测确立）**：经 dmcp HTTP 通道（渠道 2）调用时，握手顺序与字段有硬性要求，错一步即连锁失败：
 
@@ -60,7 +63,10 @@ metadata:
 
 > 以上同样适用于直连 stdio 渠道（渠道 1）：`initialize` → `initialized`（method 同样须为 `notifications/initialized`）→ `tools/list` → `tools/call`，仅传输层从 HTTP 换成 stdin/stdout pipe。
 
-**③ 响应双层信封（需二次解析）**：经 `call_dynamic_tool` 返回的结果，外层是 facade 信封 `result.content[0].text`，其内还包一层引擎信封 `{"content":[{"text":"<真实 JSON 或文本>"}]}`。需二次解析才得真实数据：先取 `result.content[0].text`，尝试 `ConvertFrom-Json`；若内层 `content[0].text` 仍是 JSON 则再解一层，否则即为人类可读文本协议（compact tree）。
+**③ 响应信封层数因渠道而异**：
+
+- **dmcp 中转（`call_dynamic_tool`）= 双层信封**：外层是 facade 信封 `result.content[0].text`，其内还包一层引擎信封 `{"content":[{"text":"<真实 JSON 或文本>"}]}`。需二次解析才得真实数据：先取 `result.content[0].text`，尝试 `ConvertFrom-Json`；若内层 `content[0].text` 仍是 JSON 则再解一层，否则即为人类可读文本协议（compact tree）。
+- **原生 stdio 直连 = 单层信封**：直接 `tools/call` 返回的 `result.content[0].text` **就是**引擎产出的真实数据（JSON 或文本协议），**无需二次解析**，不要套用中转层的解包逻辑（否则会把真实 JSON 当成字符串再包一层，导致解析失败）。
 
 **④ 各工具返回格式**：
 
@@ -69,6 +75,7 @@ metadata:
 | 人类可读文本协议（compact tree，默认，token 经济） | query_graph / get_architecture / search_code / get_code_snippet / check_index_coverage |
 | JSON-native（始终返回 JSON） | list_projects / index_status |
 | 文本协议，但支持可选 `format:"json"`（enum=tree\|json，默认 tree） | search_graph / trace_path / detect_changes |
+| **接受但不建边**（v0.10.8 实测） | `ingest_traces` 返回 `status:"accepted"`，但 `note:"Runtime edge creation from traces not yet implemented"`——**接受 traces 输入，当前不产出任何图边**。若调用方期望"提交 traces 后图中出现新边"，当前会落空；不得把 `status=accepted` 误读为"边已建好" |
 
 > 文本协议可直接消费（为 LLM token 经济性优化）；仅在需程序化抽取 / 再加工某工具结果时，对 search_graph / trace_path / detect_changes 传 `format:"json"`。
 
@@ -102,7 +109,7 @@ metadata:
 
 - **渠道 1（直连 stdio）**：`Popen([EXE], stdin/stdout PIPE)` → `initialize` → `notifications/initialized` → `tools/list` → `tools/call`。实测通过：`list_projects`（8 项目）、`index_status`（8/8 全部 `status=ready`）、`get_graph_schema`。Windows pipe 不支持 `select.select`，须用 `threading.Thread` + `queue.Queue` 异步读 `proc.stdout.readline()`。
 - **渠道 2（dmcp HTTP 中转）**：`http.client` 持久连接 → `initialize`（取 `Mcp-Session-Id`）→ `notifications/initialized`（带 session 头）→ `list_groups`（facade-direct）→ `get_dynamic_tools`（facade-direct）→ `call_dynamic_tool(index_status / list_projects / search_graph / trace_path / get_architecture / check_index_coverage)`。实测通过：8 项目全部 `status=ready`，节点 4,908–23,475 / 边 4,339–124,995；`search_graph` 返回 15 条命中；`get_architecture` 返回 14 类节点标签 / 20 类边类型。
-- **双层信封解包**：渠道 2 的 `call_dynamic_tool` 返回 `result.content[0].text`，其内可能再包一层 `{"content":[{"text":...}]}`。解包时先整块 `json.loads`，失败再逐行回退（SSE `data:` 行 / 逐行 `{` 起始）。`initialize` 响应无 `content` 字段，直接取 `result`。
+- **信封解包（按渠道区分）**：渠道 2（dmcp 中转）的 `call_dynamic_tool` 返回 `result.content[0].text`，其内可能再包一层 `{"content":[{"text":...}]}`，需二次解析——先整块 `json.loads`，失败再逐行回退（SSE `data:` 行 / 逐行 `{` 起始）；渠道 1（直连 stdio）的 `result.content[0].text` **就是**引擎真实数据，直接消费即可。`initialize` 响应无 `content` 字段，直接取 `result`。
 - **`index_status` / `check_index_coverage` / `search_graph` / `trace_path` 均需 `project` 参数**（从 `list_projects` 取到的项目名，如 `D-Documents-AI_MCP-Skill-CLI`），漏传报 `missing required argument: project`。
 
 ## 3. 激活时机与边界（唯一事源）
