@@ -81,10 +81,22 @@ $script:IgnoreDirNames = @(
     '_gsdata_'
 )
 
-# -- dmcp HTTP API 基础地址（dmcp 服务运行在本地时使用） --
-# 注意：dmcp 使用标准 MCP JSON-RPC 2.0 协议，路径为 /dynamic-mcp，
-#       调用方法为 tools/call，而非 /dynamic-mcp/call_tool。
-$script:DmcpBaseUrl = "http://127.0.0.1:8082/dynamic-mcp"
+# -- dmcp HTTP 端点基础地址（dmcp 服务运行在本地时使用） --
+# 禁止硬编码：地址与分组名一律参数化，优先读环境变量，未设则回退内置默认值。
+# 说明：dmcp 的 /dynamic-mcp 是标准 MCP Streamable HTTP 端点，调用方法为 tools/call。
+$script:DmcpBaseUrl = if ($env:DMCP_BASE_URL) { $env:DMCP_BASE_URL } else { "http://127.0.0.1:8082/dynamic-mcp" }
+
+# -- dmcp 内 DeusData 的 group 注册名（逻辑标识，与本地物理目录名解耦） --
+$script:DmcpGroup = if ($env:DMCP_GROUP) { $env:DMCP_GROUP } else { "codebase-memory-mcp" }
+
+# -- MCP Streamable HTTP 协议固有常量（非环境相关，不随部署变化，集中定义便于核对） --
+# Accept：MCP Streamable HTTP 传输要求客户端声明可接收 JSON 或 SSE，缺省将触发 406 内容协商拒绝。
+$script:McpAcceptHeader = "application/json, text/event-stream"
+# facade 工具名：dmcp HTTP facade 仅暴露 list_groups / get_dynamic_tools / call_dynamic_tool 三工具；
+# 上游后端工具（如 index_repository）必须封装进 call_dynamic_tool，不可直接以其名打给 facade。
+$script:McpFacadeTool = "call_dynamic_tool"
+# 协议版本回退值：仅用于 initialize 握手时声明客户端能力；握手成功后一律改用服务端响应协商的版本。
+$script:McpProtocolVersionFallback = "2025-06-18"
 
 # -- dmcp HTTP API 地址（兼容旧版，保留但不使用） --
 $script:DmcpUrl = $script:DmcpBaseUrl
@@ -265,43 +277,136 @@ function Test-GitRepoValid {
 }
 
 # -- 双通道注册：dmcp HTTP 优先，CLI 备选 --
-function Invoke-RegisterRepo {
-    param([string]$RepoPath)
 
-    # 通道 1：dmcp HTTP API（标准 MCP JSON-RPC 2.0 协议）
-    try {
-        # dmcp 暴露的是标准 MCP Streamable HTTP 端点，使用 JSON-RPC 2.0 格式：
-        #   method: "tools/call"
-        #   params: { name, arguments }
-        # 而非旧版的 /dynamic-mcp/call_tool + { name, arguments } 格式
-        $body = @{
-            jsonrpc = "2.0"
-            id      = 1
-            method  = "tools/call"
-            params  = @{
-                name      = "index_repository"
-                arguments = @{
-                    repo_path = $RepoPath
-                    mode      = $script:IndexMode
-                }
+# dmcp 的 /dynamic-mcp 是「标准 MCP Streamable HTTP」端点（非裸 JSON-RPC HTTP 服务器）。
+# 因此通道 1 必须按 MCP Streamable HTTP 协议实现客户端，否则服务端做内容协商失败返回 406。
+# 合规三要素（经 dmcp 源码核实 + 实测验证）：
+#   ① 请求带 Accept: application/json, text/event-stream（缺它 → 406，请求体尚未解析）；
+#   ② 先完成 initialize 握手拿 Mcp-Session-Id；
+#   ③ 调用上游工具须封装为 call_dynamic_tool(group, name, args)，不能直接以
+#      上游工具名打给 fa?ade（否则 fa?ade 返回 Unknown tool）。
+function Invoke-DmcpStreamableHttp {
+    param(
+        [string]$Group = $script:DmcpGroup,
+        [string]$ToolName,
+        [hashtable]$ToolArgs,
+        [switch]$FacadeDirect
+    )
+    $url = $script:DmcpBaseUrl
+    $accept = $script:McpAcceptHeader
+
+    # 解析响应体：服务端可能回 application/json 或 text/event-stream(SSE)，统一取 data: 行 JSON
+    function Parse-McpBody($contentType, $raw) {
+        if ($contentType -and $contentType -like "*text/event-stream*") {
+            foreach ($line in ($raw -split "`n")) {
+                $l = $line.Trim()
+                if ($l.StartsWith("data:")) { return $l.Substring(5).Trim() }
             }
-        } | ConvertTo-Json -Compress -Depth 5
+            return $raw
+        }
+        return $raw
+    }
 
-        $resp = Invoke-RestMethod -Uri $script:DmcpBaseUrl `
-            -Method POST -Body $body -ContentType "application/json" `
-            -TimeoutSec 120 -ErrorAction Stop
+    function Post-McpJson($sessionId, $payloadObj, $protocolVersion) {
+        $bodyStr = $payloadObj | ConvertTo-Json -Compress -Depth 10
+        $req = [System.Net.HttpWebRequest]::Create($url)
+        $req.Method = "POST"
+        $req.ContentType = "application/json"
+        $req.Accept = $accept
+        $req.Timeout = 120000
+        if ($sessionId) { $req.Headers["Mcp-Session-Id"] = $sessionId }
+        # 握手完成后，后续请求须携带服务端协商的协议版本（MCP Streamable HTTP 规范要求）
+        if ($protocolVersion) { $req.Headers["Mcp-Protocol-Version"] = $protocolVersion }
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($bodyStr)
+        $req.ContentLength = $bytes.Length
+        $rs = $req.GetRequestStream()
+        $rs.Write($bytes, 0, $bytes.Length); $rs.Close()
+        try { $resp = $req.GetResponse() }
+        catch [System.Net.WebException] { $resp = $_.Exception.Response }
+        $sr = [System.IO.StreamReader]::new($resp.GetResponseStream())
+        $raw = $sr.ReadToEnd(); $sr.Close()
+        return @{
+            status      = [int]$resp.StatusCode
+            sessionId   = $resp.Headers["Mcp-Session-Id"]
+            contentType = $resp.ContentType
+            body        = $raw
+        }
+    }
 
-        # 检查响应体中的业务状态（HTTP 200 未必代表业务成功）
-        # 标准 JSON-RPC 响应：{ jsonrpc, id, result } 或 { jsonrpc, id, error }
-        if ($resp.error) {
-            $errMsg = if ($resp.error.message) { $resp.error.message } else { $resp.error | ConvertTo-Json -Compress }
-            Write-Log "dmcp HTTP 业务失败: $errMsg" "WARN"
-            # 继续降级走 CLI
-        } else {
-            return @{ success = $true; channel = "dmcp_http"; response = $resp.result }
+    # 1) initialize 握手：先以回退版本声明客户端能力，再从服务端响应实时解析协商版本
+    $init = Post-McpJson $null @{ jsonrpc="2.0"; id=1; method="initialize"; params=@{ protocolVersion=$script:McpProtocolVersionFallback; capabilities=@{}; clientInfo=@{ name="wb-scan-script"; version="1.0" } } } $null
+    if ($init.status -ne 200 -or -not $init.sessionId) {
+        return @{ ok=$false; reason="initialize 失败 HTTP $($init.status)" }
+    }
+    # 1.1) 从握手响应实时解析服务端协商的协议版本（禁止后续调用沿用回退值）
+    $protocolVersion = $script:McpProtocolVersionFallback
+    try {
+        $initMsg = (Parse-McpBody $init.contentType $init.body) | ConvertFrom-Json
+        if ($initMsg.result -and $initMsg.result.protocolVersion) {
+            $protocolVersion = $initMsg.result.protocolVersion
         }
     } catch {
-        Write-Log "dmcp HTTP 注册失败: $($_.Exception.Message)" "WARN"
+        $protocolVersion = $script:McpProtocolVersionFallback
+    }
+    # 2) notifications/initialized（通知，无 id）
+    Post-McpJson $init.sessionId @{ jsonrpc="2.0"; method="notifications/initialized"; params=@{} } $protocolVersion | Out-Null
+    # 3) tools/call - FacadeDirect 模式直接调用 facade 工具；否则封装进 call_dynamic_tool
+    if ($FacadeDirect) {
+        $call = Post-McpJson $init.sessionId @{ jsonrpc="2.0"; id=2; method="tools/call"; params=@{ name=$ToolName; arguments=$ToolArgs } } $protocolVersion
+    } else {
+        $call = Post-McpJson $init.sessionId @{ jsonrpc="2.0"; id=2; method="tools/call"; params=@{ name=$script:McpFacadeTool; arguments=@{ group=$Group; name=$ToolName; args=$ToolArgs } } } $protocolVersion
+    }
+    if ($call.status -ne 200) {
+        return @{ ok=$false; reason="tools/call 失败 HTTP $($call.status)" }
+    }
+    $text = Parse-McpBody $call.contentType $call.body
+    try {
+        $msg = $text | ConvertFrom-Json
+        if ($msg.error) { return @{ ok=$false; reason="工具错误: $($msg.error.message)" } }
+        $inner = $msg.result.content[0].text
+        return @{ ok=$true; text=$inner }
+    } catch {
+        return @{ ok=$false; reason="响应解析失败: $_" }
+    }
+}
+
+# -- 实时探查：调用 dmcp facade 的 list_groups，确认目标 group 存在且已连接 --
+# 批量注册前预检一次，其结果用于决定本轮是否走 HTTP 通道（探查不可用则直接走 CLI，避免逐仓库无谓尝试）。
+function Test-DmcpGroupConnected {
+    param([string]$TargetGroup = $script:DmcpGroup)
+    try {
+        $r = Invoke-DmcpStreamableHttp -FacadeDirect -ToolName "list_groups" -ToolArgs @{}
+        if (-not $r.ok) { return @{ ok=$false; reason="list_groups 调用失败: $($r.reason)" } }
+        $groups = $r.text | ConvertFrom-Json
+        $hit = @($groups | Where-Object { $_.name -eq $TargetGroup })
+        if ($hit.Count -eq 0) { return @{ ok=$false; reason="group 未注册于 dmcp: $TargetGroup" } }
+        if ($hit[0].status -ne "connected") { return @{ ok=$false; reason="group $TargetGroup 状态为 $($hit[0].status)" } }
+        return @{ ok=$true; reason="group $TargetGroup = connected" }
+    } catch {
+        return @{ ok=$false; reason="分组探查异常: $($_.Exception.Message)" }
+    }
+}
+
+function Invoke-RegisterRepo {
+    param(
+        [string]$RepoPath,
+        [switch]$SkipHttp
+    )
+
+    # 通道 1：dmcp HTTP（标准 MCP Streamable HTTP 客户端，修复 406）
+    # 若批量注册前的分组探查已判定 dmcp 不可用，则跳过本通道直接走 CLI。
+    if (-not $SkipHttp) {
+        try {
+            $r = Invoke-DmcpStreamableHttp -Group $script:DmcpGroup -ToolName "index_repository" -ToolArgs @{ repo_path = $RepoPath; mode = $script:IndexMode }
+            if ($r.ok) {
+                return @{ success = $true; channel = "dmcp_http"; response = $r.text }
+            }
+            Write-Log "dmcp HTTP 业务失败: $($r.reason)" "WARN"
+        } catch {
+            Write-Log "dmcp HTTP 注册失败: $($_.Exception.Message)" "WARN"
+        }
+    } else {
+        Write-Log "按分组探查结果跳过 dmcp HTTP 通道，直接走 CLI" "INFO"
     }
 
     # 通道 2：直接调用同目录下的 codebase-memory-mcp.exe CLI
@@ -584,6 +689,17 @@ try {
     $script:Result.new_repos = $newRepos
     Write-Log "新仓库数: $($newRepos.Count)" "INFO"
 
+    # 实时探查 dmcp 分组可用性（仅当存在待注册仓库时预检一次，避免逐仓库重复尝试不可用通道）
+    $dmcpProbe = $null
+    if ($newRepos.Count -gt 0) {
+        $dmcpProbe = Test-DmcpGroupConnected
+        if ($dmcpProbe.ok) {
+            Write-Log "dmcp 分组探查: $($dmcpProbe.reason)" "INFO"
+        } else {
+            Write-Log "dmcp 分组不可用，本次直接走 CLI 通道: $($dmcpProbe.reason)" "WARN"
+        }
+    }
+
     # 注册新仓库
     # 注意：仅注册成功时标记为已尝试，失败允许下次重试。
     # codebase-memory-mcp.exe 本身已内置去重（对已建库仓库重复调用
@@ -605,7 +721,11 @@ try {
             }
         }
 
-        $regResult = Invoke-RegisterRepo -RepoPath $repo
+        $regResult = if ($dmcpProbe -and -not $dmcpProbe.ok) {
+            Invoke-RegisterRepo -RepoPath $repo -SkipHttp
+        } else {
+            Invoke-RegisterRepo -RepoPath $repo
+        }
         if ($regResult.success) {
             Write-Log "注册成功 [$($regResult.channel)]: $repo" "INFO"
             $script:Result.registered.Add($repo) | Out-Null
