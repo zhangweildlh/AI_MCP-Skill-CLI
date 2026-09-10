@@ -15,6 +15,7 @@ const path = require('path');
 
 const REPO = path.resolve(__dirname, '..');
 const PKG_NAME = 'chrome-devtools-mcp';
+const { realGlobalInstall } = require('./install_global.cjs'); // 方案一：真实全局安装（非软链接）
 
 function npmGlobalRoot() { return execSync('npm root -g', { encoding: 'utf8' }).trim(); }
 // 关键修正：CLI 入口是 chrome-devtools.js（非 MCP 入口 chrome-devtools-mcp.js）
@@ -22,16 +23,14 @@ function globalBinPath() { return path.join(npmGlobalRoot(), PKG_NAME, 'build', 
 
 const bin = globalBinPath();
 if (!fs.existsSync(bin)) {
-  console.error('[错误] 全局 chrome-devtools-mcp 未安装（预期: ' + bin + '）。正在尝试自动安装...');
+  console.error('[错误] 全局 chrome-devtools-mcp 未安装（预期: ' + bin + '）。正在尝试方案一真实自动安装...');
   try {
-    // 严格遵循永久记忆纪律：npm install -g，禁 npx -y；跳过浏览器内核下载
-    execSync(
-      'npm install -g chrome-devtools-mcp',
-      { env: Object.assign({}, process.env, { PUPPETEER_SKIP_DOWNLOAD: '1' }), stdio: 'inherit' }
-    );
-    console.log('[OK] 安装成功，继续...');
+    // 方案一：真实全局安装（npm pack + install -g .tgz + 补运行时依赖 + 复制 devtools-frontend），
+    // 严格遵循纪律：npm install -g，禁 npx -y，跳过浏览器内核下载；产出可用真实安装而非缺依赖的注册表包。
+    realGlobalInstall();
+    console.log('[OK] 真实安装成功，继续...');
   } catch (e) {
-    console.error('[失败] 自动安装失败。请手动执行: npm install -g chrome-devtools-mcp');
+    console.error('[失败] 自动安装失败。请手动运行: node localization/deploy.cjs');
     process.exit(1);
   }
 }
