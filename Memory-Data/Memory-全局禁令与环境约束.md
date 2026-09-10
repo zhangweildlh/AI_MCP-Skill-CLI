@@ -5,8 +5,13 @@ tags: [git, discipline, red-line, environment, session-gate, toolchain]
 related: ["MEMORY.md"]
 scope: "永久记忆"
 created: "2026-08-27T20:00:00+08:00"
-updated: "2026-08-27T20:00:00+08:00"
+updated: "2026-09-10T17:52:48+08:00"
 parent: "MEMORY.md"
+positioning: "本机环境的“不可为与必须为”底线规则集"
+role: "硬约束层（禁令 + 环境 + 会话闸门 + 工具链）"
+theme: "安全红线 / 环境约束 / 会话启动 / 目录与工具链"
+scope_in: "Git 红线（强推、删 main、受保护分支）；三段式二次授权；入库隐私闸门；reset 回退安全；Docker 禁用；本地编译放开条件；UV 管理 Python；Node/npm 全局安装规范；交付脚本纯标准库；会话启动 list_groups；技能自动激活；目录根与工具安装位置；工具优先规则"
+scope_out: "具体代码写法 → 子文件2；GitHub 操作流程 → 子文件3；坑案例与修复步骤 → 子文件4；能力台账与工具入口 → 子文件5"
 summary: "总则、全局禁令、环境约束、会话启动闸门、目录与工具链约定"
 keywords: ["禁强推", "Docker禁用", "UV管Python", "路径核验", "工具链"]
 priority: "high"
