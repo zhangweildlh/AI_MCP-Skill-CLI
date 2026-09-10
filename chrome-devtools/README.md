@@ -13,7 +13,7 @@
 本地化的核心目标（围绕本机环境）：
 
 - 复用本机已安装的 **360Chromex 浏览器**及其登录态（不下载任何浏览器内核，依赖 `puppeteer-core`）。
-- 以 **全局安装**方式部署（`npm install -g`，位于 `$(npm root -g)`），不依赖 `npx -y`。
+- 以 **全局安装**方式部署（`npm install -g`，位于 `$(npm root -g)`，采用方案一**真实安装**——`npm pack` 上游后 `npm install -g .tgz` 真实解包到全局目录，非软链接），不依赖 `npx -y`。
 - 经 `--browserUrl` 直连已启动的浏览器实例，保留登录态。
 - 关键本地化约束（如 `--executablePath` 而非 `--channel`、`PUPPETEER_SKIP_DOWNLOAD=1`）以**物理隔离**方式注入上游快照，便于跟随上游升级而无需 fork 上游。
 
@@ -211,7 +211,7 @@ DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 
 3. 剥离 `@paulirish/trace_engine` 的冲突全局声明（`fix_trace_engine_dts.cjs`，见第 12 节 TS2717——devtools-frontend 与该依赖都向全局接口 `HTMLElementEventMap` 注入 `[ModelUpdateEvent.eventName]: ModelUpdateEvent`，类型身份不同会冲突，须于 tsc 前剥离其一，否则构建报 TS2717）。
 4. vendoring `devtools-frontend`（`vendor_frontend.cjs`）。
 5. 在 `upstream/` 内 `npm run build`（tsc → `build/`）。
-6. 全局符号链接 `$(npm root -g)/chrome-devtools-mcp` → 本文件夹（`npm install -g ./upstream`），并防御性确保全局 bin 命令可用（Windows 额外生成 `.cmd` 包装）。
+6. **方案一真实全局安装**（`npm pack` 上游生成 `chrome-devtools-mcp-<ver>.tgz`，再 `npm install -g ./.tgz` 真实解包到 `$(npm root -g)/chrome-devtools-mcp`，非软链接）；随后在全局包目录补装运行时依赖（上游依赖全在 devDependencies，`npm install -g` 不装），并复制 vendored `devtools-frontend` 到全局包 `build/`；最后防御性确保全局 bin 命令可用（Windows 额外生成 `.cmd` 包装）。
 7. 重新注入本地化（`apply_localize.cjs`）。
 8. 生成 `mcp-local-config.json`，并**幂等合并进 `~/.workbuddy/mcp.json`**（含 `CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1` 环境变量）。
 
@@ -315,7 +315,7 @@ node localization/upstream.cjs
 
 ### 9.2 路径与依赖约束
 
-- **严禁 `npx -y <pkg>`**：一律用 `node "$(npm root -g)/..."` 或 `npm install -g ./upstream` 全局安装。全局根即 `$(npm root -g)`（随 Node 安装位置而定，**切勿写死绝对路径**）。
+- **严禁 `npx -y <pkg>`**：一律用 `node "$(npm root -g)/..."` 或经 `deploy.cjs` 的**方案一真实安装**（`npm pack` + `npm install -g .tgz`）全局安装。全局根即 `$(npm root -g)`（随 Node 安装位置而定，**切勿写死绝对路径**——脚本一律实时读取，可移植）。
 - 依赖安装务必 `PUPPETEER_SKIP_DOWNLOAD=1`（部署脚本已内置），否则 `puppeteer` 会下载 Chromium 内核——本机已有 360Chromex，无需下载。
 - 本机中文路径会导致 node / npm 失败；跨机移植以 **ASCII 路径的主副本**为准，脚本均按脚本所在目录相对解析。
 
@@ -391,7 +391,7 @@ node localization/upstream.cjs
 
 ## 12. 故障排查与已知坑
 
-- **构建失败报缺模块**：上游运行时依赖在 devDependencies，`npm install -g chrome-devtools-mcp` 的发布包不含运行时依赖。必须用「本地文件夹安装」（`deploy.cjs` 的 `npm install` + `npm install -g ./upstream`）装齐依赖，不可只装全局包。
+- **构建失败报缺模块 / 服务器启动报 `ERR_MODULE_NOT_FOUND`**：上游运行时依赖（core-js / yargs / semver / debug / @modelcontextprotocol/sdk / zod / ajv / puppeteer-core / @puppeteer/browsers 等）全部在 devDependencies，且其发布包按 `package.json` 的 `files` 字段仅含 `build/src` + `LICENSE` + `skills`，**既不含 node_modules，也不含 `build/devtools-frontend`**。故 `npm install -g chrome-devtools-mcp` 或 `npm install -g .tgz` 仅解包源码，会缺依赖与前端。`deploy.cjs` 已采用**方案一真实安装**（`install_global.cjs` 的 `realGlobalInstall()`）：`npm pack` → `npm install -g .tgz` → 在全局包目录 `npm install --ignore-scripts` 补装 devDependencies → 复制 `devtools-frontend` 到全局包 `build/`，闭环解决。切勿只装注册表全局包。
 - **全局 bin 命令不可用**：npm 对「本地文件夹全局安装（符号链接）」模式可能静默跳过 bin 链接创建。`deploy.cjs` 的 `ensureGlobalBinLinks()` 已显式兜底（Windows 生成 `.cmd` 包装）；若仍不可用，检查 `$(npm root -g)/chrome-devtools-mcp/build/src/bin/` 是否存在构建产物。
 - **构建报 zod 版本不兼容**：`compat.cjs` 已固定兼容版本；若手动改过 `upstream/package.json` 导致浮动，重跑 `deploy.cjs` 或 `upstream.cjs` 重新应用约束。
 - **devtools-frontend 缺失导致构建失败**：新机器必须先跑 `vendor_frontend.cjs`（或 `deploy.cjs` 步骤 4 自动触发）填充 `upstream/devtools-frontend/`（注意是顶层 `devtools-frontend`，与上游 v1.7.0 submodule 路径一致；填错位置会导致 `tsconfig.json` 的 `files` 列表找不到 `acorn.mjs` 而构建失败），该目录被 `.gitignore` 排除、不入库。

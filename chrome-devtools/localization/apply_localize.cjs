@@ -11,6 +11,17 @@ const SENTINEL = '<!-- LOCALIZED:360Chromex -->';
 // 方案 A：纯上游快照隔离在 upstream/ 子目录；注入目标一律指向 upstream/ 内
 const UPSTREAM = path.join(REPO, 'upstream');
 
+// 部署后 hideNestedSkills() 会把 upstream/skills 重命名为 _skills_removed（避免 WorkBuddy
+// 递归技能发现冲突）。此时上游子技能的注入目标已隐藏，但内容已注入过一次（哨兵幂等），
+// 视为合法部署状态。本函数用于 --check / inject / strip / localizeDescription 统一判定。
+function isSkillsHidden() {
+  return fs.existsSync(path.join(UPSTREAM, '_skills_removed'));
+}
+// 判定某个相对路径目标是否属于「被隐藏的上游子技能注入目标」。
+function isHiddenSkillTarget(targetRel) {
+  return targetRel.startsWith('upstream/skills/') && isSkillsHidden();
+}
+
 // 已知注入目标清单（写死，A2）：这些目标是本地化设计的合法注入点；若缺失，
 // 视为 upstream/ 上游快照缺失或钉版本不匹配（请先运行 node localization/upstream.cjs 刷新 upstream/ 快照），
 // 必须明确告警（而非与普通缺失一样静默跳过）。如需新增注入目标，在此扩展。
@@ -191,11 +202,26 @@ function main() {
     let ok = true;
     for (const t of KNOWN_TARGETS) {
       const p = path.join(REPO, t);
-      if (!fs.existsSync(p)) { console.error('[CHECK-FAIL] 注入目标缺失: ' + t); ok = false; }
+      if (!fs.existsSync(p)) {
+        // 部署后 hideNestedSkills() 把 upstream/skills 重命名为 _skills_removed，
+        // 上游子技能注入目标已隐藏（内容已注入过一次、哨兵幂等），视为合法部署状态，不判 FAIL。
+        if (isHiddenSkillTarget(t)) {
+          console.log('[CHECK-OK] 注入目标已隐藏（upstream/skills -> _skills_removed，内容已注入）: ' + t);
+          continue;
+        }
+        console.error('[CHECK-FAIL] 注入目标缺失: ' + t); ok = false;
+      }
       else console.log('[CHECK-OK] 注入目标存在: ' + t);
     }
     const topSkillSrc = path.join(UPSTREAM, 'skills', 'chrome-devtools', 'SKILL.md');
-    if (!fs.existsSync(topSkillSrc)) { console.error('[CHECK-FAIL] 顶层 SKILL.md 同步源缺失: ' + topSkillSrc); ok = false; }
+    if (!fs.existsSync(topSkillSrc)) {
+      // 同样：若 upstream/skills 已被隐藏，顶层 SKILL.md 同步源视为合法（根 SKILL.md 由 apply_localize 维护）
+      if (isSkillsHidden()) {
+        console.log('[CHECK-OK] 顶层 SKILL.md 同步源已隐藏（upstream/skills -> _skills_removed，根 SKILL.md 由 apply_localize 维护）');
+      } else {
+        console.error('[CHECK-FAIL] 顶层 SKILL.md 同步源缺失: ' + topSkillSrc); ok = false;
+      }
+    }
     else console.log('[CHECK-OK] 顶层 SKILL.md 同步源存在');
     // 子 Skill 门禁检查（方案③）：upstream/skills/ 下每个 SKILL.md 须已含门禁字段。
     const skillsDir = path.join(UPSTREAM, 'skills');
@@ -210,6 +236,8 @@ function main() {
         if (!hasGate) { console.error('[CHECK-FAIL] 子 Skill 门禁缺失: upstream/skills/' + ent.name + '/SKILL.md'); ok = false; }
         else console.log('[CHECK-OK] 门禁存在: upstream/skills/' + ent.name + '/SKILL.md');
       }
+    } else if (isSkillsHidden()) {
+      console.log('[CHECK-OK] upstream/skills 已隐藏（_skills_removed），跳过子 Skill 门禁检查');
     } else { console.warn('[CHECK-WARN] upstream/skills 不存在（未部署 upstream/，跳过门禁检查）'); }
     if (!ok) { console.error('[CHECK] 失败：存在缺失的注入目标，本地化注入将静默跳过（F-01/F-02 回归）。'); process.exit(1); }
     console.log('[CHECK] 通过：守卫与全部注入目标就绪，本地化注入可正常落地。');

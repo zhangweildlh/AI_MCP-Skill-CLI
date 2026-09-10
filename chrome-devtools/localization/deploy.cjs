@@ -1,23 +1,25 @@
 // localization/deploy.cjs
-// 自包含部署（全局安装模式）：
+// 自包含部署（全局安装模式，方案一：真实安装而非软链接）：
 //   1) 核查本地浏览器（verify_browser.cjs，自动检测 360Chromex/Chrome，避免便携版）
-//   2) 本地安装全部依赖（npm install，PUPPETEER_SKIP_DOWNLOAD=1）到本文件夹 node_modules
+//   2) 本地安装全部依赖（npm install，PUPPETEER_SKIP_DOWNLOAD=1）到 upstream/ node_modules（仅供 tsc 构建使用）
 //      —— 关键点：chrome-devtools-mcp 的运行时依赖（puppeteer-core / @modelcontextprotocol/sdk 等）
-//         全部在 devDependencies；从注册表 `npm i -g chrome-devtools-mcp` 安装到的发布包不含运行时依赖，
-//         会导致服务器缺模块。因此必须用“本地文件夹安装”（npm install 装齐依赖 + npm install -g . 建符号链接）。
-//   3) 全局符号链接 $(npm root -g)/chrome-devtools-mcp -> 本文件夹，并防御性确保 bin 命令可用
-//      —— npm install -g . 对“本地文件夹”仅创建符号链接（不会拷贝、也不会装依赖）；
-//         随后 ensureGlobalBinLinks() 显式创建 bin 符号链接（npm 可能跳过，故不依赖它）。
-//   4) 于本文件夹构建（tsc -> build/）
+//         全部在 devDependencies；其发布包（npm pack 按 package.json 的 files 字段仅含 build/src + LICENSE + skills）
+//         既不含 node_modules，也不含 build/devtools-frontend。故须用方案一真实安装（见下）。
+//   3) 方案一真实全局安装（install_global.cjs 的 realGlobalInstall）：
+//        npm pack 上游 -> npm install -g .tgz（真实解包到 $(npm root -g)，非软链接）
+//        -> 在全局包目录补装 devDependencies（--ignore-scripts）-> 复制 vendored devtools-frontend 到全局包 build/
+//      全局根 $(npm root -g) 实时读取，绝不写死绝对路径（可移植）。
+//   4) 于 upstream/ 构建（tsc -> build/，须在真实安装之前，否则前端/依赖缺失）
 //   5) 幂等重注入本地化（apply_localize.cjs）
 //   6) 生成 mcp-local-config.json 并幂等合并进 ~/.workbuddy/mcp.json（含 no-update-check env）
-// 跨机可用：所有路径按脚本位置相对解析。拷贝即走——把本文件夹（无需 node_modules/build）复制到任意位置，
-// 运行 node localization/deploy.cjs 即自动装依赖、建符号链接、构建并生成配置。
+// 跨机可用：所有路径按脚本位置相对解析。拷贝即走——把本文件夹（无需 node_modules/build/upstream）复制到任意位置，
+// 运行 node localization/deploy.cjs 即自动装依赖、真实全局安装、构建并生成配置。
 
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { mergeIntoMcpJson } = require('./merge_mcp_json.cjs'); // F2 修复：抽出为独立可测模块（深度合并嵌套 env）
+const { realGlobalInstall } = require('./install_global.cjs'); // 方案一：真实全局安装（非软链接）共享模块
 
 const REPO = path.resolve(__dirname, '..');
 const PKG_NAME = 'chrome-devtools-mcp';
@@ -128,20 +130,9 @@ console.log('=== 3) 构建（tsc -> build/，必须在全局符号链接之前�
 console.log('[构建] 重新构建（强制，避免运行陈旧产物）...');
 sh('npm run build', UPSTREAM, globalEnv());
 
-console.log('=== 4) 全局符号链接 $(npm root -g)/chrome-devtools-mcp -> 本文件夹，并确保 bin 命令可用 ===');
-if (fs.existsSync(globalBinPath())) {
-  console.log('[全局] 已存在: ' + globalBinPath() + ' — 跳过（如需重装可先 npm uninstall -g ' + PKG_NAME + '）。');
-} else {
-  console.log('[全局] 创建全局符号链接...');
-  try {
-    sh('npm install -g ./upstream', REPO, globalEnv());
-  } catch (e) {
-    console.log('[全局] 首次失败，尝试卸载后重装...');
-    try { sh('npm uninstall -g ' + PKG_NAME, REPO, globalEnv()); } catch (_) {}
-    sh('npm install -g ./upstream', REPO, globalEnv());
-  }
-}
-ensureGlobalBinLinks(); // 防御：npm 可能跳过 bin 链接或 <prefix>/bin 不存在，显式确保 bin 命令可用
+console.log('=== 4) 方案一真实全局安装（npm pack + npm install -g .tgz，真实解包到 $(npm root -g)，非软链接） ===');
+realGlobalInstall();    // npm pack -> install -g .tgz -> 补装运行时依赖 -> 复制 vendored devtools-frontend
+ensureGlobalBinLinks(); // 防御：npm 可能跳过 bin 链接或 <prefix>/bin 不存在，显式确保 bin 命令可用（真实目录仍适用）
 
 console.log('=== 5) 重新注入本地化 ===');
 sh('node "' + path.join(__dirname, 'apply_localize.cjs') + '"'); // F9: 与步骤 1 同样经 sh() 捕获，避免未处理异常崩溃
