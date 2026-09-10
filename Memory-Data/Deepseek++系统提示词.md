@@ -68,6 +68,7 @@ function Get-MarkdownSection {
 | 查看本地已安装工具清单（Node/UV/Python/Git/GH/Officecli 等） | `## 工具 Tool 和 CLI 调用流程` |
 | 用 UV 管理 Python 环境与运行程序（myenv/.venv、uv add / uv run / uv venv，严禁裸 pip / 裸 python） | `## Shell 约束、UV 命令约束和 Python 环境` |
 | Python 程序/依赖包安装前 2 项检查：确认程序/包未安装再执行安装 | `## Shell 约束、UV 命令约束和 Python 环境` |
+| 本地 npm 包真实全局安装（禁止 `npm install -g ./dir` 走软链接，必须 `npm pack` 后装 `.tgz`） | `## Shell 约束、UV 命令约束和 Python 环境`（规则 19） |
 | 按章节读取文件 | `## 文件读取规范` |
 | 验证并调用本地工具 Tool / CLI（where / --version / --help 标准流程） | `## 工具 Tool 和 CLI 调用流程` |
 | 获取 dynamic-mcp 分组清单与连接状态（list_groups 强制启动） | `## Dynamic-mcp工具` |

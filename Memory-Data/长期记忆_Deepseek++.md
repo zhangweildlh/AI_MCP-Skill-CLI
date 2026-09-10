@@ -1,4 +1,4 @@
-# Deepseek++ 记忆
+﻿# Deepseek++ 记忆
 
 ## 当前工作目录、Skill技能根目录和GitHub仓库根目录
 
@@ -66,6 +66,19 @@
     2. **安装目标核验（prefix 一致性）**：执行 `npm root -g`，确认其返回值为 `D:/Tools/Assembly/nodejs/node_global/node_modules`；若不符，先修正 npm 全局 prefix 再安装。
 17. **匹配规则**：**对包名进行规范化匹配**，忽略版本号、额外描述和大小写差异，仅比较核心名称。例如 `npm ls -g` 输出含 `playwright 1.62.1`，则目标名 `playwright` / `Playwright` 视为已存在；若目标名为 `playwright-core` 则视为未找到（完整字符串匹配）。
 18. **Playwright 的 MCP 封装（`@playwright/mcp`）同样全局安装、同样跳过下载**，调用一律用全局绝对路径：`node "$(npm root -g)/@playwright/mcp/cli.js" --executable-path D:/Tools/360Chrome/360chromex.exe --user-data-dir D:/Tools/360Chrome/MCPProfile`，**严禁 `npx -y @playwright/mcp`** 重新下载、严禁 `--headless` 调自带 Chromium。
+19. **本地包（目录路径 / file: 路径）严禁直接
+pm install -g ./pkg** —— npm 会把它当「开发链接」只建软链接，**不会真实安装到全局目录**。**必须先打包再装：**
+    `ash
+    cd 包目录
+    npm pack                    # 生成 xxx-1.0.0.tgz
+    npm install -g ./xxx-1.0.0.tgz   # 真实解压到 node_global
+    `
+    - 这才复现用户
+pm install -g pkg@version 的真实安装流程，含 prepare/prepack/postpack 等生命周期，二进制产物也会被打包。
+    - 开发调试期仍可用
+pm link /
+pm install -g ./dir（软链接，改代码即时生效）；**但凡需要「真实全局安装」验证时，一律走 npm pack + 安装 .tgz**。
+
 
 **PowerShell 命令示例（Node 全局安装与调用）：**
 
@@ -193,4 +206,5 @@ where.exe [待查询的工具 Tool 或者 CLI ]
 6. **参数必填**：`get_dynamic_tools` 与 `call_dynamic_tool` 的 group 必须传入明确的分组名（必填 string，不传即报错）。
 
 ---
+
 

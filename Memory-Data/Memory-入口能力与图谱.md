@@ -8,8 +8,13 @@ related:
   - "Memory-代码纪律与Git操作.md"
 scope: "永久记忆"
 created: "2026-08-27T20:00:00+08:00"
-updated: "2026-08-27T20:00:00+08:00"
+updated: "2026-09-10T17:52:48+08:00"
 parent: "MEMORY.md"
+positioning: "本机可用能力的台账（有什么、在哪、怎么调）"
+role: "能力台账层"
+theme: "dynamic-mcp 统一入口 / 常驻技能 / DeusData 代码图谱 / 维护工具入口"
+scope_in: "dynamic-mcp 调用三步与分组清单；常用跨项目技能清单；DeusData 本地代码知识图谱的接入与用法；memory-mgr.py 的位置 / 用途 / 常用命令 / 注意事项"
+scope_out: "多工具协同的作业流程（如搜索 SOP 这类“按什么步骤协同、失败怎么降级”的内容）→ 按 §3.8 评估新建；能力使用中的踩坑 → 子文件4；环境禁令 → 子文件1；GitHub 流程 → 子文件3"
 summary: "Dynamic-mcp统一能力入口、常用跨项目技能、mimo.code协同、DeusData本地代码知识图谱"
 keywords: ["dynamic-mcp", "技能", "mimo", "DeusData", "图谱"]
 priority: "high"
@@ -29,6 +34,7 @@ status: "active"
 | 29.1 工具位置 | `### 29.1 工具位置` |  |
 | 29.2 核心用途 | `### 29.2 核心用途` |  |
 | 29.3 常用命令 | `### 29.3 常用命令` |  |
+| 29.4 注意事项 | `### 29.4 注意事项` |  |
 <!-- INDEX_END -->
 # 第七篇：技能与常驻提醒
 
@@ -91,7 +97,7 @@ status: "active"
 
 ## 29 memory-mgr.py 维护工具（日常维护入口）
 
-> 本章节是 `memory-mgr.py` 工具的快速入口，详细说明见独立文档 [README.md](file:///D:/Documents/AI_Work_Temp/2026-08-27-17-23-58/终版/README.md)。
+> 本章节是 `memory-mgr.py` 工具的快速入口，详细说明见本仓库维护手册 [WorkBuddy记忆文件说明.md](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/WorkBuddy记忆文件说明.md)（即本说明文件，原 README.md 快照路径已失效，统一指向此文件）。
 
 ### 29.1 工具位置
 
