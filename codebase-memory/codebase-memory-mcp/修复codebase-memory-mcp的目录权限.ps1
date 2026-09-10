@@ -167,6 +167,86 @@
     19) 阶段 A 重建 ACL 时未保留原主组(Group)与原所有者(owner) →
         现显式保留，避免在重写 DACL 的副作用中清空群组归属或所有者。
 
+    ───────────────────────────────────────────────────────────────────────
+    六、v3.1 复审加固记录（第二轮双源复审 · 2026-09-10）
+    ───────────────────────────────────────────────────────────────────────
+    本轮由两个模型**分别**复审，两份报告内容确实不同（经 MD5 核验，非同一底稿）。
+    逐项质证后落地 9 项，并否掉若干条经核实"前提不成立"或"弊大于利"的建议。
+
+    【已采纳并落地】
+
+    1) 提权子进程退出码回传
+       父进程原先恒定 exit 0，计划任务 / CI 无法判断修复是否真的成功。
+       注意：两份报告都建议用 `Start-Process -PassThru` 取 `$proc.ExitCode`，
+       但跨 UAC 边界时该值并不可靠（提升后的进程句柄常取不到有效退出码）。
+       本脚本改由 runner 把子进程的 `$LASTEXITCODE` 写进哨兵文件、父进程读回后据此 exit，
+       不依赖提升场景下不可信的进程句柄。读不到时给出明确告警而非默默返回 0。
+
+    2) 阶段 A 统计并入分类计数
+       原先阶段 A 只递增总数、不递增 kindStat，导致汇总出现自相矛盾
+       （例如"本来就合规：5（目录 2 / 文件 3）"，5 含 3 层祖先却不在分类里）。
+       现在阶段 A 的每个统计分支都同步计入 dir 分类，"总数 = 目录 + 文件"恒成立。
+
+    3) 幽灵 SID 下的排障信息降级
+       所有者若为已删除账户，"取 NTAccount 账户名"会抛异常并被外层 catch 吞掉，
+       Detail 被覆盖成笼统的"无法读取所有者"，反而丢失"所有者不是当前用户"这一关键线索。
+       现就地兜底：翻译失败时回退显示 SID 文本。
+
+    4) 阶段 A 重建时保留只读 ACE
+       规则声明的是"清理不受信主体的**变更类**权限、保留只读权限"，检测逻辑也确实如此；
+       但重建是整份 DACL 替换，原先不会把这些只读 ACE 复制过来 ——
+       若祖先目录是共享父目录，其他用户的只读访问会随重建一并消失。
+       现显式复制"不受信主体 + 无变更权限 + 非继承"的原 ACE。
+
+    5) 阶段 B 覆盖安装目录下的子目录
+       原先阶段 B 只处理文件；安装目录下若出现 lib\ / runtimes\ / config\ 等子目录，
+       既不被阶段 B（只管文件）覆盖、也不被阶段 C（只管数据目录）覆盖，会留下防篡改缺口。
+       现按"目录模板"递归加固，并跳过数据目录本身及其子路径以避免与阶段 C 重复。
+       （本机当前部署形态下安装目录只有 data 一个子目录，故此项无实际改变，属前瞻加固。）
+
+    6) 进程名匹配收紧
+       原 `-match 'codebase-memory|dmcp'` 是子串匹配，会把 admcp / dmcpx 等无关进程卷入；
+       一旦配合 -StopProcess 就存在误杀风险。现锚定为 `^(codebase-memory-mcp|dmcp)(\.|$)`。
+
+    7) 枚举失败不再静默
+       `Get-ChildItem -ErrorAction SilentlyContinue` 会抑制"拒绝访问"这类**非终止错误**，
+       使 try/catch 永不触发 —— 枚举失败被彻底静默（连警告都不打印），
+       看起来就像"该目录没有子目录"。现改为 `-ErrorAction Stop` 让失败可见，
+       并在 DryRun 下补充"子目录无法列出属预期现象、正式运行不会漏修"的说明。
+       （注：两份报告都建议"在 catch 里补提示"，但都没察觉该 catch 因 SilentlyContinue
+             根本不会触发 —— 不先改 Stop，补什么提示都不会显示。）
+
+    8) 阶段 A 所有者授权逻辑简化 + 消除同 SID 双 ACE
+       原两层判断中，内层 `-in $trustedSids` 实际只可能命中 TrustedInstaller
+       （因为外层已排除其余三个），逻辑正确但绕。现合并为单一判断；
+       并顺带消除冗余：所有者恰为 TrustedInstaller 时，不再补第二条"仅本层"ACE
+       （上面那条可继承 ACE 已覆盖其访问需求）。
+
+    9) 阶段 A 重建后回读校验
+       Windows 可能因 SACL / 所有权等原因静默修正 DACL，
+       "Set-Acl 没报错"不等于"权限真的写进去了"。
+       现重建后回读确认：DACL 处于受保护状态 + 存在一条"当前用户完全控制"的非继承 ACE；
+       不符则计入 FAILED（而非 FIXED），避免把未生效的修复报成成功。
+
+    【经质证不采纳的建议及理由】
+
+    · "任一特权启用失败即 exit 1" → 会误杀"所有者已是当前用户、根本不需要该特权"的可修场景。
+    · "自动强杀占用进程" → 目标进程持有未刷盘的 SQLite，强杀有损坏数据库的风险，
+      故仅告警 + 显式 -StopProcess。
+    · "删除提权日志" → 该日志是排障证据，改为保留并打印路径、提示可手动删除。
+    · "阶段 C 复用 C-1 的枚举结果以减少一次 IO" → 当前实现刻意在"全部目录修完之后"
+      再统一枚举文件，从而借助"整体修复完成"后的可读状态；为大目录省一次遍历而改变
+      这个顺序不划算（本机规模仅数十个文件）。属性能优化，非缺陷。
+    · "把 $trustedSids 与 $allowed 合并为同一集合对象" → 两者语义不同（后者还要纳入
+      动态的 ownerSid），直接赋同一对象会污染"可信主体全集"。现改为逐个复制元素，
+      既消除重复定义、又不污染语义。
+    · "删除 Get-PrivilegeErrorText 中恒不命中的 0 分支" → 该函数是完整的错误码映射表，
+      保留 0 分支有防御价值（报告本身也承认无害）。
+    · "为 exe 增加 -SkipExeButHardenOtherFiles 之类的中间开关" → 现有 -SkipExe 已可整段跳过，
+      且注释已写明"换服务账户运行会踩坑"的风险，再加中间开关属过度设计。
+    · "只在提升后的子进程里做进程检测（避免两次告警）" → 该建议前提不成立：
+      父进程在自提升分支内即 exit，根本执行不到进程检测那一步，实际只告警一次。
+
 .PARAMETER InstallDir
     部署态安装目录。默认 D:\codebase-memory-mcp。
     强烈建议不要改——开发态目录禁止直接使用。
@@ -297,9 +377,16 @@ if (-not $isElevated) {
         $stamp      = Get-Date -Format 'yyyyMMdd-HHmmss'
         $logFile    = Join-Path $env:TEMP ('cbm-acl-fix-' + $stamp + '.log')
         $runnerFile = Join-Path $env:TEMP ('cbm-acl-runner-' + $stamp + '.ps1')
+        $codeFile   = Join-Path $env:TEMP ('cbm-acl-exitcode-' + $stamp + '.txt')
+        # 退出码回传：Start-Process -Verb RunAs 跨 UAC 边界后拿不到可靠的 ExitCode
+        # （-PassThru 的 $proc.ExitCode 在此场景下不可信），所以让 runner 把子进程的
+        # $LASTEXITCODE 写进一个哨兵文件，父进程读完据此决定自己的退出码 ——
+        # 否则无论子进程成功还是失败，父进程都返回 0，计划任务 / CI 会误判为"已修复"。
         $runnerText = '& ' + (ConvertTo-SingleQuotedLiteral $PSCommandPath) + $innerParams +
                       ' *>&1 | Out-File -LiteralPath ' + (ConvertTo-SingleQuotedLiteral $logFile) +
-                      ' -Encoding UTF8' + "`r`n"
+                      ' -Encoding UTF8' + "`r`n" +
+                      'Set-Content -LiteralPath ' + (ConvertTo-SingleQuotedLiteral $codeFile) +
+                      ' -Value $LASTEXITCODE -Encoding ASCII' + "`r`n"
         [System.IO.File]::WriteAllText($runnerFile, $runnerText, (New-Object System.Text.UTF8Encoding($true)))
 
         try {
@@ -317,12 +404,30 @@ if (-not $isElevated) {
                 Write-Host ('       运行器脚本路径：' + $runnerFile) -ForegroundColor Yellow
                 Write-Host ('       日志预期路径：' + $logFile) -ForegroundColor Yellow
             }
+
+            # 读回子进程退出码（读不到按 0 处理，但会提示）
+            $childCode = 0
+            if (Test-Path -LiteralPath $codeFile) {
+                try {
+                    $rawCode = (Get-Content -LiteralPath $codeFile -ErrorAction Stop | Select-Object -First 1)
+                    $parsed  = 0
+                    if ([int]::TryParse(([string]$rawCode).Trim(), [ref]$parsed)) { $childCode = $parsed }
+                    Remove-Item -LiteralPath $codeFile -Force -ErrorAction SilentlyContinue
+                } catch { $childCode = 0 }
+            } else {
+                Write-Host '[警告] 未取到提权子进程的退出码，无法判断修复是否真正成功。' -ForegroundColor Yellow
+            }
+            if ($childCode -ne 0) {
+                Write-Host ('[退出码] 提权子进程返回 ' + $childCode + '，本次修复可能未完全成功，请查看上方日志。') -ForegroundColor Yellow
+            }
+
             Remove-Item -LiteralPath $runnerFile -Force -ErrorAction SilentlyContinue
-            exit 0
+            exit $childCode
         } catch {
             Write-Host ('[错误] 提升权限失败：' + $_.Exception.Message) -ForegroundColor Red
             Write-Host '       请手动以管理员身份打开 PowerShell，再运行本脚本。' -ForegroundColor Red
             Remove-Item -LiteralPath $runnerFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $codeFile   -Force -ErrorAction SilentlyContinue
             exit 1
         }
     }
@@ -579,8 +684,10 @@ Write-Host '[自检] 数据目录归属校验通过（位于安装目录之下�
 #         因此默认只告警；要强制停止需显式加 -StopProcess。
 $runningProcs = @()
 try {
+    # 进程名必须锚定匹配：原先写 'codebase-memory|dmcp' 是子串匹配，
+    # 会把 admcp / dmcpx 这类无关进程也卷进来 —— 一旦配合 -StopProcess，就存在误杀风险。
     $runningProcs = @(Get-Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.ProcessName -match 'codebase-memory|dmcp' })
+        Where-Object { $_.ProcessName -match '^(codebase-memory-mcp|dmcp)(\.|$)' })
 } catch { $runningProcs = @() }
 
 if ($runningProcs.Count -gt 0) {
@@ -725,7 +832,12 @@ function Set-PrivateOwnerOnly {
             $ownerSid = $acl.GetOwner([Security.Principal.SecurityIdentifier])
             if ($ownerSid.Value -ne $currentSid.Value) {
                 $needTakeOwnership = $true
-                $result.Detail = '所有者不是当前用户（现为 ' + (Get-SidValue $acl.GetOwner([System.Security.Principal.NTAccount])) + '）'
+                # 优先显示可读账户名；若所有者是"幽灵 SID"（账户已被删除）则 NTAccount 转换会抛异常，
+                # 这里就地兜底为 SID 文本 —— 不能让异常冒到外层 catch，
+                # 否则 Detail 会被覆盖成笼统的"无法读取所有者"，反而丢失"所有者不是当前用户"这个关键线索。
+                $ownerDisplay = $ownerSid.Value
+                try { $ownerDisplay = $acl.GetOwner([System.Security.Principal.NTAccount]).Value } catch { }
+                $result.Detail = '所有者不是当前用户（现为 ' + $ownerDisplay + '）'
             }
         } catch {
             $needTakeOwnership = $true
@@ -853,12 +965,21 @@ function Repair-DirectoryTree {
 
     $children = @()
     try {
-        $children = @(Get-ChildItem -LiteralPath $LiteralPath -Force -Directory -ErrorAction SilentlyContinue |
+        # 必须用 -ErrorAction Stop：-'SilentlyContinue' 会抑制"拒绝访问"这类**非终止错误**，
+        # 于是 catch 永远不会触发 —— 枚举失败被彻底静默（连警告都不会打印），
+        # 看起来"这个目录没有子目录"，实际是读不到。改用 Stop 让失败可见。
+        $children = @(Get-ChildItem -LiteralPath $LiteralPath -Force -Directory -ErrorAction Stop |
             Where-Object {
                 -not ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint)
             })
     } catch {
         Write-Host ('  [警告] 无法枚举子目录，已跳过：' + $LiteralPath + ' —— ' + $_.Exception.Message) -ForegroundColor Yellow
+        if ($DryRun) {
+            Write-Host '         （DryRun 下未修权限：若本层是空 DACL，其子目录无法列出，属预期现象；' -ForegroundColor Yellow
+            Write-Host '           正式运行时会先修本层、再枚举子项，因此不会漏修。）' -ForegroundColor Yellow
+        } else {
+            Write-Host '         本层权限可能仍未恢复，其子目录本次未处理，请人工复查。' -ForegroundColor Yellow
+        }
         return
     }
 
@@ -926,7 +1047,10 @@ if ($SkipAncestors) {
             $acl = Get-Acl -LiteralPath $current -ErrorAction Stop
         } catch {
             Write-Host ('  [跳过] 无法读取本层权限清单：' + $_.Exception.Message) -ForegroundColor Yellow
+            # 统计口径：阶段 A 处理的都是目录层，必须同步计入 dir 分类，
+            # 否则汇总里"总数 ≠ 目录 + 文件"（阶段 A 只加总数、不加分类）。
             $script:stats.Failed++
+            $script:kindStat.dir.Failed++
         }
 
         if ($null -ne $acl) {
@@ -935,15 +1059,13 @@ if ($SkipAncestors) {
             try { $ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]) } catch { $ownerSid = $null }
             try { $ownerNta = $acl.GetOwner([System.Security.Principal.NTAccount]) } catch { $ownerNta = $null }
 
-            # 允许留下的账户清单：SYSTEM + 管理员组 + 当前用户 + 所有者 + TrustedInstaller
-            # 加固点（严重项 7）：补入 TrustedInstaller，与脚本注释保持一致性；
-            # 否则祖先目录上原有的 TrustedInstaller ACE 会被误当成"违规"清掉。
+            # 允许留下的账户清单：可信主体全集（SYSTEM / 管理员组 / 当前用户 / TrustedInstaller）
+            # 再加上本层的所有者。**必须逐个复制**而不是把 $trustedSids 直接赋给 $allowed ——
+            # 后者会让两个变量指向同一个 HashSet 对象，后面往 $allowed 加 ownerSid 就把
+            # "可信主体全集"也污染了（它还要用于判断所有者是否可信）。
             $allowed = New-Object 'System.Collections.Generic.HashSet[string]'
-            $allowed.Add($systemSid) | Out-Null
-            $allowed.Add($adminSid) | Out-Null
-            $allowed.Add($currentSid.Value) | Out-Null
-            $allowed.Add($trustedInstallerSid) | Out-Null
-            if ($ownerSid -ne $null) { $allowed.Add($ownerSid.Value) | Out-Null }
+            foreach ($trusted in $trustedSids) { [void]$allowed.Add($trusted) }
+            if ($ownerSid -ne $null) { [void]$allowed.Add($ownerSid.Value) }
 
             # 找出违规条目：
             # 加固点（低风险 16）：只把"不受信主体 + 持有变更类权限"判为违规。
@@ -981,9 +1103,10 @@ if ($SkipAncestors) {
 
             if ($offending.Count -eq 0 -and $currentUserFull) {
                 Write-Host '  状态：权限清单已符合要求，无需改动'
-                # 加固点（中等问题 12）：统计口径统一——原实现只 $fixed++，
-                # 从不计入 stats.Ok，导致汇总里"本来就合规"漏计阶段 A。
+                # 统计口径统一：原实现只 $fixed++，从不计入 stats.Ok，
+                # 导致汇总里"本来就合规"漏计阶段 A；分类计数同理必须同步。
                 $script:stats.Ok++
+                $script:kindStat.dir.Ok++
                 $processed++
             } else {
                 if ($offending.Count -gt 0) {
@@ -997,11 +1120,11 @@ if ($SkipAncestors) {
                 if ($DryRun) {
                     Write-Host '  [试运行] 未做任何改动'
                     $script:stats.WouldFix++
+                    $script:kindStat.dir.WouldFix++
                     $processed++
                 } else {
                     $newAcl = New-Object System.Security.AccessControl.DirectorySecurity
-                    # 加固点（新增 19）：显式保留原所有者与原主组，
-                    # 避免重写安全描述符时把这两项清空。
+                    # 显式保留原所有者与原主组，避免重写安全描述符时把这两项清空。
                     try { $newAcl.SetOwner($acl.GetOwner([System.Security.Principal.SecurityIdentifier])) } catch { }
                     try { $newAcl.SetGroup($acl.GetGroup([System.Security.Principal.SecurityIdentifier])) } catch { }
                     $newAcl.SetAccessRuleProtection($true, $false)
@@ -1013,30 +1136,67 @@ if ($SkipAncestors) {
                     $newAcl.AddAccessRule((New-FullControlRule $admId $ci $noneProp))
                     $newAcl.AddAccessRule((New-FullControlRule $tiId  $ci $noneProp))
 
-                    # 所有者（仅本层、不继承）。
-                    # 加固点（严重项 6）：仅在"可信主体"清单内才授予。
-                    # 原实现只要所有者不是 SYSTEM/Administrators/当前用户 就无条件授予完全控制，
-                    # 若所有者是不受信账户，反而会造出上游 win_directory_component_secure()
-                    # 判定为不安全的一层。这里对不可信所有者不授予，并给出告警。
-                    if (($ownerSid -ne $null) -and ($ownerSid.Value -notin @($systemSid, $adminSid, $currentSid.Value))) {
-                        if ($ownerSid.Value -in $trustedSids) {
-                            $ownerRef = if ($ownerNta -ne $null) { $ownerNta } else { $ownerSid }
-                            $newAcl.AddAccessRule((New-FullControlRule $ownerRef $noneInherit $noneProp))
-                        } else {
-                            Write-Host ('  [告警] 本层所有者不属于可信主体，未向其授予权限：' + $ownerSid.Value) -ForegroundColor Yellow
-                            Write-Host '         如上游校验仍不通过，请人工确认该层所有者的归属。' -ForegroundColor Yellow
+                    # 所有者授权：上游 win_directory_component_secure() 只认可四类可信主体
+                    # （当前用户 / SYSTEM / Administrators / TrustedInstaller），且它们上面都已各加了
+                    # 一条"可继承"ACE。因此这里只剩一种需要处理的情况：所有者不属于任何可信主体
+                    # （例如某个陌生/已删账户）→ 不授予任何权限，仅告警；原实现会给任意所有者
+                    # 无条件授予完全控制，反而造出上游判定为不安全的一层。
+                    # 另注：若所有者恰好是 TrustedInstaller，上面那条 ACE 已覆盖其访问需求，
+                    # 不再补"仅本层"的第二条 —— 否则同一 SID 会出现两条冗余 ACE。
+                    if (($ownerSid -ne $null) -and
+                        ($ownerSid.Value -notin @($systemSid, $adminSid, $currentSid.Value, $trustedInstallerSid))) {
+                        Write-Host ('  [告警] 本层所有者不属于可信主体，未向其授予权限：' + $ownerSid.Value) -ForegroundColor Yellow
+                        Write-Host '         如上游校验仍不通过，请人工确认该层所有者的归属。' -ForegroundColor Yellow
+                    }
+
+                    # 保留"不受信主体、但只有只读权限"的非继承 ACE。
+                    # 规则声明的是"清理不受信主体的**变更类**权限"，只读权限本应留下；
+                    # 但重建是整份 DACL 替换，若不显式复制，这些只读 ACE 会随
+                    # SetAccessRuleProtection($true,$false) 一起被丢掉 ——
+                    # 若祖先目录是共享父目录，会连带拿走其他用户的只读访问。
+                    foreach ($oldRule in $acl.Access) {
+                        if ($oldRule.IsInherited) { continue }
+                        $oldSid = Get-SidValue $oldRule.IdentityReference
+                        if (($oldSid -eq $null) -or $allowed.Contains($oldSid)) { continue }
+                        $oldHasMutation = (($oldRule.FileSystemRights -band $mutationRights) -ne
+                                           [System.Security.AccessControl.FileSystemRights]::None)
+                        if (-not $oldHasMutation) {
+                            try { [void]$newAcl.AddAccessRule($oldRule) } catch { }
                         }
                     }
+
                     # 关键修正：追加当前用户完全控制（可继承）
                     $newAcl.AddAccessRule((New-FullControlRule $currentSid $ci $noneProp))
 
                     Set-Acl -LiteralPath $current -AclObject $newAcl
-                    $keptOwner = ''
-                    if (($ownerSid -ne $null) -and ($ownerSid.Value -notin @($systemSid, $adminSid, $currentSid.Value)) -and ($ownerSid.Value -in $trustedSids)) {
-                        $keptOwner = '、' + $ownerSid.Value
+
+                    # 回读校验：Windows 可能因 SACL / 所有权等原因静默修正 DACL，
+                    # "Set-Acl 没抛异常"不等于"权限真的写进去了"。这里确认两件事：
+                    #   1) DACL 确实处于"受保护"状态；
+                    #   2) 存在一条"当前用户完全控制"的非继承 ACE。
+                    $verified = $false
+                    try {
+                        $chk = Get-Acl -LiteralPath $current -ErrorAction Stop
+                        $verified = [bool]$chk.AreAccessRulesProtected
+                        if ($verified) {
+                            $verified = (@($chk.Access | Where-Object {
+                                (-not $_.IsInherited) -and
+                                ((Get-SidValue $_.IdentityReference) -eq $currentSid.Value) -and
+                                (($_.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -eq
+                                  [System.Security.AccessControl.FileSystemRights]::FullControl)
+                            }).Count -ge 1)
+                        }
+                    } catch { $verified = $false }
+
+                    if ($verified) {
+                        Write-Host ('  已修复（已回读校验）：' + $current + ' -> 保留 SYSTEM、管理员组、TrustedInstaller、当前用户') -ForegroundColor Green
+                        $script:stats.Fixed++
+                        $script:kindStat.dir.Fixed++
+                    } else {
+                        Write-Host ('  [警告] 回读校验未通过：' + $current + ' 的实际权限与预期不符，请人工复查。') -ForegroundColor Yellow
+                        $script:stats.Failed++
+                        $script:kindStat.dir.Failed++
                     }
-                    Write-Host ('  已修复：' + $current + ' -> 保留 SYSTEM、管理员组、TrustedInstaller、当前用户' + $keptOwner) -ForegroundColor Green
-                    $script:stats.Fixed++
                     $processed++
                 }
             }
@@ -1065,13 +1225,45 @@ if ($SkipExe) {
     Write-Host '       单条 ACE 完全控制。既能防止被别的账户篡改，也保证 cbm 自更新可用。'
     Write-Host ' 注意：本阶段会把 exe 收敛为"仅当前用户可访问"。若日后改为由 SYSTEM 或'
     Write-Host '       其他服务账户启动 cbm，该账户将无法读取 exe，需要重新调整这一层。'
+    Write-Host '       （如需完全跳过本阶段、只修数据目录，请使用 -SkipExe。）'
 
-    $files = @(Get-ChildItem -LiteralPath $InstallDir -Force -File -ErrorAction SilentlyContinue)
+    $files = @()
+    try {
+        $files = @(Get-ChildItem -LiteralPath $InstallDir -Force -File -ErrorAction Stop)
+    } catch {
+        Write-Host ('  [警告] 无法枚举安装目录下的文件：' + $_.Exception.Message) -ForegroundColor Yellow
+    }
     # 把主程序排在最前面，优先处理
     $files = @($files | Sort-Object { if ($_.Name -eq 'codebase-memory-mcp.exe') { 0 } else { 1 } })
     foreach ($f in $files) {
         $r = Set-PrivateOwnerOnly -LiteralPath $f.FullName -IsContainer $false -DryRun:$DryRun
         Write-Stat $r 'file'
+    }
+
+    # 安装目录下的子目录。
+    # 本机当前部署形态下，安装目录只有 data 一个子目录，而 data 由阶段 C 专门处理，
+    # 因此这里实际不会命中任何项；但若后续版本在安装目录下增加子目录（lib\ / runtimes\ /
+    # config\ 等），它们既不被阶段 B（只管文件）覆盖，也不被阶段 C（只管数据目录）覆盖，
+    # 会留下防篡改缺口 —— 故一并按"目录模板"加固；
+    # 同时跳过数据目录本身及其子路径，避免与阶段 C 重复处理。
+    $cacheFullCmp = ([System.IO.Path]::GetFullPath($CacheDir)).TrimEnd('\')
+    $subDirs = @()
+    try {
+        $subDirs = @(Get-ChildItem -LiteralPath $InstallDir -Force -Directory -ErrorAction Stop |
+            Where-Object {
+                (-not ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) -and
+                ($_.FullName.TrimEnd('\') -ne $cacheFullCmp) -and
+                (-not $_.FullName.TrimEnd('\').StartsWith($cacheFullCmp + '\', [System.StringComparison]::OrdinalIgnoreCase))
+            })
+    } catch {
+        Write-Host ('  [警告] 无法枚举安装目录下的子目录：' + $_.Exception.Message) -ForegroundColor Yellow
+    }
+    if ($subDirs.Count -gt 0) {
+        Write-Host ''
+        Write-Host '--- B-2 安装目录下的子目录（按目录模板加固；数据目录已在阶段 C 处理，此处跳过）---'
+    }
+    foreach ($d in $subDirs) {
+        Repair-DirectoryTree -LiteralPath $d.FullName -DryRun:$DryRun
     }
 }
 
@@ -1102,7 +1294,16 @@ if ($SkipTree) {
     # 放在目录修好之后枚举，确保权限已恢复、能正常列出文件。
     Write-Host ''
     Write-Host '--- C-2 文件（模板：所有者=当前用户，受保护，单条 ACE 完全控制，不继承）---'
-    $treeFiles = @(Get-ChildItem -LiteralPath $CacheDir -Force -Recurse -File -ErrorAction SilentlyContinue)
+    $treeFiles = @()
+    try {
+        # 同 C-1：这里也不能用 -SilentlyContinue，否则枚举失败会伪装成"目录里没有文件"。
+        $treeFiles = @(Get-ChildItem -LiteralPath $CacheDir -Force -Recurse -File -ErrorAction Stop)
+    } catch {
+        Write-Host ('  [警告] 无法枚举数据目录下的文件：' + $_.Exception.Message) -ForegroundColor Yellow
+        if ($DryRun) {
+            Write-Host '         （DryRun 下未修权限；若目录 ACL 尚未恢复则无法列出文件，属预期现象。）' -ForegroundColor Yellow
+        }
+    }
     # _config.db 是最关键的（守护进程启动就要读它），排最前面先修
     $treeFiles = @($treeFiles | Sort-Object { if ($_.Name -eq '_config.db') { 0 } else { 1 } })
     if ($treeFiles.Count -eq 0) {
