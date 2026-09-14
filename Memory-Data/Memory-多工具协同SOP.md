@@ -32,15 +32,17 @@ file_number: 6
 <!-- INDEX_END -->
 ## 6-1 执行原则
 
-> 工具本身的接入方式、清单与适用边界见 [`## 5-3 DeusData本地代码知识图谱（经 dynamic-mcp 接入）`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-入口能力与图谱.md#5-3-deusdata本地代码知识图谱经-dynamic-mcp-接入)（单向引用，不重述；本文件只描述多工具按步骤协同）。
+> 工具本身的接入方式、清单与适用边界见 [`## 5-2 codebase-memory-mcp 本地代码知识图谱（经 dynamic-mcp 接入）`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-入口能力与图谱.md#5-2-codebase-memory-mcp-本地代码知识图谱经-dynamic-mcp-接入)（单向引用，不重述；本文件只描述多工具按步骤协同）。
 
-1. **并行执行**：快速定位工具（Everything-search）+ 深度分析工具（zvec-grep/codebase-memory）
+**当前已连接分组（以 list_groups 实测为准）**：Everything-search（文件名/全文检索）、codebase-memory-mcp（代码图谱/影响面）、firecrawl-mcp（联网检索/抓取）、sequential-thinking（分步推理）、filesystem（本地文件读写）、TickTick（待办）。
+
+1. **并行执行**：快速定位工具（Everything-search）+ 深度分析工具（codebase-memory-mcp 图谱）
 2. **验证链**：初步结果 → 二次确认 → 语义验证 → 上下文扩展
 3. **Token最小化**：精确查询、结果限制、分阶段获取、缓存利用
-4. **错误处理**：
+4. **错误处理与降级链**：
    - Everything-search 失败 → 降级到 WorkBuddy Grep + 目录遍历
-   - zvec-grep 未就绪 → 使用 WorkBuddy Grep 基于关键词搜索
-   - codebase-memory 未索引 → 使用 WorkBuddy Grep + git grep 基础代码搜索
+   - 本地语义代码搜索 → 优先 codebase-memory-mcp 的 `search_graph`（semantic_query 向量模式）；无向量结果时退 `search_code`（图增强 grep）
+   - codebase-memory-mcp 未索引/覆盖不足 → 先 `check_index_coverage` 确认 gap，再退化 WorkBuddy Grep + git grep 基础代码搜索
 
 ## 6-2 场景1：所有硬盘所有目录查找文件
 1. 使用 `everything_search` 搜索文件名或类型
@@ -54,11 +56,11 @@ file_number: 6
    - 语法：`content:"函数名"` 查找包含特定函数名的文件
    - 语法：`content:TODO ext:md` 查找Markdown文件中的TODO
 2. 对结果使用 WorkBuddy Grep 进行二次确认（尤其复杂正则）
-3. 代码搜索需理解上下文时，使用 zvec-grep 进行语义搜索
+3. 代码搜索需理解上下文时，使用 codebase-memory-mcp 的 `search_graph`（semantic_query 向量模式）进行语义搜索
 
 ## 6-4 场景3：所有硬盘所有目录进行语义搜索
 1. 使用 Everything-search 预过滤文件类型（`.py, .js, .ts, .java, .cpp, .md` 等）
-2. 使用 zvec-grep 进行语义核心搜索
+2. 使用 codebase-memory-mcp 的 `search_graph`（semantic_query）进行语义核心搜索
    - 示例：查找"处理用户登录验证"相关的代码
 3. 使用 WorkBuddy Grep 检查结果中的关键标记
 4. 对关键结果使用 Everything-search 获取周边内容
@@ -68,7 +70,7 @@ file_number: 6
 2. 使用 `search_graph` 查找符号定义（`search_graph "函数名"` 或 `search_graph "类名"`）
 3. 使用 `trace_path` 追踪调用链
 4. 使用 `detect_changes` 或结合 `trace_path` 分析影响面
-5. 使用 zvec-grep 确认关键路径的语义一致性
+5. 使用 codebase-memory-mcp 的 `search_graph` 确认关键路径的语义一致性
 6. 使用 WorkBuddy Grep 或 git grep 在特定文件中定位精确位置
 
 ## 6-6 场景5：代码编辑任务中调用链追踪
@@ -76,7 +78,7 @@ file_number: 6
 2. 使用 codebase-memory-mcp 的 `trace_path` 进行调用链分析
    - 正向追踪：从目标函数出发查看调用的函数
    - 反向追踪：查看调用目标函数的函数
-3. 使用 zvec-grep 检查路径中函数的语义相似性
+3. 使用 codebase-memory-mcp 的 `search_graph` 检查路径中函数的语义相似性
 4. 使用 Everything-search 排除测试文件或生成代码
 5. 通过 trace_depth 参数控制追踪深度
 
@@ -84,7 +86,7 @@ file_number: 6
 1. 使用 Everything-search 或 git grep 确定变更点精确位置
 2. 使用 codebase-memory-mcp 的 `detect_changes` 扫描影响面
 3. 使用 `trace_path` 确认关键调用路径
-4. 使用 zvec-grep 查找可能受影响但未直接调用的相关代码
+4. 使用 codebase-memory-mcp 的 `search_graph` 查找可能受影响但未直接调用的相关代码
 5. 使用 Everything-search 搜索可能包含相关注释或文档的文件
 6. 生成影响等级分类报告（直接影响、间接影响、潜在影响）
 
@@ -92,7 +94,7 @@ file_number: 6
 1. 使用 codebase-memory-mcp 的 `get_architecture` 获取全局架构
 2. 结合热点输出识别修改频繁的区域
 3. 使用 Everything-search 快速获取文件类型分布
-4. 对重要架构节点使用 zvec-grep 检查其实现一致性
+4. 对重要架构节点使用 codebase-memory-mcp 的 `search_graph`/`get_code_snippet` 检查其实现一致性
 5. （可选）结合 git 工具分析架构变化趋势
 
 [→主文件](file:///C:/Users/15794/.workbuddy/MEMORY.md)

@@ -40,8 +40,7 @@ file_number: 1
 | 1-4-2 技能自动激活判定（会话级闸门） | `### 1-4-2 技能自动激活判定（会话级闸门）` |  |
 | 1-5 目录与工具链约定 | `## 1-5 目录与工具链约定` |  |
 | 1-5-1 目录根约定 | `### 1-5-1 目录根约定` |  |
-| 1-5-2 本地工具安装位置（适用于 Windows 环境） | `### 1-5-2 本地工具安装位置（适用于 Windows 环境）` |  |
-| 1-5-3 严格优先规则 | `### 1-5-3 严格优先规则` |  |
+| 1-5-2 严格优先规则 | `### 1-5-2 严格优先规则` |  |
 <!-- INDEX_END -->
 ## 1-1 总则 · 信任但必须验证（跨 SOP 全局）
 
@@ -106,9 +105,9 @@ git reset 操作结果速查（操作结果表，非导航索引）：
 
 - **安全约束**：
 - `--hard` 丢弃的改动**不可恢复**（除非此前有 commit / stash / 在 `git reflog` 窗口内）；执行 `--hard` 前，若工作区有有价值改动，先 `git stash push -m "兜底"` 或确认 `git reflog` 可回捞。
-- 回滚**已合并内容**一律用 `git revert`（普通合并回滚唯一命令 `git revert -m 1 <合并碑>`），**禁止** `reset --hard` + 强推，以免违反 `### 2.1 禁止强推/删除自家 main（及受保护分支）` 禁强推 main 与"不改写历史"原则。
+- 回滚**已合并内容**一律用 `git revert`（普通合并回滚唯一命令 `git revert -m 1 <合并碑>`），**禁止** `reset --hard` + 强推，以免违反 `### 1-2-1 禁止强推/删除自家 main（及受保护分支）` 禁强推 main 与"不改写历史"原则。
 - 在含 `.workbuddy` 的仓库目录，`reset --hard` / `reset --mixed` + `git clean` 均禁用（防误删项目记忆）。
-- `--soft` 仅回退本地未推送提交时安全；若提交已推送且他人/PR 依赖，回退后强推属改写历史，须走 `### 2.2 三段式二次授权铁律` 二次授权铁律且优先用 `git revert`。
+- `--soft` 仅回退本地未推送提交时安全；若提交已推送且他人/PR 依赖，回退后强推属改写历史，须走 `### 1-2-2 三段式二次授权铁律` 二次授权铁律且优先用 `git revert`。
 
 ---
 
@@ -194,7 +193,7 @@ git reset 操作结果速查（操作结果表，非导航索引）：
 #### 1-3-4-3 全局调用（必须用全局绝对路径）
 
 - 任意全局 bin：`D:\Tools\Assembly\nodejs\node_global\node_modules\.bin/<bin>`（或 `$(npm root -g)/<pkg>/cli.js`）。
-- 禁止：`npx -y <pkg>`、省略 `executablePath`（触发自带 Chromium 下载，详见 `#### 3.4.1 核心原则` 末条）。
+- 禁止：`npx -y <pkg>`、省略 `executablePath`（触发自带 Chromium 下载，详见 `#### 1-3-4-1 核心原则` 末条）。
 
 #### 1-3-4-4 安装前「2 项检查」（全部未命中才允许 npm install -g）
 
@@ -212,7 +211,7 @@ git reset 操作结果速查（操作结果表，非导航索引）：
 3. **安全护栏内置**：凡涉及删除的运维脚本，默认 --dry-run 预览；真实删除须显式 --execute + 二次确认；运行前检测目标程序是否在运行并中止；删除目标必须限定在指定根目录内，显式排除敏感目录（如 skills/、plugins/、vendor/），绝不触碰根目录外的工作区工程目录。
 4. **越界拦截**：任何删除路径须经"是否在本根内 + 是否不在排除目录"双重校验，越界即抛错中止。
 
-> 适用场景：用户要"独立运行的清理/迁移/维护脚本"。与 `### 3.3 UV 管理 Python（禁用裸 python / pip）— 原则与详细操作` 不冲突——3.3 约束的是我（WorkBuddy）执行 Python 的方式，3.5 约束的是交付给用户独立运行的脚本的形态。
+> 适用场景：用户要"独立运行的清理/迁移/维护脚本"。与 `### 1-3-3 UV 管理 Python（禁用裸 python / pip）— 原则与详细操作` 不冲突——3.3 约束的是我（WorkBuddy）执行 Python 的方式，3.5 约束的是交付给用户独立运行的脚本的形态。
 
 ---
 
@@ -257,35 +256,14 @@ git reset 操作结果速查（操作结果表，非导航索引）：
 | 临时目录 | D:\System\UserTemp | 下载缓存、数据缓存、程序缓存（构造的 .py 等）的父目录 |
 | Tool 和 CLI 存放根目录 | D:\Tools\Assembly | 所有工具 Tool 与 CLI 存放根 |
 
-### 1-5-2 本地工具安装位置（适用于 Windows 环境）
 
-| 工具 | 安装目录 | PATH 注册（where.exe 实测） |
-| ------ | ------ | ------ |
-| Node.js + npm | D:\Tools\Assembly\nodejs | ✅（PATH 已注册；全局安装铁律见 `### 3.4 Node.js / npm / npx 全局安装规范`） |
-| UV | D:\Tools\Assembly\uv | ✅ |
-| Git | D:\Tools\Assembly\git | ✅ |
-| GH | D:\Tools\Assembly\gh.exe | ✅ |
-| Officecli | D:\Tools\Assembly\officecli.exe | ✅ |
-| WMIC | D:\Tools\Assembly\WMIC.exe | ✅（PATH 已注册） |
-| PECMD | D:\Tools\Assembly\PECMD.exe | ✅（PATH 已注册） |
-| Python | D:\Tools\Assembly\python\cpython-3.14.5-windows-x86_64-none（由 UV 管理使用） | ✅ |
-| ffmpeg（转码/处理） | D:\Tools\Assembly\ffmpeg\ffmpeg.exe | ✅（PATH 已注册） |
-| ffprobe（信息分析） | D:\Tools\Assembly\ffmpeg\ffprobe.exe | ✅（PATH 已注册） |
-| ffplay（音视频播放） | D:\Tools\Assembly\ffmpeg\ffplay.exe | ✅（PATH 已注册） |
-
-> **PATH 注册与安装要点**：
->
-> - `uv` / `python` / `git` / `gh` / `officecli` 经 `where.exe` 实测，在**系统 PATH 与用户 PATH 双通道**均可解析（✅）；其余工具均位于 `D:\Tools\Assembly` 并在 PATH。
-> - **Git 双可执行文件等价**：`git\cmd\git.exe` 与 `git\bin\git.exe` 为同一文件（MD5 `0857b8b97b665e9602d080543a11519c`、均 46480 字节、均报 `git version 2.54.0.windows.1`），统一以 `cmd\git.exe` 为单一事实源；`git\bin` 另含 bash/sh/ls/grep/sed/awk 等 unix 工具。
-> - **Python 解释器不在裸 PATH 调用**：`myenv` 的 `.venv\Scripts\python.exe` **不**在 PATH；Python 一律经 `uv run --project D:\Tools\Assembly\python\myenv` 调用。
-
-### 1-5-3 严格优先规则
+### 1-5-2 严格优先规则
 
 - **必须优先使用** `D:\Tools\Assembly` 下的工具：`nodejs`、`uv`、`git`、`gh.exe`、`officecli.exe` 等。
 - **仅当** `D:\Tools\Assembly` 中工具不可用或使用失败，才回退至内置同用途工具。
 - **PATH 注册结论**：上述工具在 **系统环境变量 PATH** 与 **用户环境变量 PATH** 均已注册，`where.exe` 均可解析。因此 **WorkBuddy 的"内置运行时"（内置 Git Bash / 内置 Python / 内置 Node.js）可安全关闭**，不依赖任何内置运行时即可工作。
 - **关闭内置 Git Bash 的影响**：Git / GitHub CLI 完全无影响（`git`、`gh` 走系统 PATH）；因 `D:\Tools\Assembly\git\bin` 在 PATH，`bash`/`sh` 及 unix 工具（ls/grep/sed/awk 等）仍可从 PATH 解析。bash 风格命令与 `.sh` 脚本在 WorkBuddy 的 Shell 工具从 PATH 探测 `bash` 时可用；若硬编码调用内置 bundled bash，可能回退到 `cmd`/`PowerShell`；如发生，重新开启内置 Git Bash，或确认 `D:\Tools\Assembly\git\bin` 在 PATH 靠前位置。
-- **关闭内置 Python**：我执行 Python 仍走 `uv run`（见 `### 3.3 UV 管理 Python（禁用裸 python / pip）— 原则与详细操作` 硬约束），只要 `uv` + 解释器在 PATH 即工作；本机 `python` 已在 PATH，WorkBuddy 本体若有 Python 调用也改走系统 PATH，故可用。
+- **关闭内置 Python**：我执行 Python 仍走 `uv run`（见 `### 1-3-3 UV 管理 Python（禁用裸 python / pip）— 原则与详细操作` 硬约束），只要 `uv` + 解释器在 PATH 即工作；本机 `python` 已在 PATH，WorkBuddy 本体若有 Python 调用也改走系统 PATH，故可用。
 - **关闭内置 Node.js**：需保证 `D:\Tools\Assembly\nodejs` 在 PATH（记忆已登记该路径）；本机 Node 由该路径提供。
 - **通用说明**：可关闭内置运行时以"用本机工具"；保留内置运行时作为兜底，或在关闭后实测 `git --version` / `gh --version` / `uv --version` / `python --version` / `node --version` / `officecli --help`；若某项失效，先确认对应 `D:\Tools\Assembly` 路径仍在 PATH，重开内置运行时。
 

@@ -135,9 +135,8 @@ file_number: 3
 
 ### 3-1-1 git / gh 本地路径
 
-- **git 本地路径**：`D:\Tools\Assembly\git\cmd\git.exe`，负责本地版本控制（diff 自审、分支、commit、rebase、push/pull、force-push）；`cmd\git.exe` 与 `bin\git.exe` 为同一文件，统一以 `cmd\git.exe` 为单一事实源。
-- **gh 本地路径**：`D:\Tools\Assembly\gh.exe`，负责 GitHub 平台交互（仓库/PR/Issue/CI/Release/API 等）。
-- **运行时仍以技能阶段0 探测为准**：上列为本机**当前已验证**的 git/gh 位置；执行 GitHub 操作时须遵循 `github-personal-manager` 阶段0——每次进入先用 `where.exe git` / `where.exe gh` 取实际路径（config 显式 `GIT_BIN`/`GH_BIN` 优先，否则以 `where.exe` 解析为准），本处路径不覆盖技能的运行期探测。
+- **git / gh 的绝对路径与安装位置，以主文件 `规则二：本地工具链` 本地工具表为唯一权威台账**（详见 [MEMORY.md 规则二：本地工具链](file:///C:/Users/15794/.workbuddy/MEMORY.md#规则二本地工具链)），本节不再重复定义。
+- **运行时仍以技能阶段0 探测为准**：执行 GitHub 操作时须遵循 `github-personal-manager` 阶段0——每次进入先用 `where.exe git` / `where.exe gh` 取实际路径（config 显式 `GIT_BIN`/`GH_BIN` 优先，否则以 `where.exe` 解析为准）；git/gh 路径以主文件规则二表为准，不覆盖技能的运行期探测。
 
 ### 3-1-2 凭证助手桥接
 
