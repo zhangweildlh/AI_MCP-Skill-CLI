@@ -1,9 +1,9 @@
 ---
 name: memory-consolidate
 description: 通用记忆整合/巩固技能：将分散的短期记忆（每日工作日志、会话记忆、碎片信息）蒸馏、合并、去重为结构化长期记忆（MEMORY.md），清理过期日志；并在整理含速查索引表与跨章节引用的可写记忆文件（MEMORY.md/规则文件/SKILL.md）时，强制执行交叉引用合规核查（六步专项 + 六连验证门禁），确保引用精准、唯一、格式一致、导航可达。激活关键词：记忆整合、记忆巩固、记忆蒸馏、合并记忆、整理记忆、长期记忆维护、交叉引用核查、distill memory、consolidate memory。适用：跨会话/跨项目的记忆体系维护、由周期自动化驱动。不适用：项目级代码、文档或配置的整理（请用专门的文件结构化组织技能）；每日日志为 append-only，仅作证据读取，不被本技能改写。
-version: 2.0.1
+version: 2.2.1
 agent_created: true
----
+--- 
 
 # 记忆整合（memory-consolidate）
 
@@ -13,7 +13,7 @@ agent_created: true
 
 ## 附：可选输入源耦合（task-methodology-consolidation 接入 · 用户授权硬编码例外）
 
-> **用户授权例外**：本块为与 `task-methodology-consolidation` 技能衔接的**可选**输入源，系用户于 2026-08-09 显式授权之**唯一**硬编码例外；本技能其余所有路径仍严格遵循「零硬编码」原则（经 `$WORKBUDDY_CONFIG_DIR` 变量化）。
+> **用户授权例外**：本块为与 `task-methodology-consolidation` 技能衔接的**可选**输入源，系用户于 2026-08-09 显式授权之**唯一**硬编码例外；本技能其余所有路径仍严格遵循「零硬编码」原则（经 `$WORKBUDDY_CONFIG_DIR` 与 `$WORKSPACE_ROOTS` 双变量化）。
 
 激活本技能（尤其由周期自动化驱动做记忆整合）时，额外将下列固定目录的产物作为输入源纳入蒸馏：
 
@@ -24,9 +24,30 @@ agent_created: true
 - **不写回**：本技能只读取并蒸馏这些经验，不修改、不删除该目录下的文件。
 - **来源定位**：本 Skill 产物仅为输入源之一、非唯一；本技能另有 `MEMORY.md`、每日日志、会话记忆等多元输入源。
 
+## 附：本机 Memory-Data 体系门禁感知（部署分支 · 用户授权）
+
+> 本分支为与 `WorkBuddy记忆文件说明.md` 体系衔接的**部署感知**扩展，不破坏「零项目专属、跨 Agent 可移植」原则：仅当本机固定路径 `D:\Documents\AI_MCP-Skill-CLI\Memory-Data\WorkBuddy记忆文件说明.md` 存在（即本机自定义多文件记忆体系已部署）时触发；标准 WorkBuddy 部署无此文件，本分支**静默跳过**。本分支受 `SOUL.md` 记忆文件维护门禁硬约束（门禁范围：全局 `MEMORY.md` 与 `Memory-Data\Memory-*.md`），对"全局主记忆文件"与"本机子记忆文件"两类目标**均自触发**，不依赖说明書与目标任务同目录（修补缺口 B）。
+
+若本技能的目标写路径命中以下任一，且**本机说明書体系存在**（定位见下"说明書定位"），则**本技能不得按自身 `## 第N章`/`N.N` 编号与通用工具流程执行**，必须改走该说明書体系：
+
+- 全局主记忆文件：`$WORKBUDDY_CONFIG_DIR/MEMORY.md`（即 `%USERPROFILE%\.workbuddy\MEMORY.md`）；
+- 本机子记忆文件：`D:\Documents\AI_MCP-Skill-CLI\Memory-Data\Memory-*.md`。
+
+**说明書定位（本机固定事实，与 `SOUL.md` 门禁第 27 行路径一致）**：本机自定义多文件记忆体系的权威说明書固定位于 `D:\Documents\AI_MCP-Skill-CLI\Memory-Data\WorkBuddy记忆文件说明.md`。触发判定：
+- 对"本机子记忆文件"：其所在目录 `Memory-Data/` 即含该说明書，直接命中；
+- 对"全局主记忆文件"：虽说明書不在其同目录（`%USERPROFILE%\.workbuddy\`），但 `SOUL.md` 门禁将全局 `MEMORY.md` 同样纳入说明書管辖；故只要上述固定路径说明書存在，即视为本机说明書体系存在、**触发本分支**（修补缺口 B：解除"说明書必须与目标同目录"的错误前置）；
+- 标准 WorkBuddy 部署无此固定路径说明書，本分支静默跳过。
+
+触发后的强制动作：
+
+1. **先完整读 `WorkBuddy记忆文件说明.md`**（SOUL.md 门禁第一步），严格遵循其全部规则；
+2. **写操作改走說明書体系**：按說明書规定的工具链（`memory-mgr.py`，见 §4）与格式强制要求（§10）执行；子记忆文件编号由其 `rewrite` 生成 `## N-M`/`### N-M-X`/`#### N-M-X-Z`（连字符、禁用点号），子文件 YAML 必填四要素；
+3. **丢弃本技能自带编号体系与「六连验证门禁」中与之冲突的章号/裸编号判定**，仅将本技能 §8.1 十二条作为「引用合规」补充核查参考（精神一致处复用，编号/工具处让位于說明書）；
+4. **归属判定前置**：新信息入库前先过说明書 §3.8 归属判定，多归属/无法唯一须暂停询问用户，不得直接落笔。
+
 ## 二、设计原则（强约束，不可违背）
 
-1. **零硬编码（唯一例外见『可选输入源耦合』节）**：所有路径通过环境变量/约定解析，绝不写死绝对路径、用户名、项目名。默认根目录为 `$WORKBUDDY_CONFIG_DIR`（未设置时回退 `~/.workbuddy`）。**唯一例外**：与 `task-methodology-consolidation` 衔接的固定产物目录 `D:\Documents\AI_MCP-Skill-CLI\Memory-Data\task-methodology\` 为用户 2026-08-09 显式授权硬编码，仅限于「可选输入源耦合」节作为接入点，不构成对零硬编码原则的一般性突破。
+1. **零硬编码（唯一例外见『可选输入源耦合』节）**：所有路径通过环境变量/约定解析，绝不写死绝对路径、用户名、项目名。全局侧默认根目录为 `$WORKBUDDY_CONFIG_DIR`（未设置时回退 `~/.workbuddy`）；工作空间侧根列表为 `$WORKSPACE_ROOTS`（允许多个不同路径，未设置时回退当前会话 workspace 单项；解析规则见第三节 3.1）。**唯一例外**：与 `task-methodology-consolidation` 衔接的固定产物目录 `D:\Documents\AI_MCP-Skill-CLI\Memory-Data\task-methodology\` 为用户 2026-08-09 显式授权硬编码，仅限于「可选输入源耦合」节作为接入点，不构成对零硬编码原则的一般性突破；同属用户授权硬编码例外的还有「附：本机 Memory-Data 体系门禁感知（部署分支）」节引用的本机说明書固定路径（`D:\Documents\AI_MCP-Skill-CLI\Memory-Data\WorkBuddy记忆文件说明.md`），其与 `SOUL.md` 门禁第 27 行路径一致、且仅在该说明書存在时触发，不破原则。
 2. **零项目专属**：技能逻辑与任何具体项目无关，可放入任意用户级 `skills/` 目录直接使用。
 3. **跨 Agent 可移植**：指令自包含，不依赖特定 Agent 的私有能力；仅使用通用工具（Read / Write / Edit / Grep / Bash）。
 4. **严格跨项目隔离**：仅操作记忆目录（全局与各 workspace 的 `memory/`），绝不触碰项目源码、文档与配置；不同 workspace 的记忆互不串扰。
@@ -35,16 +56,40 @@ agent_created: true
 
 ## 三、路径约定（全部变量化）
 
-- 全局长期记忆：`$WORKBUDDY_CONFIG_DIR/MEMORY.md`
-- 全局每日日志：`$WORKBUDDY_CONFIG_DIR/memory/YYYY-MM-DD.md`（append-only）
-- 全局会话记忆：`$WORKBUDDY_CONFIG_DIR/memory/<uuid>_memory.md`
-- 项目级记忆：`<workspace>/.workbuddy/memory/`（结构同上）
+### 3.1 变量定义
+
+| 变量 | 含义 | 解析规则 |
+| ------ | ------ | ------ |
+| `$WORKBUDDY_CONFIG_DIR` | 全局配置根目录 | 读环境变量；未设置时回退 `~/.workbuddy` |
+| `$WORKSPACE_ROOTS` | **工作空间根列表（允许多个不同路径）** | 读环境变量；多路径以平台路径分隔符切分（Windows 用 `;`，类 Unix 用 `:`）；未设置时回退为「当前会话 workspace 目录」单项 |
+| `<workspace>` | 任一工作空间根目录 | 即 `$WORKSPACE_ROOTS` 列表中的任意一项 |
+
+### 3.2 路径映射（经 2026-08-26 本机全树实证修正）
+
+| 类别 | 路径 | 说明 |
+| ------ | ------ | ------ |
+| 全局长期记忆 | `$WORKBUDDY_CONFIG_DIR/MEMORY.md` | 整理目标本体 |
+| 全局会话记忆 | `$WORKBUDDY_CONFIG_DIR/memory/<uuid>_memory.md` | 文件名 = UUID 前缀 + `_memory.md` 后缀；`RAW_JSON` 块受保护 |
+| 全局每日日志 | **不存在此形态** | 实证结论：`$WORKBUDDY_CONFIG_DIR/memory/` 下仅存 `<uuid>_memory.md`；全局侧日期命名文件仅为审计日志（`audit-log/*.jsonl`）与应用运行日志（`logs/`），均非记忆，不纳入蒸馏。每日日志一律到工作空间侧查找（见下条） |
+| 工作空间每日日志 | `<workspace>/.workbuddy/memory/YYYY-MM-DD.md` | append-only；仅作证据读取，绝不被改写 |
+| 工作空间会话记忆 | `<workspace>/.workbuddy/memory/<uuid>_memory.md` | 结构同全局会话记忆 |
+| 工作空间长期记忆 | `<workspace>/.workbuddy/memory/MEMORY.md` | 项目级单一事实源 |
+
+### 3.3 工作空间枚举（多路径·强制步骤）
+
+每次执行时，对 `$WORKSPACE_ROOTS` 列表逐项处理：
+
+1. **枚举**：扫描 `<workspace>/.workbuddy/memory/` 下全部 `.md` 文件；
+2. **分类**：按命名归三类——`YYYY-MM-DD.md`（每日日志）、`<uuid>_memory.md`（会话记忆）、`MEMORY.md`（长期记忆）；
+3. **蒸馏输入**：每日日志（过期判定后）与长期记忆均纳入本次蒸馏候选；会话记忆只读不改写；
+4. **隔离**：各 workspace 记忆互不串扰，逐空间独立盘点与蒸馏；仅当某事实具跨项目通用性且获用户确认时，方可写入全局 `$WORKBUDDY_CONFIG_DIR/MEMORY.md`；
+5. **容错**：某 workspace 路径不存在、无 `.workbuddy/memory/` 或目录为空时，静默跳过并记录于盘点清单，不报错、不阻塞。
 
 ## 四、执行工作流
 
-1. **盘点**：列出所有记忆源（全局 + 各 workspace），统计每日日志的时间跨度与体量。
+1. **盘点**：按第三节 3.3 枚举全部记忆源——全局侧（`$WORKBUDDY_CONFIG_DIR/MEMORY.md` + `memory/` 会话记忆）与 `$WORKSPACE_ROOTS` 各工作空间侧（每日日志 / 会话记忆 / 长期记忆），统计各空间每日日志的时间跨度与体量，形成盘点清单（含被跳过的无效 workspace 路径）。
 2. **过期判定**：阈值**参数化**，默认 `threshold_days = 30`（贴合 WorkBuddy 自身记忆维护约定）；可按需覆盖为 MiMo 原版 `/dream` 的 **7 天**。早于阈值的每日日志进入「待蒸馏」集合。
-3. **蒸馏合并**：将待蒸馏日志按主题归类，提取**长期有效**的事实（用户偏好、跨项目约定、稳定结论、已验证的方案），写入/更新 `MEMORY.md` 对应章节；剔除一次性、临时、已失效的内容。**若 `MEMORY.md` 含速查索引表或跨章节引用，合并后必须触发本文件「交叉引用合规核查专项」**。
+3. **蒸馏合并**：将待蒸馏日志按主题归类，提取**长期有效**的事实（用户偏好、跨项目约定、稳定结论、已验证的方案），写入/更新对应层级的 `MEMORY.md`——项目专属事实写回该 workspace 的 `.workbuddy/memory/MEMORY.md`，跨项目通用事实经用户确认后写入全局 `$WORKBUDDY_CONFIG_DIR/MEMORY.md`；剔除一次性、临时、已失效的内容。**若目标 `MEMORY.md` 含速查索引表或跨章节引用，合并后必须触发本文件「交叉引用合规核查专项」**。
 4. **去重与结构化**：合并重复条目，保持 `MEMORY.md` 主题清晰、体量可控（单主题须控制在 3000 字以内，全文须控制在 8000 字以内）。
 5. **清理（需确认）**：对已完整蒸馏的过期每日日志，先备份再删除；删除前必须向用户列出清单并获得显式确认，**绝不静默删除**。
 6. **备份**：任何对 `MEMORY.md` 或日志的修改前，先生成 `.bak` 副本（同名 + `.bak` 后缀）。
@@ -174,7 +219,7 @@ agent_created: true
 
 ## 十三、执行指令（端到端 10 步）
 
-1. **路径核验**：确认目标记忆文件路径，读取全文，列出记忆源（全局 + 各 workspace）。
+1. **路径核验（门禁前置）**：确认目标记忆文件路径，读取全文；按第三节 3.3 枚举记忆源（全局 + `$WORKSPACE_ROOTS` 各 workspace），形成盘点清单。**若目标命中「附：本机 Memory-Data 体系门禁感知（部署分支）」触发条件（见本节上方附文），须先完整读 `WorkBuddy记忆文件说明.md` 并改走该说明書流程——本技能自带 `## 第N章`/`N.N` 编号体系与通用工具链让位于說明書，冲突部分丢弃（修补缺口 A：将部署分支显式挂入执行流，避免仅依赖附录节被忽略）**。
 2. **备份**：修改前生成 `.bak` 副本（同名 + `.bak`）。
 3. **盘点与过期判定**：列每日日志时间跨度，阈值参数化（默认 30 天）。
 4. **蒸馏合并**：按主题归类待蒸馏日志，提取长期事实写入/更新 `MEMORY.md`。
