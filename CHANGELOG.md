@@ -1,5 +1,13 @@
 ---
 
+## [2026-09-15]
+
+### Changed
+- **meta/`dir/Workbuddy专属`/`dir/github-personal-manager`：放宽目录名 ASCII-only 阻断至简体中文白名单**。分支正则、scope 解析、smoke scope 校验、sync-scope-manifest 文件表正则均从纯 ASCII 放宽至 `[\u4e00-\u9fa5A-Za-z0-9 _-]`（简体中文 + 字母 + 数字 + 空格 + 连字符 + 下划线），向后兼容原有 ASCII scope。`Workbuddy专属` 目录（合集目录、无 SKILL.md）纳入 `sync-scope-manifest.py` 的 `MANUAL_KEEP_DIRS` 人工豁免，AGENTS.md §2.1 登记得以保留。
+
+### Fixed
+- **pre-commit 分支正则 `\u4e00-\u9fa5` 转义序列失效**：在 `LANG=C.UTF-8` 下 `grep -Eq` 不识别该转义为中文范围，中文分支名（如 `feat/Workbuddy专属-...`）被误判为「非 worktree 纪律分支」，落入主工作树纪律校验并拦截目录型 Skill 文件提交。修复：改为字面量 `一-龥`（与 `scripts/sop_scope_check.sh` 保持一致），实测 `MATCH_OK`。
+
 ## [2026-09-03]
 ### Added
 - **open-medical-skills/**：新增目录型 Skill（中文医学分析编排助手，父编排 + 子 vendored 副本，离线确定性部署）；AGENTS.md §2.1 登记 `dir/open-medical-skills`（目录型 Skill 12 → 13）。
