@@ -62,15 +62,15 @@ fi
 
 SCOPE_NAME=""
 BRANCH_IS_FEAT=0
-if echo "$BRANCH" | grep -Eq '^feat/[A-Za-z0-9._-]+-[0-9]{14}$'; then
+if echo "$BRANCH" | grep -Eq '^feat/[a-zA-Z0-9._一-龥- ]+-[0-9]{14}$'; then
   BRANCH_IS_FEAT=1
   # 去掉 feat/ 前缀与尾部 -<14位时间戳>，得到 "<name>-<topic>" 候选串
   CAND=$(echo "$BRANCH" | sed -E 's/^feat\///; s/-[0-9]{14}$//')
   # 收集 AGENTS.md 第 2 章已知 name（2.1 目录名 + 2.2 表格 name 列，外加字面 meta）
   KNOWN_NAMES=$(grep -E '^[[:space:]]*-[[:space:]]*`dir/' "$AGENTS" \
                  | sed -E 's/.*`dir\/([^`]+)`.*/\1/')
-  KNOWN_NAMES="$KNOWN_NAMES $(grep -E '^[[:space:]]*\| .+ \| `[a-z0-9-]+` \|$' "$AGENTS" \
-                 | sed -E 's/.*\| `([a-z0-9-]+)` \|$/\1/')"
+  KNOWN_NAMES="$KNOWN_NAMES $(grep -E '^[[:space:]]*\| .+ \| `[a-z0-9一-龥-]+` \|$' "$AGENTS" \
+                 | sed -E 's/.*\| `([a-z0-9一-龥-]+)` \|$/\1/')"
   # 最长前缀匹配
   for n in $KNOWN_NAMES meta; do
     case "$CAND" in
@@ -108,7 +108,7 @@ elif [ "$SCOPE_NAME" = "meta" ]; then
   SCOPE_TYPE="meta"
 elif grep -Eq "^[[:space:]]*\| .* \| \`$SCOPE_NAME\` \|$" "$AGENTS"; then
   FILE_PATH=$(grep -E "^[[:space:]]*\| .* \| \`$SCOPE_NAME\` \|$" "$AGENTS" \
-               | sed -E 's/^[[:space:]]*\| (.*) \| `[a-z0-9-]+` \|$/\1/' | sed 's/[[:space:]]*$//')
+               | sed -E 's/^[[:space:]]*\| (.*) \| `[a-z0-9一-龥-]+` \|$/\1/' | sed 's/[[:space:]]*$//')
   if [ -n "$FILE_PATH" ]; then
     SCOPE_TYPE="file"
   fi
