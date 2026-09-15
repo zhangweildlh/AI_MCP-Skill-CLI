@@ -30,8 +30,8 @@
 #     --branch <feat/x>      必填。功能分支主题（feat/ 前缀可省，缺省自动补）；实际分支名会追加时间戳
 #                            （feat/<scope>-<topic>-<TS> 或 feat/<topic>-<TS>）。已存在（本地或远端）时会被拒绝。
 #     --topic <topic>        可选。工作树子目录名基名；缺省取分支名最后一段。实际目录名 = <scope>-<topic>-<TS>。
-#     --scope <name>         可选。Skill 的 name 字段（如 web-search / github-personal-manager），用于对齐仓库纪律
-#                            AGENTS.md §4.1 的 <name>-<topic>-<TS> 命名；仅允许小写字母/数字/连字符，
+#     --scope <name>         可选。Skill 的 name 字段（如 web-search / github-personal-manager / Workbuddy专属），用于对齐仓库纪律
+#                            AGENTS.md §4.1 的 <name>-<topic>-<TS> 命名；仅允许小写字母/数字/连字符/下划线/空格和简体中文，
 #                            非法值直接以退出码 2 拒绝；未传时维持通用命名 <topic>-<TS>（兼容无 scope 概念的仓库）。
 #     --worktree-root <dir>  可选。工作树根目录；缺省为主仓库下的 worktrees/（与仓库级 .gitignore 的 worktrees/ 一致）。
 #     --confirm              真正创建工作树。不加则只预览，不改动磁盘。
@@ -107,9 +107,9 @@ if ! _sop_is_clean; then
 fi
 # 参数校验
 if [ -z "$BRANCH" ]; then echo "⛔ 必须指定 --branch <feat/x>。"; exit 2; fi
-# --scope 校验：仅允许小写字母/数字/连字符（与 AGENTS.md name 字段同构），非法即 exit 2
-if [ -n "${SCOPE:-}" ] && ! [[ "$SCOPE" =~ ^[a-z0-9-]+$ ]]; then
-  echo "⛔ --scope 仅允许小写字母/数字/连字符（如 web-search、github-personal-manager），收到: [$SCOPE]。"; exit 2
+# --scope 校验：仅允许小写字母/数字/连字符/下划线/空格和简体中文（与 AGENTS.md name 字段同构），非法即 exit 2
+if [ -n "${SCOPE:-}" ] && ! [[ "$SCOPE" =~ ^[a-z0-9 _-一-龥]+$ ]]; then
+  echo "⛔ --scope 仅允许小写字母、数字、连字符、下划线、空格和简体中文（如 web-search、github-personal-manager、Workbuddy专属），收到: [$SCOPE]。"; exit 2
 fi
 # 时间戳一致性（方案 Y 多并发守纪律）：创建时仅此一次生成无分隔符 TS（%Y%m%d%H%M%S），
 # 工作树目录名与分支名复用同一 TS，保证「目录名 + feat/ 前缀 = 分支名」。
