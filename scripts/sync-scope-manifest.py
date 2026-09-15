@@ -48,7 +48,7 @@ CH2_3_RE = re.compile(r"^-\s*2\.3\b")
 
 # 清单行解析
 DIR_LINE_RE = re.compile(r"^\s*-\s*`dir/([^`]+)`")
-FILE_TABLE_RE = re.compile(r"^\s*\| (.+?) \| `([a-z0-9-]+)` \|$")
+FILE_TABLE_RE = re.compile(r"^\s*\| (.+?) \| `([a-z0-9一-龥_-]+)` \|$")
 
 # 固定的 meta / 排除集合（2.3/2.4 不扫描、不重写）
 META_SET = ("scripts/", ".github/", "README.md", "CHANGELOG.md",

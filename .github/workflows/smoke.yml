@@ -73,7 +73,7 @@ jobs:
                 # 根级单文件 Skill：提取 frontmatter name → file/<name>
                 name=$(head -25 "$f" | grep -E '^name:' | head -1 \
                        | sed 's/^name:[[:space:]]*//; s/[",`]//g')
-                if echo "$name" | grep -qE '^[a-z0-9-]+$'; then
+                if echo "$name" | grep -qE '^[a-z0-9一-龥_-]+$'; then
                   scopes="$scopes file/$name"
                 else
                   meta=1                                    # 无法判定 name → 保守全量
