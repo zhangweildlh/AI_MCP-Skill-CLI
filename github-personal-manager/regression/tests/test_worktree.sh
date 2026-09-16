@@ -147,11 +147,37 @@ test_wt_add_scope_confirm() {
 
 test_wt_add_scope_invalid() {
   local triple; triple="$(setup_triple)"; _parse_triple "$triple"
-  local out rc
-  out="$(run_script sop_worktree_add.sh "$TRIPLE_LOCAL" --scope Bad_Name --branch feat/wt --confirm 2>&1)"; rc=$?
-  if ! assert_rc "$rc" 2; then fail "wt_add scope 非法应 rc=2, 实际 rc=$rc out=$out"; return 1; fi
-  if ! assert_contains "仅允许小写字母" "$out"; then fail "wt_add scope 非法未提示: $out"; return 1; fi
-  pass "worktree_add: --scope 非法值 → rc=2"
+  local out rc bad
+  # PR #72 修复后 Bad_Name（含下划线）属允许集变为合法 scope；改用 / . @ 等真正越界字符。
+  for bad in "Bad/Name" "foo.bar" "scope@x"; do
+    out="$(run_script sop_worktree_add.sh "$TRIPLE_LOCAL" --scope "$bad" --branch feat/wt --confirm 2>&1)"; rc=$?
+    if ! assert_rc "$rc" 2; then fail "wt_add scope 非法 [$bad] 应 rc=2, 实际 rc=$rc out=$out"; return 1; fi
+    if ! assert_contains "仅允许字母" "$out"; then fail "wt_add scope 非法 [$bad] 未提示: $out"; return 1; fi
+  done
+  pass "worktree_add: --scope 非法值(/ . @) → rc=2"
+}
+
+# --scope 正向（CJK+大写 / 纯 ASCII）：成功开树且命名对齐 <scope>-<topic>-<TS>
+# 锁定 PR #72 修复：Workbuddy专属（大写 W + 简中）与纯 ASCII 均须被接受。
+test_wt_add_scope_positive() {
+  local triple; triple="$(setup_triple)"; _parse_triple "$triple"
+  local out rc branch_actual scope topic
+  # --worktree-root 指向较浅临时目录：本机 git 在「已嵌套于 AI_MCP-Skill-CLI 工作树」的深层路径下，
+  # CJK 工作树名会触碰 '$GIT_DIR too big' 限制；浅层根规避该环境限制，不影响命名断言。
+  local wtroot="$TEST_TMP/wtroot"; mkdir -p "$wtroot"
+  for scope in "Workbuddy专属" "github-personal-manager"; do
+    topic="wt"
+    out="$(run_script sop_worktree_add.sh "$TRIPLE_LOCAL" --scope "$scope" --branch "feat/$topic" --worktree-root "$wtroot" --confirm 2>&1)"; rc=$?
+    if ! assert_rc "$rc" 0; then fail "wt_add scope [$scope] 正向应 rc=0, 实际 rc=$rc out=$out"; return 1; fi
+    branch_actual="$(printf '%s\n' "$out" | sed -n 's/^功能分支: //p' | sed 's/ （基于.*$//' | head -n1)"
+    _esc_scope="$(printf '%s' "$scope" | sed 's/[.[\*^$]/\\&/g')"
+    if ! printf '%s' "$branch_actual" | grep -Eq "^feat/$_esc_scope-$topic-[0-9]{14}$"; then
+      fail "wt_add scope [$scope] 分支名不符合 <scope>-<topic>-<TS>: $branch_actual"; return 1
+    fi
+    local wl; wl="$("$REAL_GIT" -C "$TRIPLE_LOCAL" worktree list 2>/dev/null)"
+    if ! assert_contains "$branch_actual" "$wl"; then fail "wt_add scope [$scope] 工作树未建立: $wl"; return 1; fi
+  done
+  pass "worktree_add: --scope 正向(CJK+大写/ASCII) 命名对齐"
 }
 
 # ---------------- sop_worktree_merge.sh ----------------
@@ -294,6 +320,7 @@ register_test "worktree_add: 脏→rc1" test_wt_add_dirty
 register_test "worktree_add: 未知选项→rc2" test_wt_add_unknown_opt
 register_test "worktree_add: --scope 命名对齐" test_wt_add_scope_confirm
 register_test "worktree_add: --scope 非法→rc2" test_wt_add_scope_invalid
+register_test "worktree_add: --scope 正向(CJK+大写/ASCII)" test_wt_add_scope_positive
 register_test "worktree_merge: dry-run" test_wt_merge_dryrun
 register_test "worktree_merge: --confirm" test_wt_merge_confirm
 register_test "worktree_merge: 缺--branch→rc2" test_wt_merge_no_branch
