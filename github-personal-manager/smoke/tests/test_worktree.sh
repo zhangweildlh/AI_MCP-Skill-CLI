@@ -172,16 +172,47 @@ test_wt_add_scope_naming() {
   pass "add --scope: 分支 $branch（目录名 + feat/ 前缀 = 分支名）"; return 0
 }
 
-# 2.6) --scope 非法值 → rc=2
+# 2.6) --scope 非法值（含 / . @ 等非法字符）→ rc=2 拒绝，且输出含拒绝文案
+#      注意：PR #72 修复前 Bad_Name 因 bash [[ =~ ]] 崩溃同样返回 rc=2，导致本用例「假通过」掩盖缺陷；
+#      修复后 Bad_Name（含下划线，属允许集）变为合法 scope，故改用真正越界的 / . @ 字符。
 test_wt_add_scope_invalid() {
   local pair; pair="$(wt_make_repo)"
   local ldir="${pair#*|}"
-  local out rc
-  out="$("$ROOT_DIR/scripts/sop_worktree_add.sh" "$ldir" --scope Bad_Name --branch feat/X --confirm 2>&1)"; rc=$?
-  if [ "$rc" -eq 2 ] && assert_contains "仅允许小写字母" "$out"; then
-    pass "add --scope 非法值: rc=2 拒绝"; return 0
-  fi
-  fail "add --scope 非法值应 rc=2: rc=$rc out=$out"; return 1
+  local out rc bad
+  for bad in "Bad/Name" "foo.bar" "scope@x"; do
+    out="$("$ROOT_DIR/scripts/sop_worktree_add.sh" "$ldir" --scope "$bad" --branch feat/X --confirm 2>&1)"; rc=$?
+    if [ "$rc" -ne 2 ] || ! assert_contains "仅允许字母" "$out"; then
+      fail "add --scope 非法值 [$bad] 应 rc=2 拒绝: rc=$rc out=$out"; return 1
+    fi
+  done
+  pass "add --scope 非法值(/ . @): 全部 rc=2 拒绝"; return 0
+}
+
+# 2.7) --scope 正向（CJK+大写 / 纯 ASCII）：成功开树，命名对齐 <scope>-<topic>-<TS>
+#      锁定 PR #72 修复：Workbuddy专属（含大写 W + 简中）与纯 ASCII 均须被接受并正确命名。
+test_wt_add_scope_positive() {
+  local pair; pair="$(wt_make_repo)"
+  local ldir="${pair#*|}"
+  local wtroot; wtroot="$(wt_root)"
+  local out wt branch scope topic
+  for scope in "Workbuddy专属" "github-personal-manager"; do
+    topic="sync-work"
+    out="$("$ROOT_DIR/scripts/sop_worktree_add.sh" "$ldir" --scope "$scope" --topic "$topic" --branch "feat/$topic" --worktree-root "$wtroot" --confirm 2>&1)"
+    wt="$(_wt_parse_path "$out")"
+    branch="$(_wt_parse_branch "$out")"
+    if [ -z "$wt" ] || [ ! -e "$wt" ]; then fail "add --scope [$scope] 未创建工作树: $wt"; return 1; fi
+    _esc_scope="$(printf '%s' "$scope" | sed 's/[.[\*^$]/\\&/g')"
+    if ! printf '%s' "$branch" | grep -Eq "^feat/$_esc_scope-$topic-[0-9]{14}$"; then
+      fail "add --scope [$scope] 分支名不符合 <scope>-<topic>-<TS> 命名: $branch"; return 1
+    fi
+    if [ "$wt" != "$wtroot/${branch#feat/}" ]; then
+      fail "add --scope [$scope] 工作树路径与分支名不一致: wt=$wt branch=$branch"; return 1
+    fi
+    if ! "$GIT_BIN" -C "$ldir" show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+      fail "add --scope [$scope] 未创建分支 $branch"; return 1
+    fi
+  done
+  pass "add --scope 正向(CJK+大写 / 纯 ASCII): 均成功开树且命名对齐"; return 0
 }
 
 # 3) 非 main 守卫：当前不在 main 应被拒绝
@@ -450,6 +481,7 @@ register_test "W5-add: dry-run 不创建工作树"   test_wt_add_dryrun_noop
 register_test "W5-add: --confirm 创建工作树+分支" test_wt_add_success
 register_test "W5-add: --scope 命名对齐(name-topic-TS)" test_wt_add_scope_naming
 register_test "W5-add: --scope 非法值 rc=2"     test_wt_add_scope_invalid
+register_test "W5-add: --scope 正向(CJK+大写/ASCII)" test_wt_add_scope_positive
 register_test "W5-add: 非 main 守卫拒绝"       test_wt_add_non_main_guard
 register_test "W5-add: 脏工作区硬停止"         test_wt_add_dirty_stop
 register_test "W5-add: 分支已存在守卫"         test_wt_add_branch_exists
