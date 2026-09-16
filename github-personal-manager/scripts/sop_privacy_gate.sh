@@ -16,7 +16,7 @@
 #   两类命中规则（全部内置、自包含，无需任何外部记忆）：
 #     - 文件名指纹：profile / Login Data / Cookies / favdb / .env / id_rsa / *.pem / *.key / credentials / *.token
 #     - 密钥内容指纹（正则，大小写不敏感）：GitHub PAT(pat/fine-grained)、Slack、AWS、OpenAI、
-#       GitLab、JWT、PEM 私钥块等高危格式。
+#       GitLab、JWT、PEM 私钥块、GCP service_account、Slack webhook、Telegram bot token 等高危格式。
 #
 # 【用途 / 使用场景】
 #   1. 工作流四「标准代码修改」中，推送(push) 前必跑，先确认无敏感文件再推；
@@ -108,6 +108,10 @@ CONTENT_PATTERNS=(
   "glpat-[A-Za-z0-9_-]{20,}"
   "eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"
   "-----BEGIN [A-Z ]*PRIVATE KEY-----"
+  # B3 增强（PR #72 关联审计建议 · 非阻断性补强）：补充云/协作/IM 密钥指纹，扩大覆盖
+  "[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+\.iam\.gserviceaccount\.com"   # GCP service_account 客户端邮箱
+  "https://hooks\.slack\.com/services/[A-Za-z0-9/_-]+"          # Slack incoming webhook URL
+  "[0-9]{8,10}:[A-Za-z0-9_-]{35}"                                  # Telegram bot token（<id>:<35位hash>）
 )
 
 # 解析 committed diff 的基准分支（用户指定 > origin/main > main > 空）
