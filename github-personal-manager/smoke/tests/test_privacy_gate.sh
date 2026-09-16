@@ -307,6 +307,52 @@ test_pg_large_file_scanned() {
   fi
 }
 
+# ---- 全场景(B3 增强)：GCP service_account 客户端邮箱 → 命中 ----
+test_pg_gcp_service_account() {
+  local pair; pair="$(setup_origin_and_local)"
+  local local="${pair#*|}"
+  # 抗钩子误报：邮箱域名经拼接，源码不含连续可匹配串(.iam.gserviceaccount.com)
+  local gcp_email="svc@proj-1"".iam"".gserviceaccount"".com"
+  printf '{"type":"service_account","client_email":"%s","private_key":"x"}\n' "$gcp_email" > "$local/gcp_sa.json"
+  local out rc; out="$("$GATE" "$local" 2>&1)"; rc=$?
+  if assert_eq "$rc" "1" && assert_contains "gcp_sa.json" "$out"; then
+    pass "GCP service_account 客户端邮箱 → rc=1 命中(B3 增强)"
+  else
+    fail "GCP SA 邮箱应命中 rc=1: rc=$rc out=$out"; return 1
+  fi
+}
+
+# ---- 全场景(B3 增强)：Slack incoming webhook URL → 命中 ----
+test_pg_slack_webhook() {
+  local pair; pair="$(setup_origin_and_local)"
+  local local="${pair#*|}"
+  # 抗钩子误报：URL 经拼接，源码不含连续 hooks.slack.com
+  local host="hooks"".slack"".com/services"
+  local tok="T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXXYYYYYYYY"
+  printf 'url=https://%s/%s\n' "$host" "$tok" > "$local/slack_hook.txt"
+  local out rc; out="$("$GATE" "$local" 2>&1)"; rc=$?
+  if assert_eq "$rc" "1" && assert_contains "slack_hook.txt" "$out"; then
+    pass "Slack incoming webhook URL → rc=1 命中(B3 增强)"
+  else
+    fail "Slack webhook 应命中 rc=1: rc=$rc out=$out"; return 1
+  fi
+}
+
+# ---- 全场景(B3 增强)：Telegram bot token → 命中 ----
+test_pg_telegram_token() {
+  local pair; pair="$(setup_origin_and_local)"
+  local local="${pair#*|}"
+  # 抗钩子误报：id 与 hash 分离，源码不含连续 <digits>:<35hash>
+  local id="123456789"; local hash="AAH9XaBcD3eF4gH5iJ6kL7mN8oP9qR0sT1u"
+  printf 'token=%s:%s\n' "$id" "$hash" > "$local/tg_token.txt"
+  local out rc; out="$("$GATE" "$local" 2>&1)"; rc=$?
+  if assert_eq "$rc" "1" && assert_contains "tg_token.txt" "$out"; then
+    pass "Telegram bot token → rc=1 命中(B3 增强)"
+  else
+    fail "Telegram token 应命中 rc=1: rc=$rc out=$out"; return 1
+  fi
+}
+
 register_test "隐私闸门: 清洁仓库放行" test_pg_clean_no_hit
 register_test "隐私闸门: 未跟踪 .env 命中" test_pg_untracked_env
 register_test "隐私闸门: 已暂存密钥内容命中" test_pg_staged_secret_content
@@ -327,3 +373,6 @@ register_test "隐私闸门: 超短令牌不误报" test_pg_short_token_no_hit
 register_test "隐私闸门: 良性 token 不误报" test_pg_benign_token_no_hit
 register_test "隐私闸门: profile 宽匹配命中" test_pg_broad_profile_match
 register_test "隐私闸门: 大文件扫描不绕过" test_pg_large_file_scanned
+register_test "隐私闸门(B3): GCP service_account 命中" test_pg_gcp_service_account
+register_test "隐私闸门(B3): Slack webhook 命中" test_pg_slack_webhook
+register_test "隐私闸门(B3): Telegram token 命中" test_pg_telegram_token
