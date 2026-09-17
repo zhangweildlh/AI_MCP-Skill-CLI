@@ -6,12 +6,15 @@
 
 | 模块 | 上游仓库 | 锁定版本 | 验证日期 | 本地缓存状态 |
 |------|----------|----------|----------|--------------|
-| 主干 | 自身 | commit:4b9d2c7 (main分支HEAD) | 2026-09-17 | ✅ 完整 |
+| 主干 | 自身 | commit:6912b50 (feat分支HEAD) | 2026-09-17 | ✅ 完整 |
 | jasminK11/claude-5-why-skill | https://github.com/jasminK11/claude-5-why-skill | commit:abc123def456 (2026-08-23) | 2026-09-17 | ✅ 完整 |
 | kimasplund/premortem-skill | https://github.com/kimasplund/premortem-skill | commit:ghi789jkl012 (2026-08-18) | 2026-09-17 | ✅ 完整 |
 | SilvereWolf/idea-friction-feasibility-auditor | https://github.com/SilvereWolf/idea-friction-feasibility-auditor | commit:mno345pqr678 (2026-09-13) | 2026-09-17 | ✅ 完整 |
+| audit-template.md | 本地维护 | N/A (本地模板) | 2026-09-17 | ✅ 完整 |
+| 5why-template.md | 本地维护 | N/A (本地模板) | 2026-09-17 | ✅ 完整 |
+| premortem-template.md | 本地维护 | N/A (本地模板) | 2026-09-17 | ✅ 完整 |
 
-> **说明**：上述 commit hash 为示例占位符。实际部署时需替换为真实的 commit hash 或 tag。
+> **说明**：上述 commit hash 为示例占位符（jasminK11/kimasplund/SilvereWolf）。实际部署时需替换为真实的 commit hash 或 tag。主干版本已更新为当前 feat 分支最新提交。模板文件为本地维护，不依赖上游版本。
 > 
 > **获取真实版本的方法**：
 > ```bash
@@ -29,6 +32,11 @@ deep-discuss/
 │       ├── jasminK11-5why.md          # 缓存的 5Why 模块方法论
 │       ├── kimasplund-premortem.md    # 缓存的 Premortem 模块方法论
 │       └── silvereWolf-consult.md     # 缓存的 Consult 模块方法论
+├── assets/
+│   └── templates/
+│       ├── audit-template.md          # 问题审计模板
+│       ├── 5why-template.md           # 5Why 追问模板
+│       └── premortem-template.md      # 事前验尸模板
 └── version-lock.md                    # 本文件
 ```
 
