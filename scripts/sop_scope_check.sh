@@ -62,7 +62,7 @@ fi
 
 SCOPE_NAME=""
 BRANCH_IS_FEAT=0
-if echo "$BRANCH" | grep -Eq '^feat/[a-zA-Z0-9._一-龥- ]+-[0-9]{14}$'; then
+if echo "$BRANCH" | grep -Eq '^feat/[一-龥A-Za-z0-9._ -]+-[0-9]{14}$'; then
   BRANCH_IS_FEAT=1
   # 去掉 feat/ 前缀与尾部 -<14位时间戳>，得到 "<name>-<topic>" 候选串
   CAND=$(echo "$BRANCH" | sed -E 's/^feat\///; s/-[0-9]{14}$//')
