@@ -11,19 +11,20 @@
 - 1.3 三类管理路径：目录型 Skill → 开 worktree（第 4 章）；根级 Skill 文件与其他根级文件 → 标准分支+PR（第 5 章）；meta 变更 → 触发全量 CI。
 
 ## 2 Scope 清单
-- 2.1 目录型 Skill（13 个，scope 标识 `dir/<目录名>`）：
+- 2.1 目录型 Skill（14 个，scope 标识 `dir/<目录名>`）：
   - `dir/chrome-devtools`
   - `dir/code-review-combo`
   - `dir/codebase-memory`
+  - `dir/deep-discuss`
   - `dir/file-structure-organizer`
   - `dir/github-personal-manager`
   - `dir/mimo-code-collab`
+  - `dir/open-medical-skills`
   - `dir/playwright-360chrome`
   - `dir/ref-material-writing`
+  - `dir/self-improvement`
   - `dir/tender-review-kit`
   - `dir/web-search`
-  - `dir/self-improvement`
-  - `dir/open-medical-skills`
   - `dir/Workbuddy专属`（无 SKILL.md，按目录 scope 处理；合集目录，内含子 Skill，统一按目录 scope 管理）
 - 2.2 根级 Skill 文件（8 个，scope 标识 `file/<name 字段>`）：
 
@@ -37,7 +38,6 @@
   | Skill-扫描Skill技能生成xml技能标签.md | `find-skill-to-xml` |
   | Skill-推广文章撰写.md | `promotion-writer` |
   | Skill-滴答清单智能任务解析创建器.md | `ticktick` |
-
 - 2.3 共享/元 scope（`meta`）：`scripts/`、`.github/`、`README.md`、`CHANGELOG.md`、`AGENTS.md`、`Memory-Data/`、`.githooks/`、`.gitignore`、`@*.md`、`mimo_mcp.py`。其中 `.githooks/`、`.gitignore` 为仓库纪律与门禁配置；`@*.md`、`mimo_mcp.py` 为其他根级文件，与本文件同走 meta 管理路径（标准分支+PR）。
 - 2.4 排除与忽略：`.workbuddy/`、`worktrees/`、密钥文件（`ref-material-writing/.env` 等，详见 §3.3）。
 - 2.5 清单维护规则：§2.1–§2.4 为机器可重写数据段，由 `scripts/sync-scope-manifest.py --update` 自动生成；人工修改须与脚本输出一致（数量、目录名、name 字段须与脚本扫描结果对齐）。除数据段外，本文件其余纪律章节为人工维护，遵循 §6.1「先更新本文件、再更新引用方」原则；新增/删除目录或根级 Skill 文件必须同步本节（docs-sync-checklist Tier 1 强制）。
