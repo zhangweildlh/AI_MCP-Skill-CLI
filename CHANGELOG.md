@@ -1,5 +1,16 @@
 ---
 
+## [2026-09-17]
+
+### Added
+- **meta：新增 AGENTS.md 第 8 章「开发态目录型 Skill 最小化纪律」**。约束全部目录型 Skill（含 `Workbuddy专属` 合集）保持最小/可移植/通用：五类文件（可下载 / 可派生 / 编译（含 >100MB 二进制程序）/ 过程临时垃圾 / 测试衍生）禁止纳入版本控制；允许本地（含工作树/分支）下载·编译·测试·衍生但不跟踪，提交/推送前询问用户是否删除；`.gitignore` 补 `build/`、`dist/`。
+
+### Changed
+- **meta/AGENTS.md §7.1：最小化原则改为引用第 8 章**（单一事实源，避免两处重复定义；引用方向 AGENTS.md → SOUL.md）。
+
+### Removed
+- **meta：删除 `Workbuddy专属/workbuddy-workspace-migration/scripts/__pycache__/purge.cpython-314.pyc`**（编译+派生产物，违反第 8 章；该路径已由 `.gitignore` 忽略，删除仅为本地卫生）。
+
 ## [2026-09-15]
 
 ### Changed
