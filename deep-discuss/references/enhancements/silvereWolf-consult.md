@@ -6,7 +6,7 @@
 **激活条件**：问题复杂度 ≥ 中 或 信息不明确
 **接口契约**：
 - 输入：`{ "用户问题描述": str, "已有信息": [str], "用户初步判断": str|null }`
-- 输出：`{ "audit": {"facts": [str], "assumptions": [{"内容":str,"类型":"load-bearing|decorative|hidden"}], "unknowns": [str]}, "steelman_pro": [str], "steelman_con": [str], "verdict": "可行/有条件可行/不可行/需更多信息", "value_flaw": str|null }`
+- 输出：`{ "audit": {"facts": [str], "assumptions": [{"内容":str,"类型":"load-bearing|decorative|hidden"}], "unknowns": [{"项":str,"优先级":"必须有|最好有|锦上添花"}]}, "steelman_pro": [str], "steelman_con": [str], "verdict": "可行/有条件可行/不可行/需更多信息", "value_flaw": str|null }`
 
 ---
 

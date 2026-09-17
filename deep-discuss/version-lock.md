@@ -6,7 +6,7 @@
 
 | 模块 | 上游仓库 | 锁定版本 | 验证日期 | 本地缓存状态 |
 |------|----------|----------|----------|--------------|
-| 主干 | 自身 | commit:6912b50 (feat分支HEAD) | 2026-09-17 | ✅ 完整 |
+| 主干 | 自身 | commit:fc6f48b (feat分支HEAD) | 2026-09-17 | ✅ 完整 |
 | jasminK11/claude-5-why-skill | https://github.com/jasminK11/claude-5-why-skill | commit:abc123def456 (2026-08-23) | 2026-09-17 | ✅ 完整 |
 | kimasplund/premortem-skill | https://github.com/kimasplund/premortem-skill | commit:ghi789jkl012 (2026-08-18) | 2026-09-17 | ✅ 完整 |
 | SilvereWolf/idea-friction-feasibility-auditor | https://github.com/SilvereWolf/idea-friction-feasibility-auditor | commit:mno345pqr678 (2026-09-13) | 2026-09-17 | ✅ 完整 |
@@ -47,11 +47,14 @@ deep-discuss/
 <!-- 版本锁定: commit:abc123def456 -->
 ```
 
-验证脚本示例：
+验证脚本示例（按缓存文件首行 commit hash 反查 version-lock.md，避免文件名与仓库名子串不匹配）：
 ```bash
 # 验证所有缓存文档的版本标记与 version-lock.md 一致
 for f in references/enhancements/*.md; do
-  head -1 "$f" | grep -q "$(grep "$(basename "$f" .md)" version-lock.md | awk '{print $3}')" || echo "版本不匹配: $f"
+  commit=$(head -1 "$f" | grep -oP 'commit:\K\S+')
+  if [ -n "$commit" ]; then
+    grep -q "$commit" version-lock.md || echo "版本不匹配: $f (commit=$commit 未出现在 version-lock.md)"
+  fi
 done
 ```
 
