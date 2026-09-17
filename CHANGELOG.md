@@ -11,6 +11,12 @@
 ### Removed
 - **meta：删除 `Workbuddy专属/workbuddy-workspace-migration/scripts/__pycache__/purge.cpython-314.pyc`**（编译+派生产物，违反第 8 章；该路径已由 `.gitignore` 忽略，删除仅为本地卫生）。
 
+### Changed
+- **meta/AGENTS.md：背靠背审计报告（Deepseek H1–H12、豆包 P01–P18）质证整改，采纳成立项并落地 23 处修订**：修正根级 Skill 数量误报（9→8，§1.2/§2.2）；消除"主副本 vs worktree"冲突（§7.1 改为走第 4 章 worktree）；收紧 pre-commit 放行清单表述（§3.2 移除"隐藏文件"泛化、明确密钥拒绝，与 §2.3 meta 清单对齐）；一般根级文件 `@*.md`/`mimo_mcp.py` 明确归入 meta（§1.2/§1.3/§2.2/§2.3）；统一 scope 标识（§4.1/§4.2 明确"对目录型 Skill，name 即目录名"）；CI 触发改为矩阵并明确 required 集合（§5.3）；区分"授权"与脚本 `--confirm` 闸门（§3.4）；厘清"单一事实源"层级（§6.1 限定本仓库 git 纪律权威、外部引用恒定向）；修正悬空引用 §5.5→§2.4/§3.2（§8.6）；§8.5 明确 `.gitignore` 改动走 meta 分支；细化 §8.3 五类文件判定标准、§8.1 计数口径、§0.3 阅读顺序与外部文件索引、§7 标题单复数等。
+
+### Fixed
+- **pre-commit 安全缺口修复（真实风险）**：`.githooks/pre-commit` 主工作树放行清单含 `\.*`（隐藏文件通配），且排在密钥拒绝行之前，导致 `.env` 等密钥文件被隐性放行。移除 `\.*` 通配并补全 `@*.md`/`mimo_mcp.py`，使 hook 放行清单与 §2.3/§3.2 meta 清单完全一致，密钥拒绝行（含 `ref-material-writing/.env` 等）真正生效。`bash -n` 语法校验通过。
+
 ## [2026-09-15]
 
 ### Changed
