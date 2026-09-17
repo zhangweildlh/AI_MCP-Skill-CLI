@@ -1,4 +1,4 @@
-<!-- 版本锁定: commit:mno345pqr678 -->
+<!-- 版本锁定: commit:ba850a7d24136875670f5d3c880d9988d95fa42d -->
 
 # SilvereWolf/idea-friction-feasibility-auditor 模块方法论缓存
 
@@ -166,4 +166,3 @@
 
 - 2026-09-17：首次缓存，基于 SilvereWolf/idea-friction-feasibility-auditor@mno345pqr678
 
-[wbs-reply-done]: #

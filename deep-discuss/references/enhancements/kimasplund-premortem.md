@@ -1,4 +1,4 @@
-<!-- 版本锁定: commit:ghi789jkl012 -->
+<!-- 版本锁定: commit:1baa5cd2e15f2eae4a52b8de72884de09582cb0e -->
 
 # kimasplund/premortem-skill 模块方法论缓存
 
@@ -178,4 +178,3 @@ Phase 6 退化至原有四项检查（完整性/风险预案/验证方式/补充
 
 - 2026-09-17：首次缓存，基于 kimasplund/premortem-skill@ghi789jkl012
 
-[wbs-reply-done]: #

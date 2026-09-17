@@ -68,7 +68,8 @@ version: 2.0.0
 - 有没有更深层的根因（root cause）藏在表面现象之下？
 
 **增强：SilvereWolf /consult 模块（P1 级）**
-在问题复杂度 ≥ 中或信息不明确时，激活此模块：
+> 方法论文档：`references/enhancements/silvereWolf-consult.md`；配套模板：`assets/templates/audit-template.md`
+在问题复杂度 ≥ 中或信息不明确时（阈值见"模块激活阈值"），激活此模块：
 1. 执行 Audit：分离 Facts / Assumptions / Unknowns（使用约定的审计模板）
 2. 执行 Steelman 双方分析：生成最强支持案（Steelman Pro）和最强反对案（Steelman Con）
 3. 将 Audit 结果和 Steelman 观点融入原有三层审查中：
@@ -307,6 +308,14 @@ Phase 2 done → Phase 3：深度分析
 - 在阶段输出中明确标注：`[模块名称] 暂不可用，已切换至基础模式`
 - 不中断整个讨论流程，仅影响该阶段的深度程度
 
+### 加载时启动自检（必做）
+
+每次激活本技能时，先执行一次轻量自检，避免"静默降级"导致用户误以为模块已生效：
+
+1. **模块存在性**：确认 `references/enhancements/` 下三个模块文件（jasminK11-5why.md、kimasplund-premortem.md、silvereWolf-consult.md）均存在且非空。
+2. **版本标记一致性**：读取三个模块文件首行的 `<!-- 版本锁定: commit:... -->`，确认其 commit 出现在 `version-lock.md` 中；任一不匹配即视为该模块版本偏离。
+3. **处置**：若自检发现缺失或版本偏离，在 Phase 1 开头明确向用户提示"检测到 [模块名] 不可用/版本偏离，已切换至基础模式"，而非等到对应阶段才悄悄降级；若无异常则无需提示，不打扰用户。
+
 ## 示例
 
 ### 典型场景 1：技术故障排查
@@ -321,4 +330,3 @@ Phase 2 done → Phase 3：深度分析
 **用户**：「用户说 APP 崩溃了，但没给日志，我也没法复现」
 **流程**：Phase 1 收集仅有信息 → Phase 2 审查：信息严重不足，Unknowns「必须有」：崩溃日志/复现步骤/设备型号/版本号 → Verdict：「需更多信息」→ **暂停流程**，明确列出必须补齐的信息等用户回复。
 
-[wbs-reply-done]: #
