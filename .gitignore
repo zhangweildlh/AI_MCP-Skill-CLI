@@ -45,6 +45,9 @@ ref-material-writing/.env
 web-search/.env
 code-review-combo/config/providers.json
 node_modules/
+# 第 8 章 开发态目录型 Skill 最小化纪律：编译/构建产物（禁止纳入版本控制）
+build/
+dist/
 *.log
 .sisyphus/
 
