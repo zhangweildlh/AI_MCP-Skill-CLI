@@ -1,4 +1,4 @@
-<!-- 版本锁定: commit:abc123def456 -->
+<!-- 版本锁定: commit:b32cb7acc5837f3b9757e269acae7b58805446dc -->
 
 # jasminK11/claude-5-why-skill 模块方法论缓存
 
@@ -94,4 +94,3 @@
 
 - 2026-09-17：首次缓存，基于 jasminK11/claude-5-why-skill@abc123def456
 
-[wbs-reply-done]: #

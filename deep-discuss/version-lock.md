@@ -6,15 +6,15 @@
 
 | 模块 | 上游仓库 | 锁定版本 | 验证日期 | 本地缓存状态 |
 |------|----------|----------|----------|--------------|
-| 主干 | 自身 | commit:fc6f48b (feat分支HEAD) | 2026-09-17 | ✅ 完整 |
-| jasminK11/claude-5-why-skill | https://github.com/jasminK11/claude-5-why-skill | commit:abc123def456 (2026-08-23) | 2026-09-17 | ✅ 完整 |
-| kimasplund/premortem-skill | https://github.com/kimasplund/premortem-skill | commit:ghi789jkl012 (2026-08-18) | 2026-09-17 | ✅ 完整 |
-| SilvereWolf/idea-friction-feasibility-auditor | https://github.com/SilvereWolf/idea-friction-feasibility-auditor | commit:mno345pqr678 (2026-09-13) | 2026-09-17 | ✅ 完整 |
+| 主干 | 自身 | commit:6cc78d0 (main HEAD @ 2026-09-17，主干随 main 演进) | 2026-09-17 | ✅ 完整 |
+| jasminK11/claude-5-why-skill | https://github.com/jasminK11/claude-5-why-skill | commit:b32cb7acc5837f3b9757e269acae7b58805446dc (main HEAD, 2026-09-17) | 2026-09-17 | ✅ 完整 |
+| kimasplund/premortem-skill | https://github.com/kimasplund/premortem-skill | commit:1baa5cd2e15f2eae4a52b8de72884de09582cb0e (main HEAD, 2026-09-17) | 2026-09-17 | ✅ 完整 |
+| SilvereWolf/idea-friction-feasibility-auditor | https://github.com/SilvereWolf/idea-friction-feasibility-auditor | commit:ba850a7d24136875670f5d3c880d9988d95fa42d (main HEAD, 2026-09-17) | 2026-09-17 | ✅ 完整 |
 | audit-template.md | 本地维护 | N/A (本地模板) | 2026-09-17 | ✅ 完整 |
 | 5why-template.md | 本地维护 | N/A (本地模板) | 2026-09-17 | ✅ 完整 |
 | premortem-template.md | 本地维护 | N/A (本地模板) | 2026-09-17 | ✅ 完整 |
 
-> **说明**：上述 commit hash 为示例占位符（jasminK11/kimasplund/SilvereWolf）。实际部署时需替换为真实的 commit hash 或 tag。主干版本已更新为当前 feat 分支最新提交。模板文件为本地维护，不依赖上游版本。
+> **说明**：上述 3 个上游模块的 commit 为经 `git ls-remote <repo> refs/heads/main` 核实的 **main HEAD 真实值（2026-09-17）**；三仓库目前均未发布 tag，故锁定至 main HEAD（后续上游发布 tag 时建议改为 tag 钉固以提升可复现性）。主干锁定至当前 main HEAD（`6cc78d0`），随 main 演进。模板文件为本地维护，不依赖上游版本。
 > 
 > **获取真实版本的方法**：
 > ```bash
@@ -75,4 +75,3 @@ done
 | 接口修改/核心行为变更 | 谨慎 | 完整回归测试 + 适配层开发 |
 | 安全修复 | 强制 | 尽快验证并部署 |
 
-[wbs-reply-done]: #
