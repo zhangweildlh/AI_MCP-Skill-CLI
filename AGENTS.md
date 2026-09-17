@@ -7,7 +7,7 @@
 
 ## 1 仓库结构总览
 - 1.1 单 git 仓库、多独立 Skill：本仓库是一个 git 仓库，每个一级子目录是一个独立 Skill 包（或共享基础设施），根级 Skill-*.md 为单文件 Skill；业务上相互独立，但基础设施（scripts/ 统一调度、github-personal-manager/scripts/ 复用）可共享，不视为关联。
-- 1.2 单元分类：目录型 Skill（13）/ 根级 Skill 文件（8）/ 共享基础设施（scripts、.github 等）/ 其他根级文件（@*.md、mimo_mcp.py，归 meta，见 §2.3）。
+- 1.2 单元分类：目录型 Skill（14）/ 根级 Skill 文件（8）/ 共享基础设施（scripts、.github 等）/ 其他根级文件（@*.md、mimo_mcp.py，归 meta，见 §2.3）。
 - 1.3 三类管理路径：目录型 Skill → 开 worktree（第 4 章）；根级 Skill 文件与其他根级文件 → 标准分支+PR（第 5 章）；meta 变更 → 触发全量 CI。
 
 ## 2 Scope 清单
@@ -39,7 +39,7 @@
   | Skill-推广文章撰写.md | `promotion-writer` |
   | Skill-滴答清单智能任务解析创建器.md | `ticktick` |
 - 2.3 共享/元 scope（`meta`）：`scripts/`、`.github/`、`README.md`、`CHANGELOG.md`、`AGENTS.md`、`Memory-Data/`、`.githooks/`、`.gitignore`、`@*.md`、`mimo_mcp.py`。其中 `.githooks/`、`.gitignore` 为仓库纪律与门禁配置；`@*.md`、`mimo_mcp.py` 为其他根级文件，与本文件同走 meta 管理路径（标准分支+PR）。
-- 2.4 排除与忽略：`.workbuddy/`、`worktrees/`、密钥文件（`ref-material-writing/.env` 等，详见 §3.3）。
+- 2.4 排除与忽略：`.workbuddy/`、`worktrees/`、`_gsdata_/`（GoodSync 本地同步状态目录，仅本机工具使用，忽略规则见仓库级 `.gitignore`）、`reports/`（本地巡检报告目录，不随仓库分发，忽略规则见仓库级 `.gitignore`）、密钥文件（`ref-material-writing/.env` 等，详见 §3.3）。
 - 2.5 清单维护规则：§2.1–§2.4 为机器可重写数据段，由 `scripts/sync-scope-manifest.py --update` 自动生成；人工修改须与脚本输出一致（数量、目录名、name 字段须与脚本扫描结果对齐）。除数据段外，本文件其余纪律章节为人工维护，遵循 §6.1「先更新本文件、再更新引用方」原则；新增/删除目录或根级 Skill 文件必须同步本节（docs-sync-checklist Tier 1 强制）。
 
 ## 3 红线与强制约束
@@ -88,7 +88,7 @@
   - **自动安装纪律**：`cli_run.cjs` 已内置安装逻辑（`npm install -g chrome-devtools-mcp`，`PUPPETEER_SKIP_DOWNLOAD=1`）；该安装由用户在本机主动触发部署副本激活时执行（若 MCP 服务不可用，据需跳过，非 Agent 未经授权擅自修改全局环境），Agent 无需手动干预。
 
 ## 8 开发态目录型 Skill 最小化纪律
-- 8.1 **范围**：本仓库内全部目录型 Skill（按一级目录计数 13 个；`Workbuddy专属` 为合集目录、其内含子 Skill 不额外计数，统一按该目录 scope 管理）均视为"开发态"（源版本，相对部署副本而言）。本纪律仅约束目录型 Skill；单文件型 Skill 因其为单文件、天然可移植，不在范围内。
+- 8.1 **范围**：本仓库内全部目录型 Skill（按一级目录计数 14 个；`Workbuddy专属` 为合集目录、其内含子 Skill 不额外计数，统一按该目录 scope 管理）均视为"开发态"（源版本，相对部署副本而言）。本纪律仅约束目录型 Skill；单文件型 Skill 因其为单文件、天然可移植，不在范围内。
 - 8.2 **最小状态定义**："最小状态"指版本库/远端中的**跟踪状态**；工作树可临时存在本纪律禁止的文件，但不得纳入版本控制。
 - 8.3 **禁止纳入版本控制的五类文件**（即不跟踪、不提交、不推送）：
   - ① 经网络可下载得到的文件（任一 Agent 阅读 SKILL.md/README 后可自行下载，且来源、版本、获取命令可复现；需登录/付费/特定授权方可获取者不在此列）；

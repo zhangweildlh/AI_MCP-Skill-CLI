@@ -176,7 +176,7 @@ while IFS= read -r f; do
       ;;
     meta)
       case "$f" in
-        .githooks/*|scripts/*|.github/*|README.md|CHANGELOG.md|AGENTS.md|Memory-Data/*) ok=1 ;;
+        .githooks/*|scripts/*|.github/*|README.md|CHANGELOG.md|AGENTS.md|Memory-Data/*|.gitignore|@*.md|mimo_mcp.py) ok=1 ;;
         */\*)
           # 引入/携带已登记目录型 Skill：若 AGENTS.md §2.1 已登记该 dir，允许在
           # meta 分支携带其目录内容，破除 scope 校验与 CI tier5 目录存在性检查死锁。
