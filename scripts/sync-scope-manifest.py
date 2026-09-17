@@ -17,7 +17,7 @@ AGENTS.md 第 2 章格式（由 foundation 定稿）：
 
 用法：
   python scripts/sync-scope-manifest.py           # --check（默认）：只报告差异，不改文件
-  python scripts/sync-scope-manifest.py --update  # 重写 AGENTS.md 第 2 章 2.1/2.2 段，其余章节不动
+  python scripts/sync-scope-manifest.py --update  # 重写 AGENTS.md 第 2 章 2.1/2.2 段并同步 §1.2/§8.1 叙述性计数，其余章节不动
 
 退出码：
   0 = 清单一致（或 --update 执行成功）
@@ -126,13 +126,15 @@ def parse_existing(ch2_lines: List[str]) -> Tuple[List[str], List[Tuple[str, str
 
 
 def render_ch2(dir_list: List[str], file_list: List[Tuple[str, str]],
-               manual_keep_lines: List[str]) -> List[str]:
+               manual_keep_lines: List[str]) -> Tuple[List[str], int, int]:
     """按规范格式生成第 2 章的 2.1/2.2 段（不含标题行与 2.3+ 段）。
 
     - 2.1 段：实际扫描目录（discover_skills 口径）生成标准行，
       随后追加豁免目录的原始行（含人工注释），整行保留不重写；
       豁免目录若尚未出现在现有清单中则补一行标准条目。
     - 2.2 段：按实际扫描生成。
+    返回 (生成的 2.1/2.2 段行列表, 目录型总数（含豁免目录）, 根级文件总数)：
+      目录型总数须与 §1.2 / §8.1 叙述性计数保持一致，供 sync_narrative_counts 同步。
     """
     out: List[str] = []
     # 豁免目录若当前清单缺失，补标准行，确保 update 后仍出现在 2.1 段
@@ -144,19 +146,21 @@ def render_ch2(dir_list: List[str], file_list: List[Tuple[str, str]],
             keep_lines.append(f"  - `dir/{d}`")
 
     auto_dirs = [d for d in dir_list if d not in MANUAL_KEEP_DIRS]
-    out.append(f"- 2.1 目录型 Skill（{len(auto_dirs) + len(keep_lines)} 个，"
+    total_dirs = len(auto_dirs) + len(keep_lines)
+    total_files = len(file_list)
+    out.append(f"- 2.1 目录型 Skill（{total_dirs} 个，"
                f"scope 标识 `dir/<目录名>`）：")
     for d in auto_dirs:
         out.append(f"  - `dir/{d}`")
     for ln in keep_lines:
         out.append(ln)
-    out.append(f"- 2.2 根级 Skill 文件（{len(file_list)} 个，scope 标识 `file/<name 字段>`）：")
+    out.append(f"- 2.2 根级 Skill 文件（{total_files} 个，scope 标识 `file/<name 字段>`）：")
     out.append("")
     out.append("  | 文件名 | name 字段 |")
     out.append("  |---|---|")
     for fname, name in file_list:
         out.append(f"  | {fname} | `{name}` |")
-    return out
+    return out, total_dirs, total_files
 
 
 def diff_manifest(actual_dirs, actual_files, existing_dirs, existing_files):
@@ -221,6 +225,65 @@ def rewrite_ch2(lines: List[str], new_head: List[str]) -> List[str]:
     return lines[: start + 1] + new_head + lines[keep_start:end] + lines[end:]
 
 
+def sync_narrative_counts(lines: List[str], total_dirs: int, total_files: int) -> List[str]:
+    """同步叙述性计数：§1.2（目录型/根级）与 §8.1（目录型）须与数据段（§2.1/§2.2）一致。
+
+    仅改写以 `- 1.2 ` / `- 8.1 ` 开头的行内计数，不影响其他章节；
+    使用 render_ch2 返回的 total_dirs / total_files（与 §2.1/§2.2 同源），
+    确保全局四处计数一致，消除"13/14"式自我矛盾。
+    """
+    out: List[str] = []
+    for ln in lines:
+        if ln.startswith("- 1.2 "):
+            ln = re.sub(r"目录型 Skill（\d+）", f"目录型 Skill（{total_dirs}）", ln)
+            ln = re.sub(r"根级 Skill 文件（\d+）", f"根级 Skill 文件（{total_files}）", ln)
+        elif ln.startswith("- 8.1 "):
+            ln = re.sub(r"按一级目录计数 \d+ 个", f"按一级目录计数 {total_dirs} 个", ln)
+        out.append(ln)
+    return out
+
+
+def check_count_drift(lines: List[str]) -> List[str]:
+    """检测 AGENTS.md 中四处计数（§1.2 / §2.1 / §2.2 / §8.1）的相互一致性。
+
+    检查项：
+      - §1.2 目录型计数值 == §2.1 目录型计数值
+      - §1.2 根级文件计数值 == §2.2 根级文件计数值
+      - §8.1 目录型计数值 == §2.1 目录型计数值
+    不一致则报告（属数据一致性缺陷，`--update` 可修复）。
+    """
+    def _find(prefix: str) -> Optional[str]:
+        for ln in lines:
+            if ln.startswith(prefix):
+                return ln
+        return None
+
+    def _count(pattern: str, line: Optional[str]) -> Optional[int]:
+        if not line:
+            return None
+        m = re.search(pattern, line)
+        return int(m.group(1)) if m else None
+
+    ch12 = _find("- 1.2 ")
+    ch21 = _find("- 2.1 ")
+    ch22 = _find("- 2.2 ")
+    ch81 = _find("- 8.1 ")
+    dir_12 = _count(r"目录型 Skill（(\d+)）", ch12)
+    file_12 = _count(r"根级 Skill 文件（(\d+)）", ch12)
+    dir_21 = _count(r"目录型 Skill（(\d+) 个", ch21)
+    file_22 = _count(r"根级 Skill 文件（(\d+) 个", ch22)
+    dir_81 = _count(r"按一级目录计数 (\d+) 个", ch81)
+
+    drifts: List[str] = []
+    if dir_12 is not None and dir_21 is not None and dir_12 != dir_21:
+        drifts.append(f"[计数漂移] §1.2 目录型（{dir_12}）≠ §2.1 目录型（{dir_21}）")
+    if file_12 is not None and file_22 is not None and file_12 != file_22:
+        drifts.append(f"[计数漂移] §1.2 根级文件（{file_12}）≠ §2.2 根级文件（{file_22}）")
+    if dir_81 is not None and dir_21 is not None and dir_81 != dir_21:
+        drifts.append(f"[计数漂移] §8.1 目录型（{dir_81}）≠ §2.1 目录型（{dir_21}）")
+    return drifts
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="AGENTS.md 第 2 章 scope 清单同步器")
     ap.add_argument("--check", action="store_true",
@@ -243,6 +306,8 @@ def main() -> int:
     existing_dirs, existing_files, manual_keep_lines = parse_existing(lines[start:end])
 
     diffs, notes = diff_manifest(actual_dirs, actual_files, existing_dirs, existing_files)
+    # 计数漂移检测：§1.2 / §2.1 / §2.2 / §8.1 四处叙述性/数据段计数须一致
+    diffs.extend(check_count_drift(lines))
 
     print("=== scope 清单同步检查 ===")
     print(f"实际结构   : 目录型 {len(actual_dirs)} 个 / 根级文件型 {len(actual_files)} 个")
@@ -263,10 +328,12 @@ def main() -> int:
         print(f"  {d}")
 
     if args.update:
-        new_head = render_ch2(actual_dirs, actual_files, manual_keep_lines)
+        new_head, total_dirs, total_files = render_ch2(actual_dirs, actual_files, manual_keep_lines)
         new_lines = rewrite_ch2(lines, new_head)
+        new_lines = sync_narrative_counts(new_lines, total_dirs, total_files)
         AGENTS_PATH.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-        print("已执行     : ✅ 已用 scripts/sync-scope-manifest.py --update 重写 AGENTS.md 第 2 章 2.1/2.2 段")
+        print("已执行     : ✅ 已用 scripts/sync-scope-manifest.py --update 重写 AGENTS.md "
+              "第 2 章 2.1/2.2 段并同步 §1.2/§8.1 叙述性计数")
         return 0
 
     print("已跳过     : 使用 --update 可自动重写 AGENTS.md 第 2 章 2.1/2.2 段")

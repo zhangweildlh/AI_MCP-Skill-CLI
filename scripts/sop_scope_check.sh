@@ -150,7 +150,7 @@ while IFS= read -r f; do
       ;;
     meta)
       case "$f" in
-        scripts/*|.github/*|README.md|CHANGELOG.md|AGENTS.md|Memory-Data/*) ok=1 ;;
+        .githooks/*|scripts/*|.github/*|README.md|CHANGELOG.md|AGENTS.md|Memory-Data/*|.gitignore|@*.md|mimo_mcp.py) ok=1 ;;
       esac
       ;;
   esac
