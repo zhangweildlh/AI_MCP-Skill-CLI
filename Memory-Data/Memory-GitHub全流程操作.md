@@ -310,7 +310,7 @@ file_number: 3
 >
 > 清单的权威定义见 `github-personal-manager` 技能的 `references/docs-sync-checklist.md`；检测由技能脚本 `sop_docs_sync_check.sh` 落地、由智能体基于结果实际改文档。
 >
-> **启动前必须先完成路径核验（ [`## 2-2 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-路径核验)）。**
+> **启动前必须先完成路径核验（ [`## 2-1 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-路径核验)）。**
 
 ### 3-4-1 分层模型与处理语义
 
@@ -389,7 +389,7 @@ file_number: 3
 
 ---
 
-> **⚠️ 路径核验（ [`## 2-2 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-路径核验)）是最高优先级硬规则：每个工作流启动阶段的第一步都必须是路径核验，未核验路径不得进入任何后续步骤。**
+> **⚠️ 路径核验（ [`## 2-1 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-路径核验)）是最高优先级硬规则：每个工作流启动阶段的第一步都必须是路径核验，未核验路径不得进入任何后续步骤。**
 
 ## 3-6 工作流一 github-personal-manager 自动激活（GitHub 工作流总闸门，前置）
 
@@ -461,7 +461,7 @@ file_number: 3
 
 > 核心规则：凡涉及 GitHub（https://github.com/）的读取/搜索/操作，一律优先使用 `gh`；仅当 `gh` 不可用或确实搜不到/无对应能力时，才回退网页工具。
 >
-> **启动前必须先完成路径核验（ [`## 2-2 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-路径核验)）。**
+> **启动前必须先完成路径核验（ [`## 2-1 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-路径核验)）。**
 
 ### 3-7-1 适用范围
 
@@ -503,7 +503,7 @@ GitHub 读取/搜索/操作请求 → 是否 gh 能力覆盖？
 
 > 每日一次。原则：先校验配置，再分别检查「本地 ↔ 你的远端仓库(origin)」与「你的远端仓库(origin) ↔ 上游仓库(upstream)」；仅快进/无冲突类操作自动执行，一切冲突与公开动作一律大白话说明 + 后果 + 暂停等指令（强门禁，绝不跳过）。
 >
-> **启动前必须先完成路径核验（ [`## 2-2 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-路径核验)）。**
+> **启动前必须先完成路径核验（ [`## 2-1 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-路径核验)）。**
 
 ### 3-8-1 阶段 0 — 配置校验（前置门槛）
 
@@ -564,9 +564,9 @@ GitHub 读取/搜索/操作请求 → 是否 gh 能力覆盖？
 ## 3-9 工作流四 标准代码修改
 
 > 原则：助手应使用 `git`+`gh` 自动执行所有操作；仅「fork Actions 一次性手动启用」「upstream 维护者合并」需要人类介入。
-> 改代码 / 提 PR 前，先过 **完整裁决器与全局契约面（从整个仓库代码整体性、全局性出发）**（画契约面 → 定方案 → 联动验证 → 文档代码同改），避免叠补丁 / 覆盖不全 / 过度覆盖违反契约。 完整纪律见 [`## 2-1 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-代码编写修改和bug修复通用纪律)（通用，非 PR 专属）。
+> 改代码 / 提 PR 前，先过 **完整裁决器与全局契约面（从整个仓库代码整体性、全局性出发）**（画契约面 → 定方案 → 联动验证 → 文档代码同改），避免叠补丁 / 覆盖不全 / 过度覆盖违反契约。 完整纪律见 [`## 2-2 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-代码编写修改和bug修复通用纪律)（通用，非 PR 专属）。
 >
-> **启动前必须先完成路径核验（ [`## 2-2 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-路径核验)）。**
+> **启动前必须先完成路径核验（ [`## 2-1 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-路径核验)）。**
 >
 > 多任务并行开发（各任务独立工作树(worktree)、最终 `--no-ff` 普通合并回主线(main)）属本流程的并行特化变体，其专用 SOP 见工作流五（多工作树并行开发）。
 
@@ -650,8 +650,8 @@ GitHub 读取/搜索/操作请求 → 是否 gh 能力覆盖？
 ## 3-10 工作流五 多工作树并行开发（–no-ff 普通合并特化）
 
 > 适用：同一 Git 仓库需**多任务并行**开发（每个任务独立工作树(worktree)、代码隔离），最终**普通合并(–no-ff)**回主线(main)、补充变更文档(CHANGELOG)、按需清理工作树(worktree)与分支(branch)。本质是「标准代码修改（ [`## 3-9 工作流四 标准代码修改`](#3-9-工作流四-标准代码修改)）」的**并行多工作树特化变体**：用 `git worktree` 突破单目录单工作树限制，用 `--no-ff` 强制双父合并碑(merge commit)以保留中间提交谱系、可整段回滚、不改写历史；回滚一律 `git revert`（禁用 `reset --hard`+强推，见 [`## 1-2 全局禁令（最高优先级）`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-全局禁令与环境约束.md#1-2-全局禁令最高优先级)）。
-> 与既有规则关系：提交(commit)前文档—代码同步遵循 [`## 3-4 提交前文档同步门禁`](#3-4-提交前文档同步门禁)；分支(branch)清理的门禁与命令见本章阶段六（多工作树场景专用步骤）；改动前先过 **完整裁决器与全局契约面（避免叠补丁 / 覆盖不全 / 过度覆盖违反契约）**。 完整纪律见 [`## 2-1 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-代码编写修改和bug修复通用纪律)（通用，非 PR 专属）。
-> **启动前必须先完成路径核验（ [`## 2-2 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-路径核验)）：先用 `git rev-parse --show-toplevel` 等确认「要操作的仓库目录」到底是主仓库还是某个工作树(worktree)，路径异常（如指向非预期目录、根目录意外出现 `.git`）立即暂停、先问用户，对齐后再做。未核验路径不得进入任何后续步骤。**
+> 与既有规则关系：提交(commit)前文档—代码同步遵循 [`## 3-4 提交前文档同步门禁`](#3-4-提交前文档同步门禁)；分支(branch)清理的门禁与命令见本章阶段六（多工作树场景专用步骤）；改动前先过 **完整裁决器与全局契约面（避免叠补丁 / 覆盖不全 / 过度覆盖违反契约）**。 完整纪律见 [`## 2-2 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-代码编写修改和bug修复通用纪律)（通用，非 PR 专属）。
+> **启动前必须先完成路径核验（ [`## 2-1 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-路径核验)）：先用 `git rev-parse --show-toplevel` 等确认「要操作的仓库目录」到底是主仓库还是某个工作树(worktree)，路径异常（如指向非预期目录、根目录意外出现 `.git`）立即暂停、先问用户，对齐后再做。未核验路径不得进入任何后续步骤。**
 
 ### 3-10-1 适用范围
 
@@ -719,7 +719,7 @@ GitHub 读取/搜索/操作请求 → 是否 gh 能力覆盖？
 
 **前置要求（执行前必须确认）**：
 
-- 先按 [`## 2-2 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-路径核验) 确认 `<MAIN_REPO_PATH>` 真实存在且为 Git 仓库、确为预期目录；路径异常立即暂停、先问用户。
+- 先按 [`## 2-1 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-路径核验) 确认 `<MAIN_REPO_PATH>` 真实存在且为 Git 仓库、确为预期目录；路径异常立即暂停、先问用户。
 - Git 身份与远端已配置（`git remote -v` 可见 `<REMOTE>`）。
 - `<BASE_BRANCH>` 受保护（合并走 PR，不直推）；或确认为无保护、允许直推（由分支保护核验决定，见合并阶段预检）。
 - 已约定分支(branch)命名规范与变更文档(CHANGELOG)格式（推荐 Keep a Changelog）。
@@ -1077,7 +1077,7 @@ git merge-base --is-ancestor <TIP> HEAD && echo OK
 > 触发时机：`gh pr checks` 或 `gh run list` 出现失败（红），需定位原因并修复回推。原则：定位与修复属本地/功能分支(feat) 动作，助手自动执行；凡改动 workflow 文件、重推标签(tag) 等影响面较大的动作，先大白话说明再执行。多数具体坑见 [`## 3-5 Fork CI 实证要点`](#3-5-fork-ci-实证要点)，本章只给排错主线。
 > 排错回到全局契约面裁决器：若 CI 红灯是「为过评审叠补丁」所致，先回全局契约面重画方案，而非继续串行打补丁。
 >
-> **启动前必须先完成路径核验（ [`## 2-2 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-路径核验)）。**
+> **启动前必须先完成路径核验（ [`## 2-1 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-路径核验)）。**
 
 ### 3-11-1 第一步 — 定位失败的 run 与 job
 
@@ -1131,7 +1131,7 @@ gh run download <run-id> --log-failed        # 需要完整失败日志时下载
 
 > 触发时机：需要构建二进制产物或正式发版时。**硬前提**：fork 发版仅用于自取构建产物，**绝不**发布到 crates.io / PyPI（见 [`## 3-5 Fork CI 实证要点`](#3-5-fork-ci-实证要点) 第6点）。打标签(tag) 会触发 CI 并生成 Release，属公开动作 → 先说明将推的版本，暂停等指令。
 >
-> **启动前必须先完成路径核验（ [`## 2-2 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-路径核验)）。**
+> **启动前必须先完成路径核验（ [`## 2-1 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-路径核验)）。**
 
 ### 3-12-1 第一步 — 发版前检查（缺一不可）
 
@@ -1168,7 +1168,7 @@ gh release download v<version>                       # 下载构建产物（含 
 
 > 触发时机：功能分支(feat) 已合并(merge)（上游合并或自有 PR 合并）或确认废弃后回收。**删除不可逆**，故删除类动作一律：先列清单（合并状态 + PR open 状态两维）→ 暂停等你确认 → 才删（强门禁）。**删分支前须先查该分支是否仍挂 open PR（见本章第一步两条 `--state open` 查询），以防删除令对应 PR 被 GitHub 自动关闭。**
 >
-> **启动前必须先完成路径核验（ [`## 2-2 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-路径核验)）。**
+> **启动前必须先完成路径核验（ [`## 2-1 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-路径核验)）。**
 >
 > 多工作树(worktree) 场景的分支清理专用步骤（含工作树(worktree)失效游离的 `rm -rf` 处置）见 [`### 3-10-11 阶段六：清理分支(branch)（本地 + 远端，按要求 / 条件）`](#3-10-11-阶段六清理分支branch本地--远端按要求--条件)。
 
@@ -1216,13 +1216,13 @@ gh pr list --repo zhangweildlh/<fork> --author zhangweildlh --state open   # 反
 > **启动前强制门禁（任何 PR 操作的第一步，不可跳过）**：
 >
 > 1. 先按 [`## 3-6 工作流一 github-personal-manager 自动激活（GitHub 工作流总闸门，前置）`](#3-6-工作流一-github-personal-manager-自动激活github-工作流总闸门前置) 激活 `github-personal-manager` 技能（GitHub 工作流总闸门）；
-> 2. 再按 [`## 2-2 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-路径核验) 完成路径核验（未核验路径不得进入任何后续步骤）；
+> 2. 再按 [`## 2-1 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-路径核验) 完成路径核验（未核验路径不得进入任何后续步骤）；
 > 3. 严守 [`## 1-2 全局禁令（最高优先级）`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-全局禁令与环境约束.md#1-2-全局禁令最高优先级) 硬禁令（绝不强推/删 `origin/main` 等受保护分支；只推 `origin`，绝不推 `upstream`）。
 
 ### 3-14-1 阶段 0 — 前置门禁（引用，不重复定义）
 
 - **技能激活**：→ [`### 3-6-1 激活判定`](#3-6-1-激活判定)–[`### 3-6-6 激活后执行点索引`](#3-6-6-激活后执行点索引)（含脚本索引与"路径无关"加载约定）。
-- **路径核验**：→ [`### 2-2-1 规则一：先核验"要操作的目录"再动手`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-1-规则一先核验要操作的目录再动手)–[`### 2-2-4 规则四：发现异常先问，对齐后再做`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-4-规则四发现异常先问对齐后再做)（三步核验顺序、误报铁律、异常先问）。
+- **路径核验**：→ [`### 2-1-1 规则一：先核验"要操作的目录"再动手`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-1-规则一先核验要操作的目录再动手)–[`### 2-1-4 规则四：发现异常先问，对齐后再做`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-4-规则四发现异常先问对齐后再做)（三步核验顺序、误报铁律、异常先问）。
 - **硬禁令红线**：→ [`### 1-2-1 禁止强推/删除自家 main（及受保护分支）`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-全局禁令与环境约束.md#1-2-1-禁止强推删除自家-main及受保护分支)（禁强推/删 main）、[`### 1-2-2 三段式二次授权铁律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-全局禁令与环境约束.md#1-2-2-三段式二次授权铁律)（二次授权铁律）、[`### 1-2-3 入库隐私闸门（2026-08-04 实测拦截后确立）`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-全局禁令与环境约束.md#1-2-3-入库隐私闸门2026-08-04-实测拦截后确立)（入库隐私闸门）。
 - **仓库三元组解析**：→ [`### 3-6-6 激活后执行点索引`](#3-6-6-激活后执行点索引) 的 `scripts/sop_resolve_repo.sh <仓库路径>`（提取 GH_USER/REPO_NAME/UPSTREAM）；或 `git remote -v` 自行确认 origin/upstream 指向。本工作流 `<upstream>` 一律从此解析（如 deepseek-pp 实为 `zhu1090093659/deepseek-pp`，非 `deepseek-ai`）。
 
@@ -1230,7 +1230,7 @@ gh pr list --repo zhangweildlh/<fork> --author zhangweildlh --state open   # 反
 
 开新 PR 前必须依次通过三道核验，任一不过则先修复/暂停，不进入开 PR。
 
-**① 路径核验（引用）**：→ [`## 2-2 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-路径核验) 。确认当前操作目录确为目标仓库根（`ls "<目录>/.git"` + `git -C "D:/..." rev-parse --show-toplevel`）。
+**① 路径核验（引用）**：→ [`## 2-1 路径核验`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-路径核验) 。确认当前操作目录确为目标仓库根（`ls "<目录>/.git"` + `git -C "D:/..." rev-parse --show-toplevel`）。
 
 **② 分支核验（PR 专属，聚焦）**：确认"将作为 PR 源分支(feature branch)"的状态正确：
 
@@ -1306,14 +1306,14 @@ gh api repos/<UPSTREAM_OWNER>/<REPO>/contents/.github/workflows/ci.yml -q .conte
 - ⚠️ PR 正文用 `--body-file`（引用 [`### 3-9-3 阶段 2 提交 / 推送 / 触发 CI`](#3-9-3-阶段-2-提交--推送--触发-ci)）：先写正文到文件再 `gh pr create --body-file <file>`，避免中文括号被 bash 解析失败。
 - **PR 正文必须包含（引用 [`### 3-14-4 阶段 3 — 查询并遵循上游仓库对 PR 的要求与规范（PR 专属，新内容）`](#3-14-4-阶段-3--查询并遵循上游仓库对-pr-的要求与规范pr-专属新内容) 上游规范）**：
 - 严格套用上游 `pull_request_template.md` 的段落结构（如 Summary / PR Type / Latest Codebase Confirmation / AI Coding Disclosure / Local Validation / Local Feature Evidence）；
-- 显式声明本次**契约边界**（覆盖到哪、不覆盖到哪、剩余边界为何）——呼应 [`## 2-1 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-代码编写修改和bug修复通用纪律) 分阶段手册「提交 PR 时」的 PR 描述要求；
+- 显式声明本次**契约边界**（覆盖到哪、不覆盖到哪、剩余边界为何）——呼应 [`## 2-2 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-代码编写修改和bug修复通用纪律) 分阶段手册「提交 PR 时」的 PR 描述要求；
 - user-facing 改动：在 Evidence 段附截图（方法见 阶段 5 ⑤.6）。
 - **文档同步门禁（引用 [`## 3-4 提交前文档同步门禁`](#3-4-提交前文档同步门禁) + [`### 3-6-6 激活后执行点索引`](#3-6-6-激活后执行点索引) 的 `sop_docs_sync_check.sh` 脚本索引）**：提交前 Tier 1（README/CHANGELOG）必须同步，未同步不得直接提交/开 PR。
 - **触发并轮询 CI（引用 [`### 3-3-3 Pull Request（《gh pr》）`](#3-3-3-pull-requestgh-pr) 的 `gh pr checks` / `gh run list` + [`### 3-6-6 激活后执行点索引`](#3-6-6-激活后执行点索引) 的 `sop_pr_checks.sh` 轮询脚本）**：`gh pr checks` / `gh run list` 必须全绿；CI 触发条件以各仓库 `.github/workflows/` 为准（引用 [`### 3-9-3 阶段 2 提交 / 推送 / 触发 CI`](#3-9-3-阶段-2-提交--推送--触发-ci) 注）。
 
 ### 3-14-6 阶段 5 — PR 审查意见回应（核心，含多轮）（PR 专属，新内容）
 
-> 本章 PR 审查意见回应相关的代码改动，其通用标准见 [`## 2-1 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-代码编写修改和bug修复通用纪律)（通用，非 PR 专属）；本章仅承接其精神、不重述。
+> 本章 PR 审查意见回应相关的代码改动，其通用标准见 [`## 2-2 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-代码编写修改和bug修复通用纪律)（通用，非 PR 专属）；本章仅承接其精神、不重述。
 
 
 收到评审（review comment / review request-changes / inline comment）后，按以下顺序回应。**先对齐、再查实、后修改、再回答、最后截图与上传**；多轮迭代回到本阶段开头整体重画，绝不叠补丁。
@@ -1326,7 +1326,7 @@ gh pr diff <PR编号>                      # 当前 PR 差异（自审基准）
 gh api repos/<upstream>/pulls/<PR编号>/reviews  # 逐条 review 决定
 ```
 
-- 区分三类意见：**A 真问题（须改）/ B 边界澄清（文档即可）/ C 误判（用裁决器驳回）**（呼应 [`## 2-1 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-代码编写修改和bug修复通用纪律) 分阶段手册「收到评审回复时」的分类）。
+- 区分三类意见：**A 真问题（须改）/ B 边界澄清（文档即可）/ C 误判（用裁决器驳回）**（呼应 [`## 2-2 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-代码编写修改和bug修复通用纪律) 分阶段手册「收到评审回复时」的分类）。
 
 **⑤.2 先对齐：当前分支正确性检查（PR 专属，防改错分支）**：
 
@@ -1342,11 +1342,11 @@ gh api repos/<upstream>/pulls/<PR编号>/reviews  # 逐条 review 决定
 - **避免错误回应**：回答"已修复"前，必须 `git diff` 复核改动确实落地、且 `gh pr diff` 能看到该变更；禁止声称已改但实际未改；
 - **整体核对**：将本条评审与 [`### 3-14-2 阶段 1 — 开新 PR 前的三核验`](#3-14-2-阶段-1--开新-pr-前的三核验) / [`### 3-14-3 阶段 2 — 重复 PR 检查（引用 + PR 专属口径）`](#3-14-3-阶段-2--重复-pr-检查引用--pr-专属口径) / [`### 3-14-4 阶段 3 — 查询并遵循上游仓库对 PR 的要求与规范（PR 专属，新内容）`](#3-14-4-阶段-3--查询并遵循上游仓库对-pr-的要求与规范pr-专属新内容) 已确认的契约面、其余评审项耦合一起看，避免"只盯这一条"。
 
-**⑤.5 文案回答（引用 [`## 2-1 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-代码编写修改和bug修复通用纪律) 分阶段手册「收到评审回复时」精神 + PR 专属）**：
+**⑤.5 文案回答（引用 [`## 2-2 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-代码编写修改和bug修复通用纪律) 分阶段手册「收到评审回复时」精神 + PR 专属）**：
 
 - 每条评审逐条回应，引用**裁决/契约结论**（为何扩/缩/保契约），不空泛认错；
 - A 类：说明改了哪、如何验证；B 类：文档澄清即可，附链接/段落；C 类（误判）：用全局契约面/裁决器依据**有理有据驳回**，不硬改；
-- 多轮：同一 diff 内一次性收口所有 A 类 + 联动项，不在上一轮补丁上再叠（呼应 [`## 2-1 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-代码编写修改和bug修复通用纪律) 分阶段手册「收到评审回复时 / 多次复提交」）。
+- 多轮：同一 diff 内一次性收口所有 A 类 + 联动项，不在上一轮补丁上再叠（呼应 [`## 2-2 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-代码编写修改和bug修复通用纪律) 分阶段手册「收到评审回复时 / 多次复提交」）。
 
 **⑤.6 截图与上传（user-facing 证据，PR 专属）**：
 
@@ -1368,7 +1368,7 @@ git fetch upstream && git rebase upstream/main feat/<topic> && git push --force-
 
 **⑤.8 多轮审查迭代**：
 
-- 每轮回到 ⑤.1，整体重画方案后同 diff 处理（不叠补丁，引用 [`## 2-1 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-1-代码编写修改和bug修复通用纪律) 分阶段手册「多次复提交」）；
+- 每轮回到 ⑤.1，整体重画方案后同 diff 处理（不叠补丁，引用 [`## 2-2 代码编写、修改和BUG修复通用纪律`](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-代码纪律与Git操作.md#2-2-代码编写修改和bug修复通用纪律) 分阶段手册「多次复提交」）；
 - 若发现上轮越界/漏点，在同分支 amend/squash 收口，保持 PR 单一连贯。
 
 ### 3-14-7 阶段 6 — PR 合并（引用）
