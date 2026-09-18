@@ -6,7 +6,7 @@
 
 | 模块 | 上游仓库 | 锁定版本 | 验证日期 | 本地缓存状态 |
 |------|----------|----------|----------|--------------|
-| 主干 | 自身 | commit:b1b135e (主干锁定快照 @ 2026-09-17；P0-P2 修复已合并于 b1b135e，主干随 main 演进) | 2026-09-17 | ✅ 完整 |
+| 主干 | 自身 | commit:ef2a19a (主干锁定 @ 2026-09-18；与 main HEAD 对齐，主干随 main 演进) | 2026-09-18 | ✅ 完整 |
 | jasminK11/claude-5-why-skill | https://github.com/jasminK11/claude-5-why-skill | commit:b32cb7acc5837f3b9757e269acae7b58805446dc (main HEAD, 2026-09-17) | 2026-09-17 | ✅ 完整 |
 | kimasplund/premortem-skill | https://github.com/kimasplund/premortem-skill | commit:1baa5cd2e15f2eae4a52b8de72884de09582cb0e (main HEAD, 2026-09-17) | 2026-09-17 | ✅ 完整 |
 | SilvereWolf/idea-friction-feasibility-auditor | https://github.com/SilvereWolf/idea-friction-feasibility-auditor | commit:ba850a7d24136875670f5d3c880d9988d95fa42d (main HEAD, 2026-09-17) | 2026-09-17 | ✅ 完整 |
@@ -14,7 +14,7 @@
 | 5why-template.md | 本地维护 | N/A (本地模板) | 2026-09-17 | ✅ 完整 |
 | premortem-template.md | 本地维护 | N/A (本地模板) | 2026-09-17 | ✅ 完整 |
 
-> **说明**：上述 3 个上游模块的 commit 为经 `git ls-remote <repo> refs/heads/main` 核实的 **main HEAD 真实值（2026-09-17）**；三仓库目前均未发布 tag，故锁定至 main HEAD（后续上游发布 tag 时建议改为 tag 钉固以提升可复现性）。主干锁定至快照 commit:b1b135e（@ 2026-09-17，P0-P2 修复已合并），随 main 演进。模板文件为本地维护，不依赖上游版本。
+> **说明**：上述 3 个上游模块的 commit 为经 `git ls-remote <repo> refs/heads/main` 核实的 **main HEAD 真实值（2026-09-17）**；三仓库目前均未发布 tag，故锁定至 main HEAD（后续上游发布 tag 时建议改为 tag 钉固以提升可复现性）。主干锁定至 commit:ef2a19a（@ 2026-09-18，与 main HEAD 对齐），随 main 演进。模板文件为本地维护，不依赖上游版本。
 > 
 > **获取真实版本的方法**：
 > ```bash
