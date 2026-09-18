@@ -117,7 +117,7 @@ Phase 2 done → Phase 3：深度分析
 
 #### 2. jasminK11 5Why 模块（Phase 3 深度分析增强）
 
-**激活条件**：Phase 2 完成且信息充足  
+**激活条件**：Phase 3 信息充足后（即 Phase 2 完成且「信息充足度」判定为充足）  
 **输入**：
 ```json
 {
