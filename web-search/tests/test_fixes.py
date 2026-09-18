@@ -85,16 +85,29 @@ class TestAuditFixes(unittest.TestCase):
 
     def test_c8_no_firecrawl_key_persisted_to_dotenv(self):
         # C8 回归防线（D7 加固）：覆盖 PowerShell 惯用落盘写法，并锚定硬约束块本体。
+        # 注意：P1-1（PR #94）已授权 `FIRECRAWL_API_KEY` 经用户显式授权驻留于已 git-ignored 的
+        # web-search/.env（与 ANYSEARCH_API_KEY 豁免纪律一致，见 AGENTS.md §3.3 与 firecrawl/SKILL.md
+        # 「密钥注入」硬约束块）；本用例的第二条断言随之更新为锚定「授权驻留但绝不进入版本库」的
+        # 现行硬约束，而非旧版「豁免仅覆盖 ANYSEARCH_API_KEY」的过时表述。
         content = _read(FIRECRAWL_SKILL_MD)
+        # (a) 仍不得给出把 firecrawl env 输出落盘写入 .env 的指引（含 PowerShell 落盘动词）。
         self.assertNotRegex(
             content,
             r"firecrawl\s+env[^\n]*(?:>>?|\|\s*(?:Out-File|Set-Content|Add-Content|Tee-Object))[^\n]*\.env",
             "不应出现把 firecrawl env 输出落盘写入 .env 的指引（含 PowerShell 落盘动词）",
         )
+        # (b) 现行硬约束：声明 FIRECRAWL_API_KEY 可（经授权）驻留 web-search/.env，但绝不进入版本库。
+        # （文档以 markdown 粗体包裹「不」，即 `**不**进入版本库`，故在 不 与 进入版本库 之间允许少量标记字符。）
         self.assertRegex(
             content,
-            r"硬约束[\s\S]{0,500}?豁免仅覆盖\s*`?ANYSEARCH_API_KEY`?",
-            "应保留明确声明『豁免仅覆盖 ANYSEARCH_API_KEY、不含 FIRECRAWL_API_KEY』的硬约束块",
+            r"硬约束[\s\S]{0,700}?FIRECRAWL_API_KEY[\s\S]{0,200}?不[\s\S]{0,10}?进入版本库",
+            "firecrawl/SKILL.md 硬约束块应明确声明 FIRECRAWL_API_KEY 可（经授权）驻留 web-search/.env 但绝不进入版本库",
+        )
+        # (c) 与 ANYSEARCH_API_KEY 豁免纪律一致（防止该一致性声明被误删）。
+        self.assertRegex(
+            content,
+            r"ANYSEARCH_API_KEY[\s\S]{0,6}?豁免纪律一致",
+            "应声明 FIRECRAWL_API_KEY 驻留 .env 与 ANYSEARCH_API_KEY 的豁免纪律一致",
         )
 
     def test_c10_skill_and_readme_contract_consistent(self):
