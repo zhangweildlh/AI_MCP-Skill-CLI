@@ -8,7 +8,7 @@
 
 - 仓库：`anysearch-ai/anysearch-skill`（GitHub）
 - 默认分支：`main`
-- 当前 vendored 版本：`v3.0.1`（记录在 `anysearch-skill/.upstream_version`）
+- 当前 vendored 版本：`v3.1.1`（记录在 `anysearch-skill/.upstream_version`）
 - 上游无嵌套 `.git`：本副本是文件级复制，不是 `git clone`（避免父仓库内出现嵌套 `.git`）
 
 ## 2. 父子职责边界（解耦核心）
@@ -44,18 +44,22 @@ README_zh.md
 SECURITY.md
 .env.example
 requirements.txt
-runtime.conf.example
 scripts/anysearch_cli.py
 scripts/anysearch_cli.js
 scripts/anysearch_cli.ps1
 scripts/anysearch_cli.sh
 scripts/generate.py
+scripts/test_cli.py
 scripts/shared/constants.json
 scripts/shared/doc_spec.md
 ```
 
 这些文件应与上游逐字一致（除上游自身发布的差异外）。本地改动若涉及其中任一文件，
 应改为在父层实现，而**不要**直接编辑 vendored 副本。
+
+> ⚠️ **`runtime.conf.example` 已移出 ALLOWLIST（2026-09-18）**：上游在 v3.1.1 删除了该模板文件
+> （`gh api` 抓取返回 404）。vendored 副本内的旧 `runtime.conf.example` 已同步删除，保持纯副本镜像上游。
+> 若上游未来恢复该文件，须重新加入 ALLOWLIST 方可 vendoring。
 
 ## 4. HARD_EXCLUDES（vendored 副本中刻意排除的上游内容）
 

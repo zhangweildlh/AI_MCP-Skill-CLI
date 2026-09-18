@@ -21,12 +21,12 @@ ALLOWLIST = [
     "SECURITY.md",
     ".env.example",
     "requirements.txt",
-    "runtime.conf.example",
     "scripts/anysearch_cli.py",
     "scripts/anysearch_cli.js",
     "scripts/anysearch_cli.ps1",
     "scripts/anysearch_cli.sh",
     "scripts/generate.py",
+    "scripts/test_cli.py",
     "scripts/shared/constants.json",
     "scripts/shared/doc_spec.md",
 ]

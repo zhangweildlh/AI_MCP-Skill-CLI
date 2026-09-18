@@ -105,7 +105,11 @@ def _decode_base64_content(content_b64):
 
 
 def check_anysearch(local_cli_path, subprocess_run=None):
-    """比对本地 anysearch_cli.py 与上游的 sha256。
+    """比对本地 anysearch_cli.py 与上游的 sha256（遗留单文件视角）。
+
+    ⚠️ 遗留 / 单文件视角：仅核对 ALLOWLIST 中的 anysearch_cli.py 一个文件，
+    可能与 check_anysearch_subtree（全子树）结论不一致。漂移判定统一以
+    check_anysearch_subtree 为准；本函数仅供快速单点核对，不代表整体同步状态。
 
     返回: {"check":"anysearch","status":"ok"|"drift"|"unknown",
            "local_sha":str|None,"upstream_sha":str|None}
@@ -316,7 +320,11 @@ def main(argv=None, subprocess_run=None):
             "drift": "DRIFT",
             "unknown": "UNKNOWN",
         }.get(r["status"], r["status"].upper())
-        print("  [%-7s] %-18s" % (mark, r["check"]))
+        # F2：anysearch 单文件检查标注 遗留 视角，避免与 subtree 结论混淆
+        check_label = r["check"]
+        if check_label == "anysearch":
+            check_label = "anysearch(遗留-单文件)"
+        print("  [%-7s] %-22s" % (mark, check_label))
         if r["check"] == "anysearch_subtree":
             for fr in r.get("files", []):
                 fmark = {
@@ -331,6 +339,7 @@ def main(argv=None, subprocess_run=None):
         if r["status"] == "drift":
             has_drift = True
     print("=" * 56)
+    print("提示：anysearch(遗留-单文件) 仅供单点核对，漂移判定以 anysearch_subtree 为准。")
     if has_drift:
         print("结论：检测到上游漂移，请运行 sync_anysearch.py 跟进上游（见 VENDORING.md）。")
         sys.exit(1)

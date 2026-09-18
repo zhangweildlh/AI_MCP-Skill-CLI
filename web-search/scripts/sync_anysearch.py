@@ -9,6 +9,8 @@ HARD_EXCLUDES（.github/、.gitignore），并写回 `.upstream_version` 基线�
   * 解耦核心：`anysearch-skill/` 是纯上游副本、零本地补丁。任何本地化改动都不应
     出现在 vendored 副本内；密钥注入等本地逻辑由父层 `orchestrate.py` 负责。
   * 幂等：多次运行结果一致；只覆盖 ALLOWLIST，绝不误删 vendored 副本外的任何文件。
+  * 孤儿剪枝：`--prune` 可删除本地存在但不在 ALLOWLIST 的孤儿文件，维持「纯副本镜像」不变量；
+    默认关闭（仅报告候选），避免误删；受保护项（.upstream_version / .gitattributes）永不被剪枝。
   * 安全：`--dry-run` 仅打印将执行的动作，不写盘、不删盘。
   * 可审计：每步失败均打印原因并继续（单文件失败不影响其余），最终汇总。
 
@@ -41,6 +43,10 @@ HARD_EXCLUDES = [
     os.path.join(ANYSEARCH_DIR, ".github"),
     os.path.join(ANYSEARCH_DIR, ".gitignore"),
 ]
+
+# vendored 副本中受保护的本地元数据文件：绝不被剪枝（即便不在 ALLOWLIST）。
+# .upstream_version：本脚本写回的漂移基线；.gitattributes：本地 git 属性文件。
+PROTECTED_LOCAL_FILES = {".upstream_version", ".gitattributes"}
 
 VERSION_FILE = os.path.join(ANYSEARCH_DIR, ".upstream_version")
 
@@ -115,8 +121,28 @@ def _fetch_upstream_version(ref, subprocess_run):
 # --------------------------------------------------------------------------- #
 # 同步动作
 # --------------------------------------------------------------------------- #
+def _compute_orphans(vendor_dir, allowlist, protected):
+    """返回 vendor_dir 下、不在 allowlist 且不在 protected 中的本地文件 rel 路径（正斜杠）。
+
+    用于维持「纯副本镜像上游」不变量：上游 / ALLOWLIST 已移除的文件须可被识别，
+    并在 --prune 时删除。受保护项（如 .upstream_version 基线、.gitattributes）永不被剪枝。
+    跳过 .git / __pycache__ 等无关目录，避免误把版本控制 / 缓存当孤儿。
+    """
+    orphans = []
+    allow_set = set(allowlist)
+    for root, dirs, files in os.walk(vendor_dir):
+        dirs[:] = [d for d in dirs if d not in (".git", "__pycache__")]
+        for fn in files:
+            full = os.path.join(root, fn)
+            rel = os.path.relpath(full, vendor_dir).replace(os.sep, "/")
+            if rel in allow_set or rel in protected:
+                continue
+            orphans.append(rel)
+    return sorted(orphans)
+
+
 def _plan(ref, subprocess_run):
-    """计算将要写入/删除的动作清单（不落盘）。"""
+    """计算将要写入/删除/剪枝的动作清单（不落盘）。"""
     writes = []  # (rel_path, content_bytes)
     for rel in ALLOWLIST:
         raw = _fetch_upstream_file(rel, ref, subprocess_run)
@@ -124,11 +150,12 @@ def _plan(ref, subprocess_run):
             continue
         writes.append((rel, raw))
     deletes = [p for p in HARD_EXCLUDES if os.path.exists(p)]
+    orphans = _compute_orphans(ANYSEARCH_DIR, ALLOWLIST, PROTECTED_LOCAL_FILES)
     version, commit = _fetch_upstream_version(ref, subprocess_run)
-    return writes, deletes, version, commit
+    return writes, deletes, orphans, version, commit
 
 
-def _apply(writes, deletes, ref, version, commit, dry_run, subprocess_run):
+def _apply(writes, deletes, orphans, ref, version, commit, dry_run, prune, subprocess_run):
     failures = []
     for rel, raw in writes:
         dest = os.path.join(ANYSEARCH_DIR, rel)
@@ -158,6 +185,24 @@ def _apply(writes, deletes, ref, version, commit, dry_run, subprocess_run):
                 failures.append((p, str(e)))
                 print("  [失败] 删除 %s：%s" % (p, e))
 
+    # 孤儿文件剪枝（仅 --prune 时实际删除；否则仅告警，保持向后兼容）
+    for rel in orphans:
+        dest = os.path.join(ANYSEARCH_DIR, rel)
+        if dry_run:
+            print("  [dry-run] 将剪枝(删除) 孤儿文件 %s" % rel)
+        elif prune:
+            try:
+                if os.path.isfile(dest):
+                    os.remove(dest)
+                    print("  [ok] 剪枝(删除) 孤儿文件 %s" % rel)
+                else:
+                    print("  [跳过] 孤儿文件不存在 %s" % rel)
+            except OSError as e:
+                failures.append((dest, str(e)))
+                print("  [失败] 剪枝(删除) %s：%s" % (rel, e))
+        else:
+            print("  [建议] 发现孤儿文件 %s（不在 ALLOWLIST，建议核查后 --prune 删除）" % rel)
+
     if not dry_run:
         meta = {
             "ref": ref,
@@ -186,6 +231,8 @@ def main(argv=None, subprocess_run=None):
         description="web-search 上游 anysearch-skill 一键 vendoring（best-effort）"
     )
     parser.add_argument("--dry-run", action="store_true", help="仅预览，不写盘/删盘")
+    parser.add_argument("--prune", action="store_true",
+                        help="删除本地存在但不在 ALLOWLIST 的孤儿文件（默认关；dry-run 仅报告不删除）")
     parser.add_argument("--ref", default=DEFAULT_REF, help="上游分支/commit（默认 %(default)s）")
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
@@ -193,12 +240,19 @@ def main(argv=None, subprocess_run=None):
     print("web-search 上游 vendoring：%s @ %s" % (UPSTREAM_REPO, args.ref))
     print("  目标目录：%s" % ANYSEARCH_DIR)
     print("  dry-run  ：%s" % ("是" if args.dry_run else "否"))
+    print("  prune    ：%s" % ("是" if args.prune else "否"))
     print("=" * 60)
 
-    writes, deletes, version, commit = _plan(args.ref, subprocess_run)
-    print("计划：写入 %d 个文件，删除 %d 项，版本=%s commit=%s"
-          % (len(writes), len(deletes), version or "未知", (commit or "未知")[:8]))
-    failures = _apply(writes, deletes, args.ref, version, commit, args.dry_run, subprocess_run)
+    writes, deletes, orphans, version, commit = _plan(args.ref, subprocess_run)
+    print("计划：写入 %d 个文件，删除 %d 项，剪枝 %d 个孤儿文件，版本=%s commit=%s"
+          % (len(writes), len(deletes), len(orphans), version or "未知", (commit or "未知")[:8]))
+    if orphans and not args.prune:
+        print("提示：发现 %d 个孤儿文件（不在 ALLOWLIST）；未启用 --prune，仅报告不删除。"
+              % len(orphans))
+        for rel in orphans:
+            print("      - %s" % rel)
+    failures = _apply(writes, deletes, orphans, args.ref, version, commit,
+                     args.dry_run, args.prune, subprocess_run)
 
     print("=" * 60)
     if failures:
