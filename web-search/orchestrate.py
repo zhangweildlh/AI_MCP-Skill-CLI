@@ -256,6 +256,10 @@ def run_track2(query, skill_root=None, subprocess_run=None):
     裸名 "firecrawl" 因缺 .cmd 扩展名解析失败而 FileNotFoundError 的 subprocess 陷阱。
     修复 P3-1：无需本地 `firecrawl login` / 系统环境变量——直接从 web-search/.env 读取
     FIRECRAWL_API_KEY 注入子进程 env，实现「技能自主闭环调用 Key」。
+    修复 firecrawl 输出契约：firecrawl search 默认输出自定义 markdown（非 JSON、也非
+    AnySearch 格式），解析会失败导致轨道2 恒 ok=False；改加 `--json` 使其输出标准 JSON
+    （{"success":true,"data":{"web":[{url,title,description,position}]}}），由现有 JSON
+    解析路径处理。
     which 为 None -> 返回 None（降级，不崩）。非 0 退出 / 解析失败 / 异常 -> 返回 None。
     """
     if query is None or not str(query).strip():
@@ -264,7 +268,7 @@ def run_track2(query, skill_root=None, subprocess_run=None):
     fc_bin = shutil.which("firecrawl")
     if fc_bin is None:
         return None
-    cmd = [fc_bin, "search", str(query)]
+    cmd = [fc_bin, "search", "--json", str(query)]
     run = subprocess_run or subprocess.run
     env = dict(os.environ)
     fc_key = _load_firecrawl_key(sr)
@@ -314,10 +318,11 @@ def parse_track_output(stdout, source: str, authoritative_default: bool = False)
     for it in results:
         if isinstance(it, dict):
             text = it.get("text") or it.get("snippet") or it.get("title") or it.get("content") or ""
-            field = it.get("field") or it.get("key") or ""
-            value = it.get("value") if it.get("value") is not None else text
-            # 带有 url / citation / source 视为更权威
-            if it.get("url") or it.get("citation") or it.get("source"):
+            url = it.get("url") or it.get("citation") or it.get("source") or ""
+            field = url or it.get("field") or it.get("key") or ""
+            value = text if url else (it.get("value") if it.get("value") is not None else text)
+            # 带有 url / citation / source 视为更权威，并以 url 作 field 便于双轨互证
+            if url:
                 authoritative = True
             facts.append(
                 {"field": field, "value": value, "text": text} if field
@@ -329,25 +334,27 @@ def parse_track_output(stdout, source: str, authoritative_default: bool = False)
 
 
 def _extract_results(data):
-    """从真实 CLI 输出尽力提取结果列表。"""
+    """从真实 CLI 输出尽力提取结果列表。
+
+    已知顶层列表键：results / items / data / hits / web。Firecrawl 的 JSON 输出为
+    {"success":true,"data":{"web":[{url,title,description,position}]}}，结果嵌套在
+    data.web 内（web 已加入已知键）；若顶层未直接命中列表，则递归进入子字典寻找首个列表。
+    """
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
-        for k in ("results", "items", "data", "hits"):
+        for k in ("results", "items", "data", "hits", "web"):
             if isinstance(data.get(k), list):
                 return data[k]
-        if isinstance(data.get("content"), list):  # JSON-RPC: content[].text 可能内嵌 JSON
-            out = []
-            for c in data["content"]:
-                if isinstance(c, dict) and isinstance(c.get("text"), str):
-                    try:
-                        sub = json.loads(c["text"])
-                        out.extend(_extract_results(sub))
-                    except Exception:
-                        out.append(c["text"])
-                else:
-                    out.append(c)
-            return out
+        # 递归进入子字典，寻找首个列表（覆盖 data.web 等嵌套结构）
+        for v in data.values():
+            if isinstance(v, list):
+                return v
+        for v in data.values():
+            if isinstance(v, dict):
+                r = _extract_results(v)
+                if r:
+                    return r
     return []
 
 
