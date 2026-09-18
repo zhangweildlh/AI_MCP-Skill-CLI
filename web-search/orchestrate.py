@@ -130,6 +130,87 @@ def _load_parent_api_key(skill_root) -> str | None:
     return None
 
 
+def _load_firecrawl_key(skill_root) -> str | None:
+    """从 web-search/.env 读取 FIRECRAWL_API_KEY（自主闭环登录，P3-1）。
+
+    Agent 激活本技能后无需在本地环境预先 `firecrawl login` 或设系统环境变量——
+    orchestrate 直接读取技能自身 .env 的 FIRECRAWL_API_KEY 注入 firecrawl 子进程 env，
+    实现「技能自主调用 Key」的闭环。utf-8-sig 去除 BOM；就近优先。
+    返回密钥明文或 None（文件缺失 / 无该键 / 为空）。绝不抛异常。
+    """
+    try:
+        env_path = Path(skill_root).resolve() / ".env"
+        if not env_path.is_file():
+            return None
+        with open(env_path, encoding="utf-8-sig") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                k = k.strip().lstrip("﻿").strip()
+                v = v.strip().strip("\"'").strip()
+                if k == "FIRECRAWL_API_KEY" and v:
+                    return v
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _parse_markdown_search_results(stdout: str, source: str) -> dict | None:
+    """解析 AnySearch CLI 的 markdown 输出，还原为规范化 track dict（契约修复 P1）。
+
+    anysearch_cli.py v3.1.1 `cmd_search` 真实输出 markdown（非 JSON）：
+        ## Search Results (N results, Xms)
+        ### 1. {title}
+        - **URL**: {url}
+        - {description}
+    旧版 parse_track_output 仅解析 JSON，导致 AnySearch 轨道恒 ok:False（契约断裂、
+    永远走原生兜底）。本函数把该 markdown 还原为与 JSON 路径同构的 track dict，使轨道1 真正生效。
+
+    返回 track dict（ok=True）或 None（不是 anysearch markdown / 无条目）。
+    """
+    if not stdout or not str(stdout).strip():
+        return None
+    text = str(stdout)
+    # 必须是 anysearch 头部或 ### 编号条目，避免误吞无关文本
+    if "## Search Results" not in text and not re.search(r"^###\s+\d+\.", text, re.MULTILINE):
+        return None
+    facts: list = []
+    current: dict = {}
+    title_re = re.compile(r"^###\s+\d+\.\s+(.*)$")
+    url_re = re.compile(r"^-\s+\*\*URL\*\*:\s*(.*)$")
+    for line in text.splitlines():
+        s = line.strip()
+        mt = title_re.match(s)
+        if mt:
+            if current:
+                facts.append(current)
+            current = {"text": mt.group(1).strip()}
+            continue
+        if not current:
+            continue
+        mu = url_re.match(s)
+        if mu:
+            url = mu.group(1).strip()
+            current["url"] = url
+            current["field"] = url          # 以 url 为 field 便于冲突/互证比对
+            current["value"] = current.get("text", "")
+            continue
+        # 描述行（以 "- " 开头但非 **URL**）
+        if s.startswith("- ") and not s.startswith("- **"):
+            desc = s[2:].strip()
+            if desc:
+                cur_text = current.get("text", "")
+                current["text"] = (cur_text + " " + desc).strip() if cur_text else desc
+    if current:
+        facts.append(current)
+    if not facts:
+        return None
+    authoritative = any(bool(f.get("url")) for f in facts)
+    return {"ok": True, "facts": facts, "authoritative": authoritative, "source": source}
+
+
 def run_track1(query, max_results: int = 5, skill_root=None, subprocess_run=None):
     """轨道1 AnySearch：uv 运行 anysearch_cli.py search。
 
@@ -168,20 +249,29 @@ def run_track1(query, max_results: int = 5, skill_root=None, subprocess_run=None
     return parse_track_output(getattr(proc, "stdout", ""), TRACK1_SOURCE)
 
 
-def run_track2(query, subprocess_run=None):
+def run_track2(query, skill_root=None, subprocess_run=None):
     """轨道2 Firecrawl：官方 CLI（全局 firecrawl 命令）。
 
-    若 `shutil.which("firecrawl")` 为 None -> 返回 None（降级，不崩）。
-    非 0 退出 / 解析失败 / 异常 -> 返回 None。
+    修复 P2-1：用 `shutil.which("firecrawl")` 解析后的真实路径构造命令，兼容 Windows 下
+    裸名 "firecrawl" 因缺 .cmd 扩展名解析失败而 FileNotFoundError 的 subprocess 陷阱。
+    修复 P3-1：无需本地 `firecrawl login` / 系统环境变量——直接从 web-search/.env 读取
+    FIRECRAWL_API_KEY 注入子进程 env，实现「技能自主闭环调用 Key」。
+    which 为 None -> 返回 None（降级，不崩）。非 0 退出 / 解析失败 / 异常 -> 返回 None。
     """
     if query is None or not str(query).strip():
         return None
-    if shutil.which("firecrawl") is None:
+    sr = Path(skill_root).resolve() if skill_root else Path(__file__).resolve().parent
+    fc_bin = shutil.which("firecrawl")
+    if fc_bin is None:
         return None
-    cmd = ["firecrawl", "search", str(query)]
+    cmd = [fc_bin, "search", str(query)]
     run = subprocess_run or subprocess.run
+    env = dict(os.environ)
+    fc_key = _load_firecrawl_key(sr)
+    if fc_key and "FIRECRAWL_API_KEY" not in env:
+        env["FIRECRAWL_API_KEY"] = fc_key
     try:
-        proc = run(cmd, capture_output=True, text=True)
+        proc = run(cmd, capture_output=True, text=True, env=env)
     except Exception:
         return None
     if getattr(proc, "returncode", 1) != 0:
@@ -202,6 +292,11 @@ def parse_track_output(stdout, source: str, authoritative_default: bool = False)
     try:
         data = json.loads(str(stdout))
     except (ValueError, TypeError):
+        # 契约修复 P1：AnySearch 真实输出为 markdown（非 JSON），先尝试 markdown 还原，
+        # 失败再回退 ok:False。Firecrawl 走 JSON，非 markdown 时本分支返回 None 不影响。
+        md = _parse_markdown_search_results(str(stdout), source)
+        if md is not None:
+            return md
         return {"ok": False, "facts": [], "authoritative": authoritative_default, "source": source}
 
     # 已是约定信封
@@ -451,7 +546,7 @@ def run_full(subject, query, max_results: int = 5, skill_root=None,
     NEED_USER 分支：仍产出显式 markdown（说明无法兜底），绝不静默空输出。
     """
     r1 = run_track1(query, max_results, skill_root, subprocess_run)
-    r2 = run_track2(query, subprocess_run)
+    r2 = run_track2(query, skill_root, subprocess_run)
     marked = corroborate(r1, r2)
 
     native_used = False
