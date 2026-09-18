@@ -10,10 +10,13 @@
   检查项 ② 更新记录↔首行：模块「更新记录」小节引用的 `基于 <repo>@<commit>` 的
             commit 须与首行 commit 完全一致；不一致 → FATAL。模块正文含版本占位符
             （如 `<真实commit>` / `xxxxxx` / `待填` / `TODO`）→ FATAL（防占位符遗留）。
-  检查项 ③ 主干锁↔main HEAD：version-lock.md「主干」行 commit 须等于
-            `git rev-parse --short main`；若不等但已显式标注为历史快照
+  检查项 ③ 主干锁↔main HEAD：version-lock.md「主干」行 commit 等于
+            `git rev-parse --short main` → OK；或为该 commit 的**已合入祖先**
+            （`git merge-base --is-ancestor` 为真）→ OK（快照合法，消噪：
+            主干锁指向已发布版本即可，不必与 main HEAD 绝对一致）；
+            若均不满足但已显式标注为历史快照
             （含"快照"/"snapshot"/"随 main 演进"字样）→ WARN（非阻断，提醒刷新），
-            否则 → FATAL（疑似版本锁过期）。
+            否则 → FATAL（疑似版本锁过期或主干锁悬空）。
 
 scope 过滤（方案 Y）：dir/<目录名> 仅校验该技能；file/<name> 仅校验该单文件技能；
 meta/None/all 全量校验所有含 version-lock.md 的技能。无 version-lock.md 的技能自动跳过。
@@ -21,6 +24,7 @@ meta/None/all 全量校验所有含 version-lock.md 的技能。无 version-lock
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -53,6 +57,24 @@ def _first_commit(path: Path) -> str:
         return ""
     m = FIRST_LINE_RE.search(lines[0])
     return m.group(1) if m else ""
+
+
+def _is_ancestor(commit: str) -> bool:
+    """判定 commit 是否为 main 的已合入祖先。
+
+    用于检查项 ③ 的消噪：主干锁指向「已发布到 main 的历史版本」即视为合法，
+    无需与 main HEAD 绝对一致。git merge-base --is-ancestor 成功(rc=0)→True；
+    其余（含 git 不可用 / commit 悬空 / 非祖先）→False，交由后续 WARN/FATAL 分支处理。
+    """
+    if not commit:
+        return False
+    try:
+        r = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", commit, "main"],
+            cwd=str(REPO_ROOT), capture_output=True, text=True)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 
 def check_skill(sk, rep: Report, main_short: str) -> None:
@@ -107,6 +129,10 @@ def check_skill(sk, rep: Report, main_short: str) -> None:
         elif trunk == main_short:
             rep.ok(skill_label, "versionlock-trunk",
                    f"主干锁 {trunk} == main HEAD ✓")
+        elif _is_ancestor(trunk):
+            rep.ok(skill_label, "versionlock-trunk",
+                   f"主干锁 {trunk} 是 main 的已合入祖先提交 ✓"
+                   f"（快照合法，无需与 main HEAD 绝对一致）")
         elif any(mk in lock_text for mk in SNAPSHOT_MARKERS):
             rep.warn(skill_label, "versionlock-trunk",
                      f"主干锁 {trunk} != main HEAD {main_short}，"
