@@ -7,7 +7,7 @@ description: web-search 的 Firecrawl 轨道适配层。封装官方 firecrawl C
 
 ## 前置
 - 官方 CLI 已全局安装（全局 `firecrawl` 命令，PATH 已注册）；`firecrawl --version` 可验证。
-- 密钥 `FIRECRAWL_API_KEY` 由 `firecrawl login`（全局凭据）提供，**不**放入 `web-search/.env`；缺失则轨道降级。
+- 密钥 `FIRECRAWL_API_KEY`：默认由 `firecrawl login`（全局凭据）提供；亦可依用户授权驻留于 `web-search/.env`（该文件已 git-ignored，未入库，仅本地磁盘）。驻留时由父层 `orchestrate.py` 经 `_load_firecrawl_key` 自动注入当前进程/子进程 env，无需 `firecrawl login`（见下方「密钥注入」）。无论哪种供给，密钥均不进版本库；缺失则轨道降级。
 
 ## 访问形态（Dynamic-mcp 中继 / 直连，由运行环境决定）
 Firecrawl 在不同 LLM 平台有两种接入形态，本适配层不假定其中任何一种，由运行时探测选用：
@@ -25,9 +25,9 @@ Firecrawl 在不同 LLM 平台有两种接入形态，本适配层不假定其�
 
 ## 密钥注入（调用前，PowerShell 示例）
 
-> **硬约束**：`FIRECRAWL_API_KEY` 只允许存在于 `firecrawl login` 写入的全局凭据与**当前进程环境变量**中。
-> **禁止**在 `web-search/`（含任意子目录）下执行任何会把密钥落盘的导出动作（例如把 `firecrawl env` 输出重定向写入 `.env`）——
-> 该目录的 `.env` 已被 git 跟踪，落盘即等于把 Firecrawl 密钥明文入库。用户的明文入库豁免仅覆盖 `ANYSEARCH_API_KEY`，**不含**本密钥。
+> **硬约束**：`FIRECRAWL_API_KEY` 只允许存在于以下三处，且均**不**进入版本库：
+>   ① `firecrawl login` 写入的全局凭据；② 父层 `orchestrate.py` 经 `_load_firecrawl_key` 自动注入的当前进程/子进程环境变量；③ 经用户显式授权、已 git-ignored 的 `web-search/.env` 本地文件（仅留本地磁盘，**不**入库）。
+> **禁止**把密钥明文提交/推送到任何分支（gitignore 已覆盖 `web-search/.env`，落盘该本地文件即安全，不等于入库）；亦禁止在除已忽略的 `web-search/.env` 之外的路径下把密钥落盘。用户授权 `FIRECRAWL_API_KEY` 驻留 `.env` 仅限私有仓库本地，绝不扩展到公开/远端分支（与 `ANYSEARCH_API_KEY` 的豁免纪律一致，见 AGENTS.md §3.3）。
 
 ```powershell
 # 常规路径：已 firecrawl login 后，CLI 自动读全局凭据，无需任何注入

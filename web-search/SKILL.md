@@ -25,7 +25,7 @@ version: 1.0.0
   - **中文政策/国标检索特别规则（须固化）**：AnySearch 垂直域多为美国/国际向（如 `legal`=US Congress、`environment`=aqi），无中国国策/标准类垂直域。中文政策文件（HJ/GB 编号、国发令、环发令、生态环境部令）、中国国家标准/行业标准的检索，**不走垂直域**，直接 `search "关键词" --max_results 10`（omit `--domain`）；仅主题确属国际向（跨国企业财报、美股代码、国际学术文献）时才走 `get_sub_domains` → 垂直搜索。
 - 轨道2 Firecrawl：见 `{SKILL_ROOT}/firecrawl/SKILL.md`。调用官方 CLI（全局 `firecrawl` 命令，PATH 已注册）：
   `firecrawl search "查询"`
-  - 密钥 `FIRECRAWL_API_KEY` 由 `firecrawl login`（全局凭据）提供，**不**放入 `{SKILL_ROOT}/.env`；缺失时本轨道按阶段C/D 降级。
+  - 密钥 `FIRECRAWL_API_KEY`：默认由 `firecrawl login`（全局凭据）提供；**亦**可依用户授权驻留于 `{SKILL_ROOT}/.env`（该文件已 git-ignored，未入库，仅留本地磁盘，不违反密钥纪律）。驻留时由父层 `orchestrate.py` 经 `_load_firecrawl_key` 在拉起 firecrawl 子进程时自动注入子进程 env，实现自主闭环、无需 `firecrawl login`（详见 `{SKILL_ROOT}/firecrawl/SKILL.md`「密钥注入」）。无论哪种供给方式，密钥均不进版本库；缺失时本轨道按阶段C/D 降级。
   若 `firecrawl` 命令不可用（未安装/无 key/网络失败），本轨道标记失败，进入阶段C补台。
 
 ### 阶段B：多来源印证

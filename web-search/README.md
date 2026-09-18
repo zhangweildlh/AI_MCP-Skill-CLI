@@ -10,7 +10,7 @@ web-search/
 ├── VENDORING.md      # 上游 vendoring 约定（ALLOWLIST / HARD_EXCLUDES / 升级步骤）
 ├── orchestrate.py    # 父层编排（双轨印证 + 原生兜底 + 落盘）；密钥注入点
 ├── validate_output.py# 产物 schema 校验（唯一校验器）
-├── .env              # 父级持有真实密钥（ANYSEARCH_API_KEY；FIRECRAWL_API_KEY 由 firecrawl login 提供），**已移出 git 跟踪（git-ignored，仅驻留本地磁盘）；该密钥曾入库历史，须到 anysearch 控制台轮换作废**
+├── .env              # 父级持有真实密钥（ANYSEARCH_API_KEY，及依用户授权驻留的 FIRECRAWL_API_KEY；后者亦可由 firecrawl login 提供），**已移出 git 跟踪（git-ignored，仅驻留本地磁盘，不入库）**
 ├── anysearch-skill/  # 子 Skill（上游 vendored 纯副本，非独立 clone，零本地补丁）
 │   ├── SKILL.md      # 纯上游（overlay 已移出，见 VENDORING.md）
 │   ├── scripts/anysearch_cli.py
