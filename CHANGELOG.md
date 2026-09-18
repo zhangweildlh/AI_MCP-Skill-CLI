@@ -1,5 +1,14 @@
 ---
 
+## [2026-09-18]
+
+### Changed
+- **dir/web-search：升级 anysearch 上游 vendored 副本至 v3.1.1**（上游 commit 9b91ee21），经 PR #81 合并回 main（merge commit ef2a19aa）。同步上游变更：删除 `anysearch-skill/runtime.conf.example`、新增 `anysearch-skill/LICENSE` 与 `anysearch-skill/scripts/test_cli.py`、根级 `.upstream_sha.json` 及 `tests/*`；纯副本一致性（vendoring 不变量）维持。
+
+### Fixed
+- **dir/web-search / F1 孤儿文件剪枝**：`sync_anysearch.py` 新增 `_compute_orphans` 与 `--prune`（默认 report-only，向后兼容），清理 ALLOWLIST 之外的本地孤儿文件（如上游已删而本地残留的 `runtime.conf.example`）；新增 `tests/test_sync.py` 回归测试覆盖（F3 测试缺口一并覆盖）。
+- **dir/web-search / F2 `check_anysearch` 标注遗留单文件视角**：`check_upstream_drift.py` 的 `check_anysearch`（单文件 sha256 比对）与 `check_anysearch_subtree`（全子树比对）结论可能不一致、易误导；已在 docstring 与 `main` 人类可读报告中标注其为遗留/单文件视角，统一以 `anysearch_subtree` 为漂移判定准绳。最小作用域，不移除功能、不改返回值契约（`res["check"]` 仍为 `"anysearch"`），现有测试不受影响。
+
 ## [2026-09-17]
 
 ### Added
