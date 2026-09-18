@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -344,6 +345,106 @@ class OrchestrateTest(unittest.TestCase):
             os.path.isfile(str(cli)),
             f"run_track1 默认 skill_root 解析出的 cli 路径应真实存在：{cli}",
         )
+
+    # ===================== P2-2：run_track1 垂直域 =====================
+    def test_19_run_track1_vertical_domain_builds_command(self):
+        """P2-2：给定 domain + sub_domain + sdp 时，search 命令须含 --domain/--sub_domain/--sdp。"""
+        captured = {}
+        def cap(cmd, *a, **k):
+            captured["cmd"] = list(cmd)
+            return types.SimpleNamespace(returncode=0,
+                                        stdout=json.dumps(_track("AnySearch", [])), stderr="")
+        with mock.patch.object(orchestrate.shutil, "which", return_value=None):
+            r = orchestrate.run_track1(
+                "q", domain="finance", sub_domain="finance.quote", sdp='{"k":"v"}',
+                subprocess_run=cap)
+        self.assertIsNotNone(r)
+        cmd = captured["cmd"]
+        self.assertIn("search", cmd)
+        self.assertIn("--domain", cmd); self.assertIn("finance", cmd)
+        self.assertIn("--sub_domain", cmd); self.assertIn("finance.quote", cmd)
+        self.assertIn("--sdp", cmd)
+
+    def test_20_run_track1_discover_sub_domain(self):
+        """P2-2：discover_sub_domain=True 时先 get_sub_domains 发现 sub_domain 再注入 search。"""
+        captured = []
+        def cap(cmd, *a, **k):
+            captured.append(list(cmd))
+            if "get_sub_domains" in cmd:
+                return types.SimpleNamespace(
+                    returncode=0,
+                    stdout="## finance Domain Capabilities (1 available)\n\n### finance.quote\n描述\n",
+                    stderr="")
+            return types.SimpleNamespace(returncode=0,
+                                        stdout=json.dumps(_track("AnySearch", [])), stderr="")
+        with mock.patch.object(orchestrate.shutil, "which", return_value=None):
+            r = orchestrate.run_track1(
+                "q", domain="finance", discover_sub_domain=True, subprocess_run=cap)
+        self.assertIsNotNone(r)
+        search_cmds = [c for c in captured if "search" in c and "get_sub_domains" not in c]
+        self.assertTrue(search_cmds, "应发起 search 调用")
+        self.assertIn("--sub_domain", search_cmds[0])
+        self.assertIn("finance.quote", search_cmds[0])
+
+    # ===================== P2-1：main 交付自检门禁 =====================
+    def test_21_main_delivery_selfcheck_pass(self):
+        """P2-1：合规产物落盘后 main 返回 0。"""
+        tmp = tempfile.mkdtemp()
+        good = orchestrate.assemble(
+            "S", [{"mark": orchestrate.MARK_CORROB, "text": "f",
+                   "source": "AnySearch+Firecrawl"}],
+            ["AnySearch: q", "Firecrawl: q"])
+        with mock.patch.object(orchestrate, "run_full",
+                               return_value={"status": "OK", "markdown": good,
+                                             "marked": [], "sources": [],
+                                             "r1": None, "r2": None}):
+            rc = orchestrate.main(["--subject", "S", "--query", "Q", "--out", tmp])
+        self.assertEqual(rc, 0)
+
+    def test_22_main_delivery_selfcheck_fail(self):
+        """P2-1：不合规产物（缺来源清单/采信标记）落盘后 main 返回 1（阻断）。"""
+        tmp = tempfile.mkdtemp()
+        bad = "## 主题：S\n\n随便写点没有采信标记和来源清单的内容。\n"
+        with mock.patch.object(orchestrate, "run_full",
+                               return_value={"status": "OK", "markdown": bad,
+                                             "marked": [], "sources": [],
+                                             "r1": None, "r2": None}):
+            rc = orchestrate.main(["--subject", "S", "--query", "Q", "--out", tmp])
+        self.assertEqual(rc, 1)
+
+    # ===================== P3-1：anysearch / firecrawl 其余子命令接入 =====================
+    def test_23_anysearch_aux_wrappers_build_commands(self):
+        """P3-1：get_sub_domains / batch_search / extract 命令须正确构造。"""
+        captured = {"calls": []}
+        def cap(cmd, *a, **k):
+            captured["calls"].append(list(cmd))
+            return types.SimpleNamespace(returncode=0, stdout="x", stderr="")
+        with mock.patch.object(orchestrate.shutil, "which", return_value=None):
+            g = orchestrate.run_anysearch_get_sub_domains(domain="finance", subprocess_run=cap)
+            b = orchestrate.run_anysearch_batch_search([{"query": "a"}, {"query": "b"}], subprocess_run=cap)
+            e = orchestrate.run_anysearch_extract("https://x.com", subprocess_run=cap)
+        self.assertIsNotNone(g); self.assertIsNotNone(b); self.assertIsNotNone(e)
+        allc = captured["calls"]
+        self.assertTrue(any("get_sub_domains" in c and "--domain" in c for c in allc))
+        self.assertTrue(any("batch_search" in c for c in allc))
+        self.assertTrue(any("extract" in c and "--url" in c for c in allc))
+
+    def test_24_firecrawl_aux_wrappers_build_commands(self):
+        """P3-1：firecrawl scrape / crawl / map 命令须正确构造（首元为 which 真实路径）。"""
+        captured = {"calls": []}
+        def cap(cmd, *a, **k):
+            captured["calls"].append(list(cmd))
+            return types.SimpleNamespace(returncode=0, stdout="x", stderr="")
+        with mock.patch.object(orchestrate.shutil, "which", return_value="/usr/bin/firecrawl"):
+            s = orchestrate.run_firecrawl_scrape("https://x.com", subprocess_run=cap)
+            c = orchestrate.run_firecrawl_crawl("https://x.com", subprocess_run=cap)
+            m = orchestrate.run_firecrawl_map("https://x.com", subprocess_run=cap)
+        self.assertIsNotNone(s); self.assertIsNotNone(c); self.assertIsNotNone(m)
+        for c in captured["calls"]:
+            self.assertEqual(c[0], "/usr/bin/firecrawl")
+        self.assertTrue(any("scrape" in c for c in captured["calls"]))
+        self.assertTrue(any("crawl" in c for c in captured["calls"]))
+        self.assertTrue(any("map" in c for c in captured["calls"]))
 
 
 if __name__ == "__main__":
