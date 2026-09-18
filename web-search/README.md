@@ -31,7 +31,7 @@ web-search/
 
 ### A. AnySearch（一键 vendoring，非独立 clone）
 
-- 上游：`anysearch-ai/anysearch-skill`（默认分支 main，当前 v3.0.1）
+- 上游：`anysearch-ai/anysearch-skill`（默认分支 main，当前 v3.1.1）
 - 现状：`anysearch-skill/` 是上游 **vendored 纯副本**（文件级复制，**无嵌套 `.git`**，**零本地补丁**）。例如核心脚本 `anysearch-skill/scripts/anysearch_cli.py` 为纯上游版本，密钥由父层 `orchestrate.py` 在拉起子进程时注入，本地不对其做任何补丁。
   本地化逻辑（双轨编排、密钥注入、漂移检测、同步工具）全部在**父层**（`orchestrate.py` / `scripts/` / `tests/`）。
 - 升级（一键同步，**禁止恢复独立 clone** —— 在父仓库内 `git clone` 会生成嵌套 `.git`，
@@ -52,6 +52,7 @@ web-search/
 | 日期 | 上游版本/commit | 变更摘要 |
 |------|----------------|----------|
 | 2026-08-18 | v3.0.1（基于上游 main） | 父子解耦整改：`anysearch-skill/` 改为 vendored 纯副本（移除 `_load_env` 父级探测补丁与子 SKILL.md overlay）；密钥注入上移至 `orchestrate.py::._load_parent_api_key`；新增 `VENDORING.md` / `scripts/sync_anysearch.py`；漂移检测扩展为全 ALLOWLIST 子树比对 |
+| 2026-09-18 | v3.1.1（commit 9b91ee21，基于上游 main） | 跟进上游升级：vendored 副本从 v3.0.1 同步至 v3.1.1（16 个 ALLOWLIST 文件逐字一致）；上游 v3.1.1 已删除 `runtime.conf.example`，故从 ALLOWLIST 移除并删除本地残留；新增上游 `scripts/test_cli.py` 一并 vendoring 以保持纯副本忠实度 |
 
 ### B. Firecrawl（gh-api 跟进适配层，非 clone）
 
@@ -68,6 +69,7 @@ web-search/
 | 日期 | openapi 版本/SHA | 变更摘要 |
 |------|------------------|----------|
 | 2026-08-11 | 未抓取（待 `gh api` 跟进） | 本仓库安全整改同步：适配层 `name` 注释；复核「`FIRECRAWL_API_KEY` 不落盘」硬约束 |
+| 2026-09-18 | openapi blob SHA `76809d30bd98c2dbfd42756d6ec3b227f8e1bc5d` | 建立 Firecrawl 漂移基线（`web-search/.upstream_sha.json`）；官方 openapi 含 20 个端点，核心 `/search` `/scrape` `/crawl` `/map` 与适配层记录一致；较新 REST 端点 `/deep-research` `/extract` `/llmstxt` `/batch/scrape` 暂不影响适配层已记录的 6 个 CLI 子命令（search/scrape/crawl/map/agent/interact）；本机 `firecrawl` CLI 缺失，未做实跑冒烟（待 CLI 可用后补验） |
 
 ## 密钥
 
