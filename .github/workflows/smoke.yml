@@ -10,10 +10,10 @@ on:
 #   - job scope-map：计算本次变更涉及的 scope 集合（meta / dir/<名> / file/<名>）
 #   - job smoke      ：基础门禁，**任何变更恒运行**（main 分支保护 required check，保证 PR 可正常合并）。
 #                      触及 meta（scripts/ .github/ README/CHANGELOG/ AGENTS.md Memory-Data/）
-#                      或无可判定 scope 时升级跑全量 tier0-3（+tier5 纪律一致性）；
+#                      或无可判定 scope 时升级跑全量 tier0-3（+tier5 纪律一致性 +tier6 版本锁门禁）；
 #                      其余按 scope 变更仅跑 tier0 密钥/忽略门禁（快速基础门禁）。
 #   - job smoke-scoped：仅当变更可判定到具体 skill scope 时，按 matrix 跑
-#                       对应 scope 的 tier1/tier2（+tier5 校验该 scope 条目）——附加深化，不列入分支保护。
+#                       对应 scope 的 tier1/tier2（+tier5 校验该 scope 条目 +tier6 版本锁门禁）——附加深化，不列入分支保护。
 # 行为约定（与 AGENTS.md 第 5 章 5.3 一致）：
 #   meta 变更 → 全量 CI；目录型/根级文件变更 → 基础门禁 + 按 scope 触发对应检查。
 # main 分支保护（classic protected branch，2026-08-21 由 ruleset 切换：ruleset required_status_checks
@@ -134,7 +134,7 @@ jobs:
         run: |
           SCOPES='${{ needs.scope-map.outputs.scopes }}'
           if echo "$SCOPES" | grep -q '"meta"'; then
-            echo "tiers=0,1,2,3,5" >> "$GITHUB_OUTPUT"
+            echo "tiers=0,1,2,3,5,6" >> "$GITHUB_OUTPUT"
           else
             echo "tiers=0" >> "$GITHUB_OUTPUT"
           fi
@@ -173,12 +173,12 @@ jobs:
       - name: Install skill CLI dependencies
         run: python -m pip install --quiet requests
 
-      - name: Run scoped smoke tiers 1/2 + tier5
+      - name: Run scoped smoke tiers 1/2 + tier5 + tier6
         env:
           github.repository_visibility: ${{ github.repository_visibility }}
         run: |
           SAFE_SCOPE=$(echo "${{ matrix.scope }}" | tr '/' '_')
-          python scripts/smoke/run_all.py --tier 1,2,5 --scope "${{ matrix.scope }}" \
+          python scripts/smoke/run_all.py --tier 1,2,5,6 --scope "${{ matrix.scope }}" \
             --json "smoke-report-${SAFE_SCOPE}.json"
 
       - name: Upload report
