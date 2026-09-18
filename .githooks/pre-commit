@@ -82,6 +82,31 @@ if echo "$BRANCH" | grep -Eq '^feat/[一-龥A-Za-z0-9 _-]+-[0-9]{14}$'; then
   done
 fi
 
+# 2.1b 兜底：name 段无已登记 dir/file 时，识别是否实为 meta 内容分支。
+#   背景：scope 解析仅以 AGENTS.md 第 2 章已登记 name 为白名单，meta 是字面量而非
+#   目录/文件，故任何「name 段不叫 meta」的 meta 内容分支（如 feat/changelog-fix-<TS>、
+#   feat/scripts-update-<TS>）都会落空并被 §2.1 致命拒绝。此处改为：若暂存文件全部落在
+#   meta 放行清单内，则按 meta scope 放行（真正的越权混入仍由 §2.3 的 meta 放行清单兜底）。
+if [ "$BRANCH_IS_FEAT" -eq 1 ] && [ -z "$SCOPE_NAME" ]; then
+  STAGED_PRE=$(git diff --cached --name-only)
+  if [ -n "$STAGED_PRE" ]; then
+    ALL_META=1
+    while IFS= read -r mf; do
+      [ -z "$mf" ] && continue
+      case "$mf" in
+        .githooks/*|scripts/*|.github/*|README.md|CHANGELOG.md|AGENTS.md|Memory-Data/*|.gitignore|@*.md|mimo_mcp.py) ;;
+        *) ALL_META=0 ;;
+      esac
+    done <<EOF
+$STAGED_PRE
+EOF
+    if [ "$ALL_META" -eq 1 ]; then
+      SCOPE_NAME="meta"
+      echo "ℹ️ 分支 '$BRANCH' 的 name 段未登记为已知 scope，但暂存文件全部属 meta 清单，按 meta scope 放行"
+    fi
+  fi
+fi
+
 if [ "$BRANCH_IS_FEAT" -eq 1 ] && [ -z "$SCOPE_NAME" ]; then
   # 分支符合 feat/<name>-<topic>-<timestamp> 命名，但 <name> 无法在 AGENTS.md 第 2 章解析出已知 scope
   echo "❌ 无法从分支名解析所属 scope（分支: $BRANCH）。"
