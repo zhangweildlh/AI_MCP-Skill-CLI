@@ -39,6 +39,7 @@ import tier2_compliance
 import tier3_runtime
 import tier4_trigger
 import tier5_scope_consistency
+import tier6_versionlock
 
 TIERS = {
     "0": ("Tier0 密钥/忽略门禁", tier0_secrets),
@@ -47,6 +48,7 @@ TIERS = {
     "3": ("Tier3 运行冒烟", tier3_runtime),
     "4": ("Tier4 触发冒烟", tier4_trigger),
     "5": ("Tier5 纪律一致性", tier5_scope_consistency),
+    "6": ("Tier6 版本锁一致性", tier6_versionlock),
 }
 
 # scope 合法前缀：dir/ file/ meta（其余值视为非法参数）
@@ -74,7 +76,7 @@ def _call_tier(mod, *, scope, files=None):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="AI_MCP-Skill-CLI 冒烟测试（含 scope 纪律）")
-    ap.add_argument("--tier", default="0,1,2,3,4,5",
+    ap.add_argument("--tier", default="0,1,2,3,4,5,6",
                     help="运行层级，逗号分隔，如 0,1 或 all")
     ap.add_argument("--scope", default=None,
                     help="按 scope 过滤：dir/<目录名> / file/<name> / meta / all / 缺省=全部")

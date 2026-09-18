@@ -1,4 +1,4 @@
-# 六层冒烟测试（Smoke Test）
+# 七层冒烟测试（Smoke Test）
 
 本目录是对《仓库规划与冒烟测试方案（草案 v0.1）》第三节的**落地实现**：在每次提交(commit) / 合并(merge)前，用最低成本验证每个 Skill 结构合法、能被正确加载、依赖可用、外部接口可达、触发符合预期，并守住方案 Y「多 Agent 并发 scope 纪律」。
 
@@ -8,7 +8,7 @@
 - **可分级运行**：日常改完只跑 Tier0+1（秒级）；开 PR 前跑 Tier2+3；push/PR 由云端 CI 兜底（smoke.yml 按变更 scope 决定全量或定向跑）。
 - **致命阻断、警告提示**：`FATAL` 会阻断提交/合并；`WARN` 仅提示，除非 `--strict`。
 
-## 六层体系
+## 七层体系
 
 | 层级 | 文件 | 检查内容 | 阻断？ |
 |---|---|---|---|
@@ -18,8 +18,11 @@
 | Tier 3 | `tier3_runtime.py` | 环境探测 + 脚本自检（CLI/pytest）+ 可选接口探活 | 致命阻断（脚本/测试失败） |
 | Tier 4 | `tier4_trigger.py` | 触发就绪度静态校验（触发短语 / 示例 / 关键词互斥） | 仅警告（行为级需 LLM） |
 | Tier 5 | `tier5_scope_consistency.py` | 纪律一致性：AGENTS.md 结构（存在/六章标题）+ 第 2 章 scope 清单与 `discover_skills()` 实际结构一致 + 纪律必须文件 | 致命阻断 |
+| Tier 6 | `tier6_versionlock.py` | 版本锁一致性门禁：含 `version-lock.md` 的技能，校验①模块首行 commit 命中锁表②更新记录 commit==首行且无占位符③主干锁==main HEAD（已标注历史快照则降级为警告） | ①②③ 命中即致命阻断（③快照态为警告） |
 
-> Tier1/Tier2/Tier5 支持 `scope` 过滤：传入 `--scope dir/<目录名>` / `file/<name>` / `meta` 时，只检查匹配该 scope 的 Skill（Tier5 只校验对应清单条目）；scope 为空时全量检查。
+> Tier1/Tier2/Tier5/Tier6 支持 `scope` 过滤：传入 `--scope dir/<目录名>` / `file/<name>` / `meta` 时，只检查匹配该 scope 的 Skill（Tier5 只校验对应清单条目；Tier6 只校验该技能的版本锁）；scope 为空时全量检查。
+
+> Tier6 仅对含 `version-lock.md` 的技能生效（版本锁一致性门禁），不含该文件的技能自动跳过；若主干锁 commit 与 `git rev-parse --short main` 不一致但 `version-lock.md` 已显式标注为历史快照，则降级为警告（非阻断），否则按版本锁过期处理为致命。
 
 > 关于 `ANYSEARCH_API_KEY`：按用户决策（D-2026-0811-01），`ref-material-writing/.env` 中的真实 Key 已授权入库，故 Tier0 将其列入路径级豁免（`EXEMPT_SCAN_PATHS`）并配可见性守卫——**豁免仅当仓库为 private 时生效**（CI 由环境变量 `github.repository_visibility` 判定；本地默认按 private 放行）。仓库转 public 后豁免自动失效、密钥恢复扫描阻断。收紧时移除 `tier0_secrets.py` 中 `EXEMPT_SCAN_PATHS` / `ALLOW_PATTERNS` 对应条目即可。
 
@@ -36,7 +39,7 @@ uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py
 uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 0,1
 
 # CI 场景（不含行为级 Tier4），并产出 JSON 报告
-uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 0,1,2,3 --json smoke-report.json
+uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 0,1,2,3,6 --json smoke-report.json
 
 # 按 scope 定向检查（CI smoke-scoped 场景）：只查 chrome-devtools 的结构+合规+纪律一致性
 uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 1,2,5 --scope dir/chrome-devtools

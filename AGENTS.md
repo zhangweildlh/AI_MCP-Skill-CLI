@@ -72,7 +72,7 @@
   | 无法判定 scope | 运行（tier0 密钥/忽略） | 不运行/降级 | 运行（required） |
 
   `main` 分支保护（classic protected branch）required checks 含 `smoke` 与 meta 全量 `run_all`（二者失败均阻断合并）；`smoke-scoped` 对 meta 变更 skipping，不列入 required。
-- 5.4 测试约定：本仓库自动化冒烟集中在 `scripts/smoke/`（tier0-5，`run_all.py` 支持 `--scope` 按 scope 过滤）；提交前可本地运行 `uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 0,1 --staged`（本机禁裸 python，一律经 uv 调用，工程路径为本机环境事实，其他机器按各自环境调整）；CI 按变更 scope 触发对应检查，meta 变更触发全量；各 Skill 自带测试（如 `github-personal-manager/smoke`、`web-search/tests` 等）保留在各自 Skill 目录内自包含，调度统一收拢到 `scripts/smoke` 入口。
+- 5.4 测试约定：本仓库自动化冒烟集中在 `scripts/smoke/`（tier0-6，`run_all.py` 支持 `--scope` 按 scope 过滤；其中 `tier6` 为版本锁一致性门禁，仅对含 `version-lock.md` 的技能生效，主干锁与 main HEAD 不一致且未标注历史快照时致命阻断）；提交前可本地运行 `uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 0,1 --staged`（本机禁裸 python，一律经 uv 调用，工程路径为本机环境事实，其他机器按各自环境调整）；CI 按变更 scope 触发对应检查，meta 变更触发全量；各 Skill 自带测试（如 `github-personal-manager/smoke`、`web-search/tests` 等）保留在各自 Skill 目录内自包含，调度统一收拢到 `scripts/smoke` 入口。
 
 ## 6 本文件的维护
 - 6.1 唯一事实源：本文件为**本仓库 git 操作纪律**的唯一权威；任何本仓库纪律变更必须先更新本文件，再更新引用方。本文件引用 SOUL.md（用户级，跨项目智能体灵魂）、MEMORY.md（用户级永久记忆）等更高层约束，引用方向恒为 AGENTS.md → SOUL.md/MEMORY.md，且冲突时以本文件在本仓库 git 纪律范围内的规定为准（更高层约束仅被引用、不被本文件重定义）。
