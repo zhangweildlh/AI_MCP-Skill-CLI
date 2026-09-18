@@ -6,7 +6,7 @@
 **激活条件**：问题复杂度 ≥ 中 或 信息不明确
 **接口契约**：
 - 输入：`{ "用户问题描述": str, "已有信息": [str], "用户初步判断": str|null }`
-- 输出：`{ "audit": {"facts": [str], "assumptions": [{"内容":str,"类型":"load-bearing|decorative|hidden"}], "unknowns": [{"项":str,"优先级":"必须有|最好有|锦上添花"}]}, "steelman_pro": [str], "steelman_con": [str], "verdict": "可行/有条件可行/不可行/需更多信息", "value_flaw": str|null }`
+- 输出：`{ "audit": {"facts": [str], "assumptions": [{"内容":str,"类型":"load-bearing|decorative|hidden"}], "unknowns": [{"项":str,"优先级":"必须有|最好有|锦上添花"}]}, "steelman_pro": [str], "steelman_con": [str], "verdict": "可行/有条件可行/不可行/需更多信息", "value_flaw": str|null, "待验证假设": [str] }`（`待验证假设` 为本模块必须产出的字段，下游 Phase 3 的 jasminK11/5Why 模块将其作为输入种子）
 
 ---
 
@@ -135,8 +135,9 @@
 - Steelman Pro: [列表]
 - Steelman Con: [列表]
 - Value Flaw: [描述或"无"]
-- Verdict: [可行/有条件可行/不可行/需更多信息]
-```
+   - Verdict: [可行/有条件可行/不可行/需更多信息]
+   - 待验证假设: [列表；从本模块 Audit 的 Assumptions 中提炼、需经 Phase 3 的 5Why 逐级追问验证的承重/隐性假设（load-bearing / hidden 且无证据支撑者优先），作为 Phase 3 的追问种子]
+   ```
 
 ---
 
