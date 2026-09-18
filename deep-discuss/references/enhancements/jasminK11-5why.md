@@ -92,5 +92,5 @@
 
 ## 更新记录
 
-- 2026-09-17：首次缓存，基于 jasminK11/claude-5-why-skill@abc123def456
+- 2026-09-17：首次缓存，基于 jasminK11/claude-5-why-skill@b32cb7acc5837f3b9757e269acae7b58805446dc
 
