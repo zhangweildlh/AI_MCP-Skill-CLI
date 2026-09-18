@@ -36,7 +36,13 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
+
+# 产物 schema 校验器（P2-1 交付自检门禁）：唯一事实源 = web-search/validate_output.py。
+# 以别名导入，避免覆盖 orchestrate 模块的 validate_output_markdown 属性（test_17 护栏：
+# orchestrate 不得再定义第二份分叉的校验器）。
+from validate_output import validate_output_markdown as _validate_output_markdown
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -211,30 +217,16 @@ def _parse_markdown_search_results(stdout: str, source: str) -> dict | None:
     return {"ok": True, "facts": facts, "authoritative": authoritative, "source": source}
 
 
-def run_track1(query, max_results: int = 5, skill_root=None, subprocess_run=None):
-    """轨道1 AnySearch：uv 运行 anysearch_cli.py search。
+def _invoke_anysearch(sub_args: list, skill_root=None, subprocess_run=None):
+    """通用：运行任意 anysearch 子命令，返回 stdout 文本；失败（缺命令/异常/非0）返回 None。
 
-    网络一律走 subprocess（默认 subprocess.run，允许 monkeypatch 注入）。
-    非 0 退出 / 异常 / 空查询 -> 返回 None（不抛、不崩）。
-
-    密钥注入：解耦后 anysearch_cli.py 为纯上游副本，不探测父级 .env；本函数在拉起子进程前
-    把父级 web-search/.env 的 ANYSEARCH_API_KEY 注入子进程 env（尊重 --api_key / 显式环境变量
-    优先）。这取代了上游脚本里曾有的本地补丁。
-
-    返回规范化 track dict：{"ok": bool, "facts": [...], "authoritative": bool, "source": "AnySearch"}
-    或 None。
+    统一处理：cli 路径解析 + uv --with requests 调用 + ANYSEARCH_API_KEY 注入（密钥注入规则
+    同 run_track1 历史实现——父级 .env 优先于子进程继承环境，但低于 --api_key / 显式 env）。
+    不解析产物（各调用方按需解析）。网络一律走 subprocess，允许 monkeypatch 注入。
     """
-    if query is None or not str(query).strip():
-        return None
     sr = Path(skill_root).resolve() if skill_root else Path(__file__).resolve().parent
     cli = sr / "anysearch-skill" / "scripts" / "anysearch_cli.py"
-    # 边界钳制：max_results 落在 [1, 10]
-    m = max(1, min(int(max_results), MAX_RESULTS_CAP))
-    cmd = [
-        "uv", "run", "--with", "requests", "python",
-        str(cli), "search", str(query), "--max_results", str(m),
-    ]
-    # 密钥注入：父级 .env 优先于子进程继承的环境，但低于 --api_key / 显式 env
+    cmd = ["uv", "run", "--with", "requests", "python", str(cli)] + list(sub_args)
     run = subprocess_run or subprocess.run
     env = dict(os.environ)
     parent_key = _load_parent_api_key(sr)
@@ -246,7 +238,87 @@ def run_track1(query, max_results: int = 5, skill_root=None, subprocess_run=None
         return None
     if getattr(proc, "returncode", 1) != 0:
         return None
-    return parse_track_output(getattr(proc, "stdout", ""), TRACK1_SOURCE)
+    return getattr(proc, "stdout", "")
+
+
+def _invoke_firecrawl(sub_args: list, skill_root=None, subprocess_run=None):
+    """通用：运行任意 firecrawl 子命令，返回 stdout 文本；失败返回 None。
+
+    统一处理：shutil.which 解析真实路径（含 .cmd 扩展名，P2-1 修复 Windows 裸名陷阱）+
+    FIRECRAWL_API_KEY 注入（P3-1 自主闭环）。which 为 None -> 返回 None（降级不崩）。
+    """
+    sr = Path(skill_root).resolve() if skill_root else Path(__file__).resolve().parent
+    fc_bin = shutil.which("firecrawl")
+    if fc_bin is None:
+        return None
+    cmd = [fc_bin] + list(sub_args)
+    run = subprocess_run or subprocess.run
+    env = dict(os.environ)
+    fc_key = _load_firecrawl_key(sr)
+    if fc_key and "FIRECRAWL_API_KEY" not in env:
+        env["FIRECRAWL_API_KEY"] = fc_key
+    try:
+        proc = run(cmd, capture_output=True, text=True, env=env)
+    except Exception:
+        return None
+    if getattr(proc, "returncode", 1) != 0:
+        return None
+    return getattr(proc, "stdout", "")
+
+
+def _extract_first_sub_domain(text: str):
+    """从 get_sub_domains 的 markdown 输出中提取首个 sub_domain（### <sub_domain> 行）。"""
+    if not text:
+        return None
+    m = re.search(r"^###\s+(.+)$", str(text), re.MULTILINE)
+    return m.group(1).strip() if m else None
+
+
+def _aux_result(raw, source):
+    """通用 anysearch/firecrawl 非 search 子命令的归一化返回（含原始 markdown，供上层按需解析）。"""
+    if raw is None:
+        return None
+    return {"ok": True, "raw": raw, "source": source}
+
+
+def run_track1(query, max_results: int = 5, skill_root=None, subprocess_run=None,
+               domain=None, sub_domain=None, sdp=None, zone=None, language=None,
+               discover_sub_domain: bool = False):
+    """轨道1 AnySearch：uv 运行 anysearch_cli.py search（支持垂直域，P2-2）。
+
+    P2-2：新增垂直域参数与发现机制，对齐父 SKILL.md 阶段A「先 get_sub_domains 发现 sub_domain，
+    再 search --domain --sub_domain --sdp」：
+      * 给定 domain + sub_domain            -> search --domain <d> --sub_domain <s> [--sdp <p>]
+      * 给定 domain + discover_sub_domain   -> 先 get_sub_domains 发现首个 sub_domain 再 search
+      * 仅 query                           -> 普通泛搜（向后兼容）
+    其余契约（max_results 封顶、密钥注入、非0/异常降级 None、subprocess 可注入）保持不变。
+
+    返回规范化 track dict 或 None。
+    """
+    if query is None or not str(query).strip():
+        return None
+    sr = Path(skill_root).resolve() if skill_root else Path(__file__).resolve().parent
+    m = max(1, min(int(max_results), MAX_RESULTS_CAP))
+    sub_args = ["search", str(query), "--max_results", str(m)]
+    if domain:
+        eff_sub = sub_domain
+        if not eff_sub and discover_sub_domain:
+            disc = _invoke_anysearch(["get_sub_domains", "--domain", str(domain)],
+                                    sr, subprocess_run)
+            eff_sub = _extract_first_sub_domain(disc) if disc else None
+        sub_args += ["--domain", str(domain)]
+        if eff_sub:
+            sub_args += ["--sub_domain", eff_sub]
+    if sdp:
+        sub_args += ["--sdp", str(sdp)]
+    if zone:
+        sub_args += ["--zone", str(zone)]
+    if language:
+        sub_args += ["--language", str(language)]
+    out = _invoke_anysearch(sub_args, sr, subprocess_run)
+    if out is None:
+        return None
+    return parse_track_output(out, TRACK1_SOURCE)
 
 
 def run_track2(query, skill_root=None, subprocess_run=None):
@@ -264,23 +336,81 @@ def run_track2(query, skill_root=None, subprocess_run=None):
     """
     if query is None or not str(query).strip():
         return None
-    sr = Path(skill_root).resolve() if skill_root else Path(__file__).resolve().parent
-    fc_bin = shutil.which("firecrawl")
-    if fc_bin is None:
+    out = _invoke_firecrawl(["search", "--json", str(query)], skill_root, subprocess_run)
+    if out is None:
         return None
-    cmd = [fc_bin, "search", "--json", str(query)]
-    run = subprocess_run or subprocess.run
-    env = dict(os.environ)
-    fc_key = _load_firecrawl_key(sr)
-    if fc_key and "FIRECRAWL_API_KEY" not in env:
-        env["FIRECRAWL_API_KEY"] = fc_key
-    try:
-        proc = run(cmd, capture_output=True, text=True, env=env)
-    except Exception:
+    return parse_track_output(out, TRACK2_SOURCE)
+
+
+# ---------------------------------------------------------------------------
+# P3-1：暴露 anysearch / firecrawl 其余子命令（功能最大化，统一可测、可注入）
+# ---------------------------------------------------------------------------
+# 父编排器此前仅接入 search，anysearch 的 get_sub_domains/batch_search/extract 与 firecrawl 的
+# scrape/crawl/map 均未接入，导致功能发挥不全。下列封装统一复用 _invoke_anysearch /
+# _invoke_firecrawl 的「cli 路径解析 + 密钥注入 + 失败降级」逻辑，使这些子命令可被上层编排
+# 直接调用（均支持 monkeypatch subprocess_run，零触网可测）。返回 _aux_result（{"ok","raw",
+# "source"}）或 None，原始 markdown 交由调用方按需解析。
+
+
+def run_anysearch_get_sub_domains(domain=None, domains=None, skill_root=None, subprocess_run=None):
+    """anysearch get_sub_domains：列出垂直域可用 sub_domain（垂直域前置发现，P2-2 配套）。"""
+    if not domain and not domains:
         return None
-    if getattr(proc, "returncode", 1) != 0:
+    sub_args = ["get_sub_domains"]
+    if domain:
+        sub_args += ["--domain", str(domain)]
+    elif domains is not None:
+        sub_args += ["--domains", str(domains) if isinstance(domains, str) else json.dumps(list(domains))]
+    return _aux_result(_invoke_anysearch(sub_args, skill_root, subprocess_run), TRACK1_SOURCE)
+
+
+def run_anysearch_batch_search(queries, skill_root=None, subprocess_run=None,
+                               domain=None, sub_domain=None, sdp=None, max_results=None):
+    """anysearch batch_search：并行 1–5 条查询（queries 为 list 或 JSON 串）。"""
+    if not queries:
         return None
-    return parse_track_output(getattr(proc, "stdout", ""), TRACK2_SOURCE)
+    sub_args = ["batch_search"]
+    if isinstance(queries, list):
+        sub_args += ["--queries", json.dumps(queries)]
+    else:
+        sub_args += ["--queries", str(queries)]
+    if domain:
+        sub_args += ["--domain", str(domain)]
+    if sub_domain:
+        sub_args += ["--sub_domain", str(sub_domain)]
+    if sdp:
+        sub_args += ["--sdp", str(sdp)]
+    if max_results is not None:
+        sub_args += ["--max_results", str(max_results)]
+    return _aux_result(_invoke_anysearch(sub_args, skill_root, subprocess_run), TRACK1_SOURCE)
+
+
+def run_anysearch_extract(url, skill_root=None, subprocess_run=None):
+    """anysearch extract：从 URL 抓取并抽取整页内容（markdown）。"""
+    if not url:
+        return None
+    return _aux_result(_invoke_anysearch(["extract", "--url", str(url)], skill_root, subprocess_run), TRACK1_SOURCE)
+
+
+def run_firecrawl_scrape(url, skill_root=None, subprocess_run=None):
+    """firecrawl scrape：抓取单页内容（markdown/json）。"""
+    if not url:
+        return None
+    return _aux_result(_invoke_firecrawl(["scrape", str(url)], skill_root, subprocess_run), TRACK2_SOURCE)
+
+
+def run_firecrawl_crawl(url, skill_root=None, subprocess_run=None):
+    """firecrawl crawl：对整站做递归抓取。"""
+    if not url:
+        return None
+    return _aux_result(_invoke_firecrawl(["crawl", str(url)], skill_root, subprocess_run), TRACK2_SOURCE)
+
+
+def run_firecrawl_map(url, skill_root=None, subprocess_run=None):
+    """firecrawl map：返回站点 URL 地图。"""
+    if not url:
+        return None
+    return _aux_result(_invoke_firecrawl(["map", str(url)], skill_root, subprocess_run), TRACK2_SOURCE)
 
 
 def parse_track_output(stdout, source: str, authoritative_default: bool = False):
@@ -622,6 +752,14 @@ def main(argv=None) -> int:
     path = os.path.join(out_dir, fname)
     with open(path, "w", encoding="utf-8") as f:
         f.write(res["markdown"])
+    # P2-1 交付自检门禁：落盘后校验产物 schema（采信标记 + 来源清单；唯一事实源
+    # web-search/validate_output.py）。违规则阻断（非0退出），避免不合格素材流入下游。
+    violations = _validate_output_markdown(res["markdown"])
+    if violations:
+        print(f"⚠️ 交付自检未通过：{path} (status={res['status']})", file=sys.stderr)
+        for v in violations:
+            print("  - " + v, file=sys.stderr)
+        return 1
     print(f"已写出: {path} (status={res['status']})")
     return 0
 

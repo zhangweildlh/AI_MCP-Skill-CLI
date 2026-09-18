@@ -338,12 +338,12 @@ class TestMatrixCompatibility(unittest.TestCase):
             self.assertTrue(os.path.isfile(base + ext), "缺引擎文件: %s" % (base + ext))
 
     def test_engine_subcommand_alignment(self):
-        """四引擎脚本均声明 search/get_sub_domains/batch_search/extract 子命令。"""
+        """四引擎脚本均声明 search/get_sub_domains/batch_search/extract/doc 子命令（P3-3 含 doc）。"""
         base = os.path.join(SCRIPTS_DIR, "anysearch_cli")
         for ext in (".py", ".js", ".ps1", ".sh"):
             with open(base + ext, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
-            for sub in ("search", "get_sub_domains", "batch_search", "extract"):
+            for sub in ("search", "get_sub_domains", "batch_search", "extract", "doc"):
                 self.assertIn(sub, content, "%s 引擎缺少子命令 %s" % (ext, sub))
 
     def test_windows_pathsep_resilient(self):
