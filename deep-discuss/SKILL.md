@@ -329,7 +329,10 @@ Phase 2 done → Phase 3：深度分析
 每次激活本技能时，先执行一次轻量自检，避免"静默降级"导致用户误以为模块已生效：
 
 1. **模块存在性**：确认 `references/enhancements/` 下三个模块文件（jasminK11-5why.md、kimasplund-premortem.md、silvereWolf-consult.md）均存在且非空。
-2. **版本标记一致性**：读取三个模块文件首行的 `<!-- 版本锁定: commit:... -->`，确认其 commit 出现在 `version-lock.md` 中；任一不匹配即视为该模块版本偏离。
+2. **版本标记一致性**：逐项核对以下三处 commit 必须互证一致，任一不匹配即视为版本偏离：
+   - **模块首行 ↔ 锁表**：读取三个模块文件首行的 `<!-- 版本锁定: commit:... -->`，确认其 commit 出现在 `version-lock.md` 的锁定表中；
+   - **更新记录 ↔ 首行**：若模块文件「更新记录」小节引用了上游 commit（形如 `基于 <repo>@<commit>`），其 `<commit>` 必须与文件首行的 commit 完全一致，禁止遗留占位符（如 `<真实commit>`）；
+   - **主干锁 ↔ main HEAD**：读取 `version-lock.md` 中「主干」行的 commit，须等于当前仓库 `git rev-parse --short main` 的值（或显式标注为历史快照并附最近合并提交）。
 3. **处置**：若自检发现缺失或版本偏离，在 Phase 1 开头明确向用户提示"检测到 [模块名] 不可用/版本偏离，已切换至基础模式"，而非等到对应阶段才悄悄降级；若无异常则无需提示，不打扰用户。
 
 ## 示例

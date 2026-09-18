@@ -164,5 +164,5 @@
 
 ## 更新记录
 
-- 2026-09-17：首次缓存，基于 SilvereWolf/idea-friction-feasibility-auditor@mno345pqr678
+- 2026-09-17：首次缓存，基于 SilvereWolf/idea-friction-feasibility-auditor@ba850a7d24136875670f5d3c880d9988d95fa42d
 
