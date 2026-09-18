@@ -226,7 +226,11 @@ class TestMatrixPermission(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class TestMatrixDependency(unittest.TestCase):
     def test_uv_available(self):
-        self.assertIsNotNone(shutil.which("uv"), "uv 命令不可用")
+        """uv 命令可用性（环境级硬断言）；CI 沙箱未预装 uv 时跳过，部署态本机仍真实校验。"""
+        path = shutil.which("uv")
+        if path is None:
+            self.skipTest("本环境未安装 uv（部署态已具备），跳过")
+        self.assertIsNotNone(path, "uv 命令不可用")
 
     def test_node_available(self):
         self.assertIsNotNone(shutil.which("node"), "node 命令不可用")
@@ -489,6 +493,51 @@ class TestMatrixFirecrawlKey(unittest.TestCase):
              mock.patch.dict(os.environ, {"FIRECRAWL_API_KEY": "fc-system"}, clear=False):
             orchestrate.run_track2("q", skill_root=tmp, subprocess_run=cap)
         self.assertEqual(captured["env"]["FIRECRAWL_API_KEY"], "fc-system")
+
+
+# ---------------------------------------------------------------------------
+# P2-3 / 契约延伸：firecrawl --json 输出（data.web 嵌套）解析 + 双轨互证
+# ---------------------------------------------------------------------------
+class TestMatrixFirecrawlJson(unittest.TestCase):
+    def _real_firecrawl_json(self):
+        """复刻 firecrawl search --json 的真实输出结构（data.web 嵌套）。"""
+        return json.dumps({
+            "success": True,
+            "data": {"web": [
+                {"url": "https://example.com/a", "title": "成渝中线高铁",
+                 "description": "正线全长约291公里", "position": 1},
+                {"url": "https://example.com/b", "title": "另一条结果",
+                 "description": "描述文本", "position": 2},
+            ]}
+        })
+
+    def test_parse_firecrawl_json_ok(self):
+        """契约修复：firecrawl --json 输出应解析为 ok=True 且含 2 条 fact（此前默认 markdown 致恒 False）。"""
+        track = orchestrate.parse_track_output(self._real_firecrawl_json(), orchestrate.TRACK2_SOURCE)
+        self.assertTrue(track["ok"], "firecrawl --json 应解析为 ok=True（默认 markdown 导致恒 False）")
+        self.assertEqual(len(track["facts"]), 2)
+        self.assertTrue(track["authoritative"], "含 url 的 fact 应标记权威")
+        self.assertEqual(track["facts"][0]["field"], "https://example.com/a")
+        self.assertIn("成渝中线高铁", track["facts"][0]["text"])
+
+    def test_run_track2_json_via_subprocess(self):
+        """端到端（mock subprocess 返回 firecrawl --json）：轨道2 现在能真正采纳结果。"""
+        proc = _mock_proc(0, stdout=self._real_firecrawl_json())
+        with mock.patch.object(orchestrate.shutil, "which", return_value="/usr/bin/firecrawl"):
+            r = orchestrate.run_track2("成渝中线", skill_root=SKILL_ROOT,
+                                       subprocess_run=lambda *a, **k: proc)
+        self.assertIsNotNone(r)
+        self.assertTrue(r["ok"], "轨道2 --json 应解析为 ok=True")
+        self.assertEqual(len(r["facts"]), 2)
+
+    def test_corroborate_firecrawl_json_with_anysearch_markdown(self):
+        """双轨：轨1 真实 markdown + 轨2 firecrawl --json，同 url 应互证（编辑 C 以 url 作 field）。"""
+        md_track = orchestrate.parse_track_output(
+            TestMatrixAnysearchMarkdown()._real_markdown(), orchestrate.TRACK1_SOURCE)
+        fc_track = orchestrate.parse_track_output(self._real_firecrawl_json(), orchestrate.TRACK2_SOURCE)
+        marked = orchestrate.corroborate(md_track, fc_track)
+        self.assertTrue(any(m["mark"] == orchestrate.MARK_CORROB for m in marked),
+                        "双轨同 url 应互证")
 
 
 if __name__ == "__main__":
