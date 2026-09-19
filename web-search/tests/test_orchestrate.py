@@ -446,6 +446,29 @@ class OrchestrateTest(unittest.TestCase):
         self.assertTrue(any("crawl" in c for c in captured["calls"]))
         self.assertTrue(any("map" in c for c in captured["calls"]))
 
+    def test_25_out_parameter_file_path(self):
+        """--out 参数作为文件路径时，应使用其父目录作为输出目录。"""
+        tmp_dir = tempfile.mkdtemp()
+        file_path = os.path.join(tmp_dir, "output.txt")  # 这是一个文件路径
+        good = orchestrate.assemble(
+            "S", [{"mark": orchestrate.MARK_CORROB, "text": "f",
+                   "source": "AnySearch+Firecrawl"}],
+            ["AnySearch: q", "Firecrawl: q"])
+        with mock.patch.object(orchestrate, "run_full",
+                               return_value={"status": "OK", "markdown": good,
+                                             "marked": [], "sources": [],
+                                             "r1": None, "r2": None}):
+            rc = orchestrate.main(["--subject", "S", "--query", "Q", "--out", file_path])
+            self.assertEqual(rc, 0)
+            # 检查文件是否在tmp_dir下创建，名称为S_搜索素材.md
+            expected_path = os.path.join(tmp_dir, f"S_搜索素材.md")
+            self.assertTrue(os.path.exists(expected_path), f"Expected file {expected_path} not found")
+            # 确保file_path本身没有被创建为目录（它应该仍然是一个不存在的文件）
+            self.assertFalse(os.path.exists(file_path), f"File path {file_path} should not be created as a directory")
+            # 另外，确保没有创建类似tmp_dir/output.txt/的目录
+            dir_path = os.path.join(tmp_dir, "output.txt")
+            self.assertFalse(os.path.isdir(dir_path), f"Directory {dir_path} should not be created")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

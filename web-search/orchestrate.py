@@ -730,7 +730,7 @@ def _build_arg_parser():
     p.add_argument("--query", required=True, help="检索查询")
     p.add_argument("--max_results", type=int, default=5, help="每轨最大结果数（1-10，默认5）")
     p.add_argument("--skill_root", default=None, help="技能根目录（默认脚本所在目录）")
-    p.add_argument("--out", default=None, help="落盘目录（默认当前目录）")
+    p.add_argument("--out", default=None, help="落盘目录（默认当前目录）；若提供文件路径则取其父目录")
     p.add_argument("--no-native", action="store_true",
                    help="模拟原生兜底不可用（注入 check_native_available(False)）")
     return p
@@ -747,6 +747,15 @@ def main(argv=None) -> int:
         native_available=native,
     )
     out_dir = args.out or os.getcwd()
+    # 健壮性修复：如果用户提供了--out且它看起来像一个文件路径，则使用其父目录
+    if args.out is not None:
+        # 规范化路径
+        out_dir_norm = os.path.normpath(out_dir)
+        # 如果规范化路径的基名包含一个点并且不是以路径分隔符结尾，则视为文件路径
+        if '.' in os.path.basename(out_dir_norm) and not out_dir_norm.endswith((os.sep, '/')):
+            parent_dir = os.path.dirname(out_dir_norm)
+            if parent_dir:  # 如果父目录不为空字符串
+                out_dir = parent_dir
     os.makedirs(out_dir, exist_ok=True)
     fname = f"{args.subject}_搜索素材.md"
     path = os.path.join(out_dir, fname)
