@@ -1,3 +1,5 @@
+<!-- 版本锁定: commit:202609181645 -->
+
 # Audit Template — 问题审计模板
 
 > 使用场景：Phase 2 问题审查阶段，配合 SilvereWolf Consult 模块使用

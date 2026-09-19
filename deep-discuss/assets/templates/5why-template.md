@@ -1,3 +1,5 @@
+<!-- 版本锁定: commit:202609181645 -->
+
 # 5Why Template — 根因追问模板
 
 > 使用场景：Phase 3 深度分析阶段，配合 jasminK11 5Why 模块使用
