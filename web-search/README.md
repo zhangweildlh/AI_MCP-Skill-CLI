@@ -106,6 +106,23 @@ uv run --with requests python -m unittest discover -s web-search/tests -v
 | `test_f7_cli_contract` | 真实执行 `firecrawl interact --help` 校验上游 CLI 契约（CLI 缺失则 skip） |
 | `test_d8_env_lookup_stops_at_nearest` | 解耦后上游 `anysearch_cli.py` 不再含父级 `.env` 三级探测补丁；`orchestrate._load_parent_api_key` 就近优先 |
 
-> `tests/test_orchestrate.py`（编排全场景+边界+对抗）、`tests/test_output_schema.py`（产物 schema 校验）、
+> `tests/test_orchestrate.py`（编排全场景+边界+对抗，含 `test_25_out_parameter_file_path` 验证 `--out` 文件路径健壮性）、`tests/test_output_schema.py`（产物 schema 校验）、
 > `tests/test_drift.py`（漂移检测全场景+边界）另覆盖对应模块。
 > 该套件已接入仓库冒烟门禁 Tier 3（`scripts/smoke/tier3_runtime.py`），CI 会自动执行。
+
+## CLI 参数说明（orchestrate.py）
+
+```bash
+python orchestrate.py --subject "主题" --query "查询词" [--max_results 5] [--out <目录|文件路径>] [--skill_root <目录>] [--no-native]
+```
+
+| 参数 | 说明 |
+|------|------|
+| `--subject` | 必填。主题名称，用于生成输出文件名（`<主题>_搜索素材.md`）与文档标题 |
+| `--query` | 必填。检索查询词 |
+| `--max_results` | 可选。每轨最大结果数（1-10，默认 5） |
+| `--out` | 可选。落盘目录（默认当前工作目录）；**若提供文件路径（如 `out/report.md`），则自动取其父目录作为输出目录** |
+| `--skill_root` | 可选。技能根目录（默认脚本所在目录），用于定位 `.env` 与子技能目录 |
+| `--no-native` | 可选。模拟原生兜底不可用（注入 `check_native_available(False)`），用于测试 |
+
+> **--out 参数健壮性（v1.0.1+）**：若用户误将 `--out` 传为文件路径而非目录，程序会自动提取其父目录作为实际输出目录，避免创建错误的嵌套目录结构。详见 `tests/test_orchestrate.py::test_25_out_parameter_file_path`。
