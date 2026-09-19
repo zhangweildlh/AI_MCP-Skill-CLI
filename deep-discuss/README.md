@@ -249,14 +249,24 @@ deep-discuss/
 └── version-lock.md                    # 版本锁定清单
 ```
 
-### 回归测试场景
+### 自检与回归测试
+
+激活技能时可运行自检脚本验证完整性：
+
+```bash
+# 开发态（git 仓库内）
+uv run --project D:\Tools\Assembly\python\myenv python scripts/selfcheck.py
+
+# 部署态（非 git 环境）
+uv run --project D:\Tools\Assembly\python\myenv python scripts/selfcheck.py   # 链路③（主干锁<->main HEAD）自动 SKIP
+```
 
 建议使用以下典型问题验证更新后的兼容性：
 
-1. **技术故障排查类**： “我的网站在 Safari 上打开慢，但 Chrome 正常”
-2. **方案决策类**： “我们该用微服务还是单体架构来开发新功能？”
-3. **问题澄清类**： “用户说APP崩溃了，但没给日志”
-4. **目标设定类**： “我想提高团队效率，该从哪里开始？”
+1. **技术故障排查类**： "我的网站在 Safari 上打开慢，但 Chrome 正常"
+2. **方案决策类**： "我们该用微服务还是单体架构来开发新功能？"
+3. **问题澄清类**： "用户说APP崩溃了，但没给日志"
+4. **目标设定类**： "我想提高团队效率，该从哪里开始？"
 
 ## 三、维护者须知
 

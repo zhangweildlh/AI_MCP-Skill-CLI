@@ -1,3 +1,5 @@
+<!-- 版本锁定: commit:202609181645 -->
+
 # Premortem Template — 事前验尸模板
 
 > 使用场景：Phase 5 方案自检、Phase 6 最终确认，配合 kimasplund Premortem 模块使用

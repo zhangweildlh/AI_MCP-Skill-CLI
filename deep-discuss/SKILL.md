@@ -344,7 +344,7 @@ Phase 2 done → Phase 3：深度分析
 2. **版本标记一致性**：逐项核对以下三处 commit 必须互证一致，任一不匹配即视为版本偏离：
    - **模块首行 ↔ 锁表**：读取三个模块文件首行的 `<!-- 版本锁定: commit:... -->`，确认其 commit 出现在 `version-lock.md` 的锁定表中；
    - **更新记录 ↔ 首行**：若模块文件「更新记录」小节引用了上游 commit（形如 `基于 <repo>@<commit>`），其 `<commit>` 必须与文件首行的 commit 完全一致，禁止遗留占位符（如 `<真实commit>`）；
-   - **主干锁 ↔ main HEAD**：读取 `version-lock.md` 中「主干」行的 commit，须等于当前仓库 `git rev-parse --short main` 的值，或为其已合入 main 的祖先提交（与 `scripts/smoke/tier6_versionlock.py` 方案 A 判定一致；仅当指向未合入 main 的悬空 commit 才视为版本偏离）。
+   - **主干锁 ↔ main HEAD**：读取 `version-lock.md` 中「主干」行的 commit，须等于当前仓库 `git rev-parse --short main` 的值，或为其已合入 main 的祖先提交（仅当指向未合入 main 的悬空 commit 才视为版本偏离）。
 3. **处置**：若自检发现缺失或版本偏离，在 Phase 1 开头明确向用户提示"检测到 [模块名] 不可用/版本偏离，已切换至基础模式"，而非等到对应阶段才悄悄降级；若无异常则无需提示，不打扰用户。
 
 ## 示例
