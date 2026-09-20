@@ -144,6 +144,24 @@ def main():
             else:
                 emit_fail(f"主干锁 {main_lock} 既不等于 main HEAD {main_head_short}，也非其祖先 (链路③)")
 
+    # ---- 3) sequential-thinking 适配层（可选基础设施，缺失不致命） ----
+    print("\n3) sequential-thinking 适配层（可选基础设施）")
+    ADAPTER_DOC = MODULE_DIR / "sequential-thinking-adapter.md"
+    if not ADAPTER_DOC.is_file():
+        emit_skip(
+            "适配层文档缺失: references/enhancements/sequential-thinking-adapter.md "
+            "（缺失不致命，思维审计层将按运行时探测降级，deep-discuss 仍可独立运行）"
+        )
+    elif ADAPTER_DOC.stat().st_size == 0:
+        emit_skip("适配层文档为空（缺失不致命，思维审计层将按运行时探测降级）")
+    else:
+        adoc_text = ADAPTER_DOC.read_text(encoding="utf-8")
+        has_probe = ("探测协议" in adoc_text) and ("能力特征" in adoc_text)
+        if has_probe:
+            emit_ok("sequential-thinking-adapter.md 存在且含「探测协议 / 能力特征」定义")
+        else:
+            emit_skip("适配层文档存在但缺少「探测协议 / 能力特征」标记（建议补全，不致命）")
+
     # ---- 结论 ----
     print()
     if failures:

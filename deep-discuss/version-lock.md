@@ -23,6 +23,16 @@
 > git ls-remote https://github.com/jasminK11/claude-5-why-skill.git refs/heads/main
 > ```
 
+## 运行时探测依赖（非版本锁定）
+
+`references/enhancements/sequential-thinking-adapter.md` 是本技能**自有适配层**，用于运行时接入「分步推理 / 思维记录」类 MCP 服务（例如 `sequential-thinking`）作为跨阶段思维审计基础设施。**它不属于 git 上游模块，不进入上方 commit 锁定表**，原因：
+
+- 该层接入的是**运行时可用的 MCP 服务**，其服务名 / 工具名 / 接入路径均通过每次激活时的「能力特征探测」动态确定（详见 SKILL.md「思维审计层集成」节与适配层文档 §3 探测协议），**不硬编码**、无固定版本可锁；
+- 若上游服务改名、改路径或增减工具，只要能力特征集合不变，本技能自动重新匹配，**无需改动锁定表或适配层文档**；
+- 其文档完整性由 `scripts/selfcheck.py` 的第 3 项检查覆盖（存在性 + 探测协议标记），缺失时不致命（SKIP），确保「服务不可用时 deep-discuss 仍可独立运行」的降级纪律成立。
+
+> 若未来将某特定 MCP 服务「钉固」为首选（性能 / 稳定性考虑），仍**不应**以 commit 形式锁死其名称；建议在 SKILL.md 探测节中以「示例偏好」措辞说明。
+
 ## 本地缓存目录结构
 
 ```
@@ -32,6 +42,7 @@ deep-discuss/
 │       ├── jasminK11-5why.md          # 缓存的 5Why 模块方法论
 │       ├── kimasplund-premortem.md    # 缓存的 Premortem 模块方法论
 │       └── silvereWolf-consult.md     # 缓存的 Consult 模块方法论
+│       └── sequential-thinking-adapter.md  # 思维审计层适配文档（自有，运行时探测，非版本锁定）
 ├── assets/
 │   └── templates/
 │       ├── audit-template.md          # 问题审计模板
