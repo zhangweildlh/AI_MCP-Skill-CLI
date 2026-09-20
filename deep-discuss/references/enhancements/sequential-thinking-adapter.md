@@ -54,24 +54,31 @@
 - `available = false` 时：**静默降级**，不打扰用户、不阻塞流程，后续所有阶段按「基础模式」运行（即当前 deep-discuss 原有行为，思维审计层完全不参与）。
 - 若探测过程中接入途径异常（如聚合器未运行），按「不可用」处理；默认静默，可选在 Phase 1 开头以一行提示告知用户：`[思维审计层不可用，已切换至基础模式]`。
 
-### 3.5 强制探活执行协议（激活必做、不可仅文档检查）
+### 3.5 强制探活执行协议（激活必做、不可仅文档检查、不绑定具体接入途径）
 
-> ⚠️ **本节为 P3-03 错判的根因修复**：此前仅依据「适配层文档存在」「SKILL.md 提及该层」即判定服务可用，未真实调用，导致把"文档存在"误当"服务可用"。本节约强制每次激活 Skill 时**真实执行一次探测调用**，以运行时结果为准。
+> ⚠️ **本节为 P3-03 错判的根因修复 + 防硬编码泛化**：此前仅依据「适配层文档存在」即判定服务可用，且误把"经某聚合器（如 `dynamic-mcp`）中转"写死为唯一路径。本节约强制每次激活 Skill 时**真实执行一次探测调用**，并明确支持两类拓扑——`sequential-thinking` 服务**直接连接**到 Agent（工具以 `mcp__<服务名>__<工具名>` 形式直接暴露）**或**经任意名称聚合器中转（分组名任意，**不得假设为 `dynamic-mcp`**）。具体接入途径与调用名一律在运行时探测确定，本文件**不硬编码** `dynamic-mcp` 或任何分组名。
 
 **强制动作（激活后、Phase 1 之前、不可省略）**：
 
-1. **枚举工具**：调用 `call_dynamic_tool`，`group='sequential-thinking'`，`name='get_dynamic_tools'`，列出该分组暴露的全部工具。预期返回含 `process_thought` / `generate_summary` / `clear_history` 等。
-2. **实测调用**：调用 `call_dynamic_tool`，`group='sequential-thinking'`，`name='process_thought'`，`args={ "thought": "<探测探针：deep-discuss 激活自检>", "stage": "探测", "total_thoughts": 1, "next_thought_needed": false }`。**必须以此次真实返回判定可用性**。
-3. **判定结论**：
-   - 返回 `isError: false` 且含结构化分析（阶段进度 / 主线程位置 / 时间戳任一项）→ **`available = true`**，登记 `access_path='经 dynamic-mcp 聚合器中转'`、`tool_names` 为真实返回名、`functions` 为各工具一句话功能；结果写入会话级缓存变量（例如 `SEQ_THINK_PROBE`），会话内复用。
-   - 返回 `isError: true`、调用超时、或聚合器未连接 → **`available = false`**，按 §3.4 静默降级；**不得因文档存在而覆盖此结论**。
-4. **清理探针**：若实测调用成功，调用 `call_dynamic_tool`，`group='sequential-thinking'`，`name='clear_history'` 清理本次探针思维，保持服务状态干净（可选，但推荐）。
-5. **激活探活器**：运行技能根目录 `scripts/probe_seq_thinking.py` 获取上述步骤的清单化提醒与验收点（该脚本不参与 MCP 调用，仅作激活时的 checklist 引导）。
+1. **枚举全部可用 MCP 工具 / 服务（两类拓扑一视同仁，不得偏废）**：
+   - **直接连接**：扫描当前 Agent 直接可用的工具列表，寻找形式如 `mcp__<服务名>__process_thought` 的工具（服务名任意，不得假设）。
+   - **聚合器中转**：通过当前主机的任意聚合器枚举 API（具体 API 名由各聚合器决定，**不得假设为 `get_dynamic_tools` / `list_groups`**）列出各分组内工具；分组名任意（示例 `dynamic-mcp` / `dmcp-mcp` / 用户自定义名），**不得假设特定名**。
+2. **按能力特征匹配（非名称匹配）**：对每个发现的工具集（直连或分组内），比对 §2 能力特征（记录单条思维 + 生成摘要 + 清空历史 三件套），命中即登记为思维审计服务，**记录其真实接入途径与真实调用名**：
+   - 直连：调用名即 `mcp__<真实服务名>__process_thought`（直接用该工具名调用，不经聚合器）；
+   - 聚合器：记下真实 `group=<真实分组名>` + `name=process_thought`，通过聚合器的调用入口转发。
+3. **实测调用（用第 2 步发现的真实入口）**：对匹配到的服务执行一次真实 `process_thought` 调用：
+   - 直连：`mcp__<真实服务名>__process_thought(args={ "thought": "<探测探针：deep-discuss 激活自检>", "stage": "探测", "total_thoughts": 1, "next_thought_needed": false })`；
+   - 聚合器：`call_dynamic_tool`（`group=<真实分组名>`, `name='process_thought'`, `args={...}`）—— **`group` 名以第 1 步枚举到的真实分组名为准，绝不写死 `dynamic-mcp`**。
+   - **必须以此次真实返回判定可用性**，不得仅以文档 / 工具名存在替代。
+4. **判定结论**：
+   - 返回 `isError: false` 且含结构化分析（阶段进度 / 主线程位置 / 时间戳任一项）→ **`available = true`**，登记 `access_path`（真实拓扑：直接连接 Agent / 经某聚合器中转）+ `tool_names`（真实调用名）+ `functions`；结果写入会话级缓存变量（例如 `SEQ_THINK_PROBE`），会话内复用。
+   - 返回 `isError: true` / 超时 / 接入途径异常（无论直连还是聚合器）→ **`available = false`**，按 §3.4 静默降级；**不得因文档存在而覆盖此结论**。
+5. **清理探针（可选但推荐）**：实测成功后，用第 2 步发现的真实入口调用清空历史（直连 `mcp__<真实服务名>__clear_history` / 聚合器 `clear_history`），保持服务状态干净。
+6. **激活探活器**：运行 `scripts/probe_seq_thinking.py` 获取上述步骤的清单化提醒与验收点（该脚本不参与 MCP 调用，仅作激活时的 checklist 引导）。
 
-**调用约定（实测验证有效）**：
-- 必填字段为 `group` + `name`（**不是** `tool`）；
-- 工具参数包在 `args` 字段（**不是** `arguments`）；
-- `group` 取值受枚举约束：`sequential-thinking` / `codebase-memory-mcp` / `TickTick` / `firecrawl-mcp` / `filesystem` / `Everything-search`。
+**直连拓扑调用约定（当服务直接连接 Agent 时）**：
+- 工具以原生工具名暴露，通常为 `mcp__<服务名>__<工具名>`（服务名与工具名由服务自身与主机决定，运行时确认，不假设）；
+- 直接调用该工具，参数按服务真实 schema 传递（主干仅约定最小输入，见 §5），不经任何聚合器转发。
 
 ## 4. 各阶段集成点（仅在 available=true 时生效）
 
