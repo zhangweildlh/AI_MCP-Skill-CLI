@@ -157,10 +157,23 @@ def main():
     else:
         adoc_text = ADAPTER_DOC.read_text(encoding="utf-8")
         has_probe = ("探测协议" in adoc_text) and ("能力特征" in adoc_text)
-        if has_probe:
-            emit_ok("sequential-thinking-adapter.md 存在且含「探测协议 / 能力特征」定义")
+        has_enforce = "强制探活" in adoc_text
+        if has_probe and has_enforce:
+            emit_ok("sequential-thinking-adapter.md 存在且含「探测协议 / 能力特征 / 强制探活」定义")
+        elif has_probe and not has_enforce:
+            emit_fail("适配层文档缺少「强制探活」标记，探测机制未闭环（须含 §3.5 强制探活执行协议，防 P3-03 错判）")
         else:
             emit_skip("适配层文档存在但缺少「探测协议 / 能力特征」标记（建议补全，不致命）")
+
+    # ---- 4) 强制探活机制（防 P3-03 错判，缺失致命） ----
+    print("\n4) 强制探活机制（防 P3-03 错判）")
+    PROBE_SCRIPT = SKILL_ROOT / "scripts" / "probe_seq_thinking.py"
+    if not PROBE_SCRIPT.is_file():
+        emit_fail(f"强制探活脚本缺失: {PROBE_SCRIPT}（激活探活器必须随技能分发）")
+    elif PROBE_SCRIPT.stat().st_size == 0:
+        emit_fail(f"强制探活脚本为空: {PROBE_SCRIPT}")
+    else:
+        emit_ok("scripts/probe_seq_thinking.py 存在且非空（激活探活器就绪）")
 
     # ---- 结论 ----
     print()
