@@ -62,13 +62,13 @@
 
 1. **枚举全部可用 MCP 工具 / 服务（两类拓扑一视同仁，不得偏废）**：
    - **直接连接**：扫描当前 Agent 直接可用的工具列表，寻找形式如 `mcp__<服务名>__process_thought` 的工具（服务名任意，不得假设）。
-   - **聚合器中转**：通过当前主机的任意聚合器枚举 API（具体 API 名由各聚合器决定，**不得假设为 `get_dynamic_tools` / `list_groups`**）列出各分组内工具；分组名任意（示例 `dynamic-mcp` / `dmcp-mcp` / 用户自定义名），**不得假设特定名**。
+   - **聚合器中转**：通过当前主机的任意聚合器的能力发现机制列出各分组内工具（例如某聚合器自身的 `get_dynamic_tools` 类 API 用于列出分组，其名称与各聚合器相关，**注意：该列举 API 是聚合器层面的工具，并非目标服务分组内的工具**——如 `dynamic-mcp` 聚合器用 `mcp__dynamic-mcp__get_dynamic_tools` 列出分组，而 `sequential-thinking` 分组内只有 `process_thought` 等 5 个业务工具，分组内不存在 `get_dynamic_tools`）；分组名任意（示例 `dynamic-mcp` / `dmcp-mcp` / 用户自定义名），**不得假设特定名**。
 2. **按能力特征匹配（非名称匹配）**：对每个发现的工具集（直连或分组内），比对 §2 能力特征（记录单条思维 + 生成摘要 + 清空历史 三件套），命中即登记为思维审计服务，**记录其真实接入途径与真实调用名**：
    - 直连：调用名即 `mcp__<真实服务名>__process_thought`（直接用该工具名调用，不经聚合器）；
    - 聚合器：记下真实 `group=<真实分组名>` + `name=process_thought`，通过聚合器的调用入口转发。
 3. **实测调用（用第 2 步发现的真实入口）**：对匹配到的服务执行一次真实 `process_thought` 调用：
-   - 直连：`mcp__<真实服务名>__process_thought(args={ "thought": "<探测探针：deep-discuss 激活自检>", "stage": "探测", "total_thoughts": 1, "next_thought_needed": false })`；
-   - 聚合器：`call_dynamic_tool`（`group=<真实分组名>`, `name='process_thought'`, `args={...}`）—— **`group` 名以第 1 步枚举到的真实分组名为准，绝不写死 `dynamic-mcp`**。
+   - 直连：`mcp__<真实服务名>__process_thought(args={ "thought": "<探测探针：deep-discuss 激活自检>", "stage": "<合法阶段值，运行时从工具 schema 确认>", "total_thoughts": 1, "next_thought_needed": false })`；
+   - 聚合器：`call_dynamic_tool`（`group=<真实分组名>`, `name='process_thought'`, `args={ "thought": "<探测探针>", "stage": "<合法阶段值，运行时确认>", "total_thoughts": 1, "next_thought_needed": false }`）—— **`group` 名以第 1 步枚举到的真实分组名为准，绝不写死 `dynamic-mcp`**；`stage` 等参数取值以 `process_thought` 工具的真实 schema 为准（示例合法阶段：Problem Definition / Research / Analysis / Synthesis / Conclusion），**运行时确认，不写死中文或任意值**。
    - **必须以此次真实返回判定可用性**，不得仅以文档 / 工具名存在替代。
 4. **判定结论**：
    - 返回 `isError: false` 且含结构化分析（阶段进度 / 主线程位置 / 时间戳任一项）→ **`available = true`**，登记 `access_path`（真实拓扑：直接连接 Agent / 经某聚合器中转）+ `tool_names`（真实调用名）+ `functions`；结果写入会话级缓存变量（例如 `SEQ_THINK_PROBE`），会话内复用。
