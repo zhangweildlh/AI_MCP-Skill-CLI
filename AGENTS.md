@@ -73,6 +73,17 @@
 
   `main` 分支保护（classic protected branch）required checks 含 `smoke` 与 meta 全量 `run_all`（二者失败均阻断合并）；`smoke-scoped` 对 meta 变更 skipping，不列入 required。
 - 5.4 测试约定：本仓库自动化冒烟集中在 `scripts/smoke/`（tier0-6，`run_all.py` 支持 `--scope` 按 scope 过滤；其中 `tier6` 为版本锁一致性门禁，仅对含 `version-lock.md` 的技能生效，主干锁与 main HEAD 不一致且未标注历史快照时致命阻断）；提交前可本地运行 `uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 0,1 --staged`（本机禁裸 python，一律经 uv 调用，工程路径为本机环境事实，其他机器按各自环境调整）；CI 按变更 scope 触发对应检查，meta 变更触发全量；各 Skill 自带测试（如 `github-personal-manager/smoke`、`web-search/tests` 等）保留在各自 Skill 目录内自包含，调度统一收拢到 `scripts/smoke` 入口。
+- 5.5 **docs-sync gate 与目录型提交的交互（操作指引）**：
+  - `sop_docs_sync_check.sh`（docs-sync gate）依据改动类型分层检查。当变更无法被归类为 command/config/feature/behavior/dependency/rename/copy/example/docs 中的任何一种时（如**文件删除**、图片/数据资源变更），脚本将其标为 `UNKNOWN`，**保守触发全部 Tier 1/2/3 检查**，包括 Tier 1 的 README/CHANGELOG/AGENTS.md 同步要求。
+  - **目录型 commit 与 docs(meta) commit 的成对模式**：目录型 Skill 的 worktree 分支提交时，pre-commit hook 的 scope 校验仅允许 `<scope_dir>/*` 下的文件（见 §3.2），CHANGELOG.md 等 meta 文件无法随目录型提交一起暂存。因此，当目录型 Skill 内发生文件删除或内容修改时：
+    1. 在 worktree 中仅提交 Skill 目录内的变更（不含 CHANGELOG/README）；
+    2. docs-sync gate 可能会返回退出码 2（Tier 1 未同步）——这是**预期行为**，不是错误。CHANGELOG/README 的同步修改保留在 worktree 工作树中不提交；
+    3. 目录型 PR 合并后，在主工作树（或 meta 分支）上提交独立的 `docs(meta)` commit，补齐 CHANGELOG/README 更新。
+  - **提交被拦截时的诊断顺序**：
+    1. 确认报错来源：是 `sop_docs_sync_check.sh`（docs-sync gate）还是 pre-commit hook 的 scope 校验；
+    2. 若是 docs-sync gate：检查 Tier 1 条目（README/CHANGELOG/AGENTS.md）是否已同步。若本次变更是纯目录型 Skill 内变更，可忽略 gate（合并后走 meta commit 补齐）；
+    3. 若是 scope 校验：确认暂存文件是否全部在 `<scope_dir>/` 下。有越界文件则 `git restore --staged <越界文件>` 撤销暂存。
+  - **禁忌**：不得用 `--no-verify` 绕过 hook；不得将 CHANGELOG 条目写在 PR 描述中代替实际 meta commit（PR 合并后描述即丢失）。
 
 ## 6 本文件的维护
 - 6.1 唯一事实源：本文件为**本仓库 git 操作纪律**的唯一权威；任何本仓库纪律变更必须先更新本文件，再更新引用方。本文件引用 SOUL.md（用户级，跨项目智能体灵魂）、MEMORY.md（用户级永久记忆）等更高层约束，引用方向恒为 AGENTS.md → SOUL.md/MEMORY.md，且冲突时以本文件在本仓库 git 纪律范围内的规定为准（更高层约束仅被引用、不被本文件重定义）。
@@ -98,5 +109,6 @@
   - ⑤ 测试衍生文件、测试过程文件、测试结果文件（**不含冒烟脚本与可复用测试脚本**；各 Skill 自带 `tests/`、`smoke/` 等可复用测试脚本属可复用测试脚本，允许入库，见 §5.4）。
 - 8.4 **本地允许、版本控制禁止**：允许**用户与 Agent 遵循本仓库纪律、SOUL.md 环境硬约束及用户级本地记忆维护门禁**，在仓库及各级子目录或工作树/分支中下载、编译、测试、衍生本纪律禁止的五类文件（编译限已有工具链 node/uv/Python 等，**不新装编译器、不用 Docker**）；但这些文件一律不跟踪，明确排除在提交与推送远端之外。对"必需但禁止跟踪"的二进制，其 SKILL.md/下载说明须提供获取步骤以保证克隆后可用。
 - 8.5 **提交/推送前处置**：每次对目录型 Skill 提交(commit)/推送(push)前，先扫描其范围内是否存在未忽略的五类文件；若存在，**暂停并询问用户**：保留（须确保已 gitignore）或删除。删除须遵循 SOUL 与 `github-personal-manager` 工作流十 的安全删除纪律（优先回收站、小批量、中文路径用 `Remove-Item -LiteralPath`，禁 `rm -rf` 父目录；详见用户级技能目录 github-personal-manager 的 10 个标准工作流）。`.gitignore` 的改动须作为 meta 变更在 meta 分支（标准分支+PR）处理，不属目录型 Skill worktree 范围（见 §4.3 禁止事项）。
+  - **删除测试 fixture 的配套改造**：若被删除的文件属于五类文件之⑤「测试衍生文件」（如二进制测试 fixture：`.docx`/`.pdf`/`.png` 样本），且测试代码硬依赖该文件，须**同步改造测试链路**——在测试代码中加入「fixture 缺失 → 自动调生成脚本现场合成」的降级逻辑，确保从零克隆仓库后直接运行测试仍 100% 通过。生成脚本必须是**确定性的**（不依赖随机种子、实时 API、外部服务；内容为纯虚构/演示用），合成产物须被 `.gitignore` 排除、不得提交入库。若原 `.gitignore` 中存在针对已删除 fixture 的反向忽略规则（如 `!tests/fixtures/*.docx`），删除后应注释掉这些规则并保留历史注释。
 - 8.6 **配套基线**：各目录型 Skill 或仓库根 `.gitignore` 须列出五类相关模式（`__pycache__/`、`*.pyc`、`build/`、`dist/`、`node_modules/` 及 >100MB 二进制程序等），与 §2.4（排除与忽略）及 §3.2（hook 允许清单含 `.gitignore`）衔接；`.gitignore` 自身改动见 §8.5（meta 分支处理）。
 - 8.7 **单一事实源**：依据 SOUL.md 单一事实源原则，第 7.1 条"最小化原则"改为引用本章，不在两处重复定义。**引用方向恒为 AGENTS.md → SOUL.md，禁止反向（SOUL.md 不得引用 AGENTS.md）**。

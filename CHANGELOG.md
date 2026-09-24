@@ -1,5 +1,14 @@
 ---
 
+## [2026-09-24]
+
+### Changed
+- **meta/AGENTS.md：沉淀两条 P\*.md 方法论的高价值信息**（不引用 P\*.md 文件本身，内容内聚入纪律）：
+  - **§5.5 新增「docs-sync gate 与目录型提交的交互」操作指引**：覆盖 `sop_docs_sync_check.sh` 对文件删除等无法归类的变更标为 `UNKNOWN`、保守触发全部 Tier 检查的行为；明确目录型 commit 与 `docs(meta)` commit 的成对模式（目录型 PR 合并后走独立 meta commit 补齐 CHANGELOG/README）；给出提交被拦截时的诊断顺序（区分 docs-sync gate 拦截 vs scope 校验拦截）；列明禁忌（不得 `--no-verify` 绕过 hook、不得以 PR 描述代替 meta commit）。
+  - **§8.5 新增「删除测试 fixture 的配套改造」**：删除五类文件之⑤（测试衍生文件/二进制 fixture）时，若测试硬依赖该文件，须同步改造测试链路——加入「fixture 缺失 → 自动调生成脚本现场合成」的降级逻辑；生成脚本须确定性（无随机种子/实时 API/外部服务）、合成产物须被 `.gitignore` 排除不入库；历史反向忽略规则注释保留备查。
+
+---
+
 ## [2026-09-18]
 
 ### Changed
