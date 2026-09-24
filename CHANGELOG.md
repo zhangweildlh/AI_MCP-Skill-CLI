@@ -3,6 +3,16 @@
 ## [2026-09-24]
 
 ### Changed
+- **meta/Memory-Data：维护工具链升级至 v5.2.3（豆包 + DeepSeek 第二轮双背靠背审计的质证修复）**：对两份 V2 报告逐项质证——**成立项改代码、不成立项实测否决**（否决：循环检测漏报、CRLF frontmatter 边界、`add --content` 路径歧义、`_sync_cross_file_anchors` 子串匹配、子进程输出限制/进程组 kill、时间解析宽捕获、Markdown 链接 `\]` 转义与锚点后随字符）。
+  - **Fixed（原子写）**：`_write_file` 由就地 `open(path,'w')` 覆写改为「落 `<文件>.tmp` + `os.replace`」——原实现在写入中途崩溃 / 磁盘满时会把文件截成半截，而 `.bak` 只在写入**前**生成，挡不住中途损坏。实测：失败路径返回 False、原文件一字不动、无 `.tmp` 残留。
+  - **Fixed**：`verify` 第 5 项在非 git 环境判 **SKIP**（原：`_git_repo_root()` 失败时返回 `sub_files_dir` 非空 → `or` 右侧回退永不生效 → git 缺失被误标 ERROR）。
+  - **Fixed**：`validate --auto-fix` 与 `check --fix` 同源**停用**（原打印"已尝试修复"属虚假陈述，且会 `sync(force=True)` 写盘，与手册 §0.2「严禁盲修」冲突）。
+  - **Fixed**：§10 第10条 引用方向——`§X` 是本手册条目编号标记，对主文件 / 子记忆文件恒为**跨文件引用**，按 §10 第13条不受方向约束；工具不再误报（实测消除子文件2 的 4 处「依 §10 第5条」假阳性）。该条目由 §5 步骤4 B 段移至 C 段（Agent 判读）。
+  - **Fixed（单一事源）**：抽出 `MANUAL_FILE_NAME` / `MAIN_FILE_NAME` / `ALLOWED_EXTRA_TARGETS`，`check` 维度3 / 维度14 与 `断链检测.py` 的 `ALLOWED_TARGETS` 三处复用（原为三份互不联动的字面量）。
+  - **Refactor**：循环检测收敛为迭代式 `find_cycles` + `_build_sub_ref_graph`（单一图构建 + 单一判环，无递归深度上限）。审计称的"长环 / 双独立环漏报"经实测**否决**——原 `rec_stack` 即当前 DFS 路径，判据完备。
+  - **Fixed（YAML / 容错）**：行内 `#` 注释按 YAML 规范剥离（未加引号遇「空格+`#`」截断、加引号以闭合引号为界）；`unescape_yaml_scalar` 去掉 NUL 占位符改单趟 `re.sub`；`_parse_num_tail` 编号后无空格不再返 None（改用负向预查 `(?![-.\d])`）；`add` 取最大 N 的异常捕获拓宽到 `OSError` / `UnicodeDecodeError`；时间戳解析异常收窄为 `ValueError` / `TypeError`（重扫动作移出 try，避免异常时重复重扫）；`strip_inline_code` 支持双反引号；越界检查主文件改用真值判定。
+  - **Added**：`selftest` 子命令——27 项核心纯函数回归断言（锚点换算 / YAML 反转义与行内注释 / 越界判定 / 编号尾段 / 环检测 / scope 切分 / 内联代码剥离），零依赖、不读写任何业务文件。
+  - **Docs**：手册同步至 v5.2.3（§0.3 原子写 / §4.1 子命令表 +`selftest`、`--auto-fix` 停用 / §5 步骤4 第10条 移至 C 段 / §6.1 新增 D-14、D-15 / §10 对应关系表 / §11）。
 - **meta/AGENTS.md：沉淀两条 P\*.md 方法论的高价值信息**（不引用 P\*.md 文件本身，内容内聚入纪律）：
   - **§5.5 新增「docs-sync gate 与目录型提交的交互」操作指引**：覆盖 `sop_docs_sync_check.sh` 对文件删除等无法归类的变更标为 `UNKNOWN`、保守触发全部 Tier 检查的行为；明确目录型 commit 与 `docs(meta)` commit 的成对模式（目录型 PR 合并后走独立 meta commit 补齐 CHANGELOG/README）；给出提交被拦截时的诊断顺序（区分 docs-sync gate 拦截 vs scope 校验拦截）；列明禁忌（不得 `--no-verify` 绕过 hook、不得以 PR 描述代替 meta commit）。
   - **meta/Memory-Data：维护工具链升级至 v5.2.2（豆包 + DeepSeek 双背靠背审计的质证修复）**：对两份审计报告逐项质证——**成立项改代码、不成立项留痕否决**（否决：递归 DFS 栈溢出、H4 归入 H3 范围、verify 改用 returncode 主判、GFM 锚点对齐、行内 `#` 截断）。
