@@ -5,6 +5,11 @@
 ### Changed
 - **meta/AGENTS.md：沉淀两条 P\*.md 方法论的高价值信息**（不引用 P\*.md 文件本身，内容内聚入纪律）：
   - **§5.5 新增「docs-sync gate 与目录型提交的交互」操作指引**：覆盖 `sop_docs_sync_check.sh` 对文件删除等无法归类的变更标为 `UNKNOWN`、保守触发全部 Tier 检查的行为；明确目录型 commit 与 `docs(meta)` commit 的成对模式（目录型 PR 合并后走独立 meta commit 补齐 CHANGELOG/README）；给出提交被拦截时的诊断顺序（区分 docs-sync gate 拦截 vs scope 校验拦截）；列明禁忌（不得 `--no-verify` 绕过 hook、不得以 PR 描述代替 meta commit）。
+  - **meta/Memory-Data：记忆体系维护工具链升级至 v5.2.1（P0 缺陷修复 + 三项能力补齐）**：
+    - **Fixed（P0）**：`memory-mgr.py` 的 `_collect_headings_for_anchor` 原按 H2/H3/H4 分组收集，与「按文档顺序一一对应」的契约矛盾，导致 `rewrite` 前后按位置配对**错配**、跨文件锚点被静默改写为错误目标（即"插章后章节消失"的真实根因）。改为单遍扫描按文档顺序收集 + 跳过代码围栏，并新增「标题文本序列不一致」显式告警。同步修正手册 §3.4 的事实定性（原表述"静默丢弃整章正文"不准确，实测正文一行不丢，真实故障是编号位移 + 锚点错配）。
+    - **Added**：`route`（归属判定 / 读前精判，四要素打分 + 定位链下一步）、`next-num`（下一个可用编号 + 插章路径 A/B 判定）、`verify`（五项验收一键化）三个子命令；`check` 新增维度13 主文件必备结构（含「规则三：记忆读取纪律」强制项）与维度14 体系外越界引用（白名单制，消解手册 §6 D-8 盲区）。
+    - **Refactor**：`heading_to_anchor` / `strip_heading_number` / `extract_target_filename` 收归 `memory-mgr.py` 为单一事源，`断链检测.py` 改为 import 复用（导入失败回退内置），消除两脚本间的实现漂移风险。
+    - **手册 `WorkBuddy记忆文件说明.md`** 同步至 v5.2.1（§3.4 / §4.1 / §4.2 / §5 / §6.1 / §7.5 / 速查索引 / §11）。
   - **§8.5 新增「删除测试 fixture 的配套改造」**：删除五类文件之⑤（测试衍生文件/二进制 fixture）时，若测试硬依赖该文件，须同步改造测试链路——加入「fixture 缺失 → 自动调生成脚本现场合成」的降级逻辑；生成脚本须确定性（无随机种子/实时 API/外部服务）、合成产物须被 `.gitignore` 排除不入库；历史反向忽略规则注释保留备查。
 
 ---

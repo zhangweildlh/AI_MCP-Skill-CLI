@@ -11,7 +11,7 @@ parent: "MEMORY.md"
 positioning: "已踩过并实证的“坑”口袋清单（现象 / 根因 / 修复 / 预防）"
 role: "经验教训层（案例型）"
 theme: "脚本与文本处理的编码坑 / 跨项目工程实现坑"
-scope_in: "PowerShell 脚本中文编码坑；Git Bash 中文截断与切割工具乱码；Node/JS 解析本地文件须兼容 CRLF；向用户 JSON 配置合并须字段级；多 Agent 长任务协作闭环；Python 脚本删除护栏；记忆维护工具链（memory-mgr.py）坑：插入新章后慎用 rewrite 防丢章、工具链后须逐章 grep 核验正文完整性、手写锚点先 grep 既有锚点串、scope_in 编辑前必 re-read 真实行"
+scope_in: "写或跑含中文的 PowerShell 脚本时（编码坑）；在 Git Bash 下处理中文或用 cut 等切割工具时（截断与乱码坑）；用 Node / JS 解析本地文件时（须兼容 CRLF）；合并 JSON 配置到用户文件时（须字段级，禁整块覆盖）；多 Agent 协作跑长任务时（闭环与交接）；写会删文件的 Python 脚本时（删除护栏）；维护记忆体系时（memory-mgr.py 坑：插章后慎用 rewrite 防丢章、跑完工具链须逐章 grep 核验正文完整性、手写锚点前先 grep 既有锚点串、改 scope_in 前必 re-read 真实行）"
 scope_out: "规则条文本身（禁令 → 子文件1、代码纪律 → 子文件2）；GitHub 流程 → 子文件3；能力台账 → 子文件5"
 summary: "PowerShell中文编码坑、GitBash中文截断坑、工程实现跨项目避坑铁律"
 keywords: ["PowerShell乱码", "GitBash截断", "CRLF", "删除护栏"]

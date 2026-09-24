@@ -12,8 +12,8 @@ updated: "2026-09-10T17:52:48+08:00"
 parent: "MEMORY.md"
 positioning: "本机各单工具 / 单技能的使用与调用说明集（有什么、在哪、怎么调、何时用/不用）"
 role: "能力台账层"
-theme: "dynamic-mcp 统一入口 / codebase-memory-mcp 代码图谱 / memory-mgr.py 的单工具调用说明"
-scope_in: "dynamic-mcp 调用三步与分组清单；codebase-memory-mcp 本地代码知识图谱的接入与单工具用法；memory-mgr.py 的位置 / 用途 / 常用命令 / 注意事项"
+theme: "dynamic-mcp 统一入口 / codebase-memory-mcp 代码图谱 / memory-mgr.py 的单工具调用说明 / 本机常驻后台进程"
+scope_in: "要调用 dynamic-mcp 或查可用工具分组时（调用三步 + 分组清单）；要理解代码 / 查调用链 / 影响面 / 死代码时（codebase-memory-mcp 本地代码知识图谱的接入与单工具用法）；要维护记忆文件时（memory-mgr.py 的位置 / 用途 / 常用命令 / 注意事项）；要启动或排查本机常驻后台进程时（启动器双形态的触发约束与 DMCP 端口占用、UI 自动化抓取代理的监听端口与输出编码约束）"
 scope_out: "多个工具/多技能协同的作业流程（如搜索 SOP）→ 子文件6；能力使用中的踩坑 → 子文件4；环境禁令 → 子文件1；GitHub 流程 → 子文件3"
 summary: "Dynamic-mcp统一能力入口、codebase-memory-mcp 本地代码知识图谱（mimo-mcp 当前已停用）"
 keywords: ["dynamic-mcp", "技能", "DeusData", "图谱"]
@@ -35,6 +35,9 @@ file_number: 5
 | 5-3-2 核心用途 | `### 5-3-2 核心用途` |  |
 | 5-3-3 常用命令 | `### 5-3-3 常用命令` |  |
 | 5-3-4 注意事项 | `### 5-3-4 注意事项` |  |
+| 5-4 本机常驻后台进程（启动器与抓取代理） | `## 5-4 本机常驻后台进程（启动器与抓取代理）` |  |
+| 5-4-1 本地启动器双形态（WorkBuddy 启动器 /... | `### 5-4-1 本地启动器双形态（WorkBuddy 启动器 / WorkDaddy 启动器）` |  |
+| 5-4-2 UI 自动化抓取代理（FreeLLMAPI + ... | `### 5-4-2 UI 自动化抓取代理（FreeLLMAPI + capture_proxy）` |  |
 <!-- INDEX_END -->
 ## 5-1 Dynamic-mcp统一能力入口
 
@@ -118,5 +121,24 @@ uv run --project D:\Tools\Assembly\python\myenv python memory-mgr.py remove --fi
 - `get-offset` 命令的 `--section` 参数必须使用**完整章节标题**，而非简短编号
 - 维护操作前应先运行 `check` 确认当前状态
 - 破坏性操作（remove/restore）需显式指定 `--force`
+
+---
+
+## 5-4 本机常驻后台进程（启动器与抓取代理）
+
+> 本节登记本机以常驻 / 后台形态运行的自有脚本与代理进程——有什么、监听哪个端口、怎么启动、什么情况下不能启动。环境级禁令见 [Memory-全局禁令与环境约束.md](file:///D:/Documents/AI_MCP-Skill-CLI/Memory-Data/Memory-全局禁令与环境约束.md)，本节不重复定义。
+
+### 5-4-1 本地启动器双形态（WorkBuddy 启动器 / WorkDaddy 启动器）
+
+- 本机存在两套「WorkBuddy + DMCP」启动器脚本：原版 `启动WorkBuddy+Dmcp.ps1` 与新版 `启动WorkDaddy+Dmcp.ps1`（含 watchdog / daemon 守护进程）。
+- **启动约束**：会话内运行启动器会终止宿主进程。启动器**只能**从桌面快捷方式双击触发，**禁止**在自动化会话内直接调用。
+- **端口占用**：DMCP 常驻实例占用 `127.0.0.1:8082`；排查端口冲突时以此为基准。
+
+### 5-4-2 UI 自动化抓取代理（FreeLLMAPI + capture_proxy）
+
+- 本机存在 UI 自动化抓取代理工具：进程名 `FreeLLMAPI`，配套启动器 `capture_proxy.py`，监听 `31415` / `31416` 两个端口。
+- **编码约束**：该 exe 的标准输出含第三方内部编码乱行（超出启动器可修复范围）；启动器**必须**显式执行 `SetConsoleOutputCP(65001)`，否则中文与特殊字符输出不可读。
+
+---
 
 [→主文件](file:///C:/Users/15794/.workbuddy/MEMORY.md)
