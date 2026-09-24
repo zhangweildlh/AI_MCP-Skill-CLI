@@ -9,7 +9,9 @@ workspace/
 *.docx
 *.doc
 
-# 例外:测试用的合成样本必须能进仓库,供回归测试使用
+# 例外:测试用的合成样本原需能进仓库供回归测试使用
+# 2026-09-24 起不再随库带二进制样本（改由 tests/generate_fixture.py 现场合成），
+# 下列反向忽略规则保留作历史注记，实际已无文件可匹配
 !tests/fixtures/*.docx
 !tests/fixtures/*.pdf
 

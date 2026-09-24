@@ -63,9 +63,15 @@ def main():
     errors = []
 
     if not FIXTURE.exists():
-        print(red("✗ fixture 不存在: " + str(FIXTURE)))
-        print("  请先跑: uv run --project D:/Tools/Assembly/python/myenv python tests/generate_fixture.py")
-        sys.exit(1)
+        print("ℹ️ fixture 不存在，由 generate_fixture.py 现场合成...")
+        r = subprocess.run([sys.executable, str(KIT / "tests" / "generate_fixture.py")],
+                           capture_output=True, text=True, encoding="utf-8")
+        if r.returncode != 0 or not FIXTURE.exists():
+            print(red("✗ fixture 合成失败: " + str(FIXTURE)))
+            print(r.stdout[-400:]); print(r.stderr[-400:])
+            print("  请先跑: uv run --project D:/Tools/Assembly/python/myenv python tests/generate_fixture.py")
+            sys.exit(1)
+        print("  合成完成，继续回归")
 
     # 跑取数 + 撒网(每次跑测试都重新生成,验证全链路)
     WS.mkdir(parents=True, exist_ok=True)
