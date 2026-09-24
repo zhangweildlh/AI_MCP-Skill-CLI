@@ -42,9 +42,12 @@ uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py verify wo
 
 ## 试跑（不需要真标书）
 
-仓库自带测试样本，可以先跑通感受流程：
+仓库不带二进制测试样本（避免 docx 进库），跑之前先用脚本现场合成一份纯虚构的 DEMO 标书：
 
 ```bash
+# 1) 合成样本（一次性，约 1 秒）
+uv run --project D:/Tools/Assembly/python/myenv python tests/generate_fixture.py
+# 2) 跑通全流程
 uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py prep tests/fixtures/sample_tender.docx
 # → workspace/ 下产出 sample_tender.lines.txt + .hits.json + .candidates.json
 ```

@@ -118,7 +118,7 @@ officecli get <file> <path> --depth N           # Get a node and its children [-
            │  test_smoke.py
            │
            └─fixtures
-              └─sample_tender.docx
+              └─sample_tender.docx（**不入库**：由 `tests/generate_fixture.py` 现场合成，约 1 秒）
 ```
 
 # 招标文件审标 tender-review-skill

@@ -178,8 +178,12 @@ uv run --project D:/Tools/Assembly/python/myenv python scripts/harvest_ai_words.
 uv run --project D:/Tools/Assembly/python/myenv python scripts/export_contribution.py --github
 ```
 
-**自带 sample 试跑**(不需要真标书):
+**自带 sample 试跑**(不需要真标书；样本由脚本现场合成，仓库不带二进制):
+
 ```bash
+# 1) 现场合成一份纯虚构的 DEMO 标书（一次性，约 1 秒）
+uv run --project D:/Tools/Assembly/python/myenv python tests/generate_fixture.py
+# 2) 用合成样本跑通全流程
 uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py prep tests/fixtures/sample_tender.docx
 ```
 

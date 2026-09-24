@@ -10,7 +10,8 @@
   uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py prep   <招标文件.docx/.pdf> [--outdir workspace]
   uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py verify <工作区.md> [--out 输出.xlsx]
 
-示例（用自带测试样本跑通全流程）：
+示例（先用脚本现场合成测试样本，再跑通全流程）：
+  uv run --project D:/Tools/Assembly/python/myenv python tests/generate_fixture.py
   uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py prep   tests/fixtures/sample_tender.docx
   uv run --project D:/Tools/Assembly/python/myenv python run_pipeline.py verify workspace/sample_tender.工作区.md
 """

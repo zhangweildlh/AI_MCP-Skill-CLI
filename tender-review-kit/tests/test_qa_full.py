@@ -21,6 +21,15 @@ FIX = KIT / "tests" / "fixtures" / "sample_tender.docx"
 PY = sys.executable
 TMP = Path(tempfile.mkdtemp(prefix="brk_qa_"))
 
+if not FIX.exists():
+    print("ℹ️ fixture 不存在，由 generate_fixture.py 现场合成...")
+    _r = subprocess.run([PY, str(KIT / "tests" / "generate_fixture.py")],
+                        capture_output=True, text=True, encoding="utf-8")
+    if _r.returncode != 0 or not FIX.exists():
+        print("[FAIL] fixture 合成失败:", _r.stdout[-300:], _r.stderr[-300:])
+        sys.exit(1)
+    print("  合成完成，继续回归")
+
 results = []
 def ok(name, cond, detail=""):
     results.append((name, bool(cond)))
