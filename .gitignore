@@ -28,6 +28,11 @@ reports/
 .workbuddy/
 Memory-Data/*
 !Memory-Data/*.md
+# v5.3.0（2026-09-29）：记忆维护工具脚本入库追踪。
+#   此前两个 .py 不受跟踪，导致工具改动不进版本历史、换机即失、无法回滚；
+#   现放行 Memory-Data 直接子级的 .py。备份文件（*.bak-*）与本地记录
+#   （memory-paths.json / memory-state.json）不匹配本模式，仍保持不入库。
+!Memory-Data/*.py
 Syncfolders_Database_db
 *.7z
 *.zip
