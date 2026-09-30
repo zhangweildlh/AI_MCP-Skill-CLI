@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-memory-mgr.py - MEMORY.md 多文件记忆系统维护程序 v5.3.0
+memory-mgr.py - MEMORY.md 多文件记忆系统维护程序 v5.3.2
 
 功能概述：
   本程序用于维护 MEMORY.md 拆分后的多文件记忆系统，包括：
@@ -162,6 +162,8 @@ import tempfile   # v5.2.4（B-10）：selftest 的原子写断言需临时目�
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
+
+__version__ = "v5.3.2"  # 与手册 §11 版本日志严格一致；改代码须同步此处与文档
 
 # ============================================================================
 # 常量配置
@@ -1930,6 +1932,7 @@ class MemoryManager:
             print("[WARN] 未找到任何子文件")
             return
 
+        changed = False
         for sub_file in target_list:
             filepath = join_paths(self.sub_files_dir, sub_file)
             content = self._read_file(filepath)
@@ -1964,7 +1967,11 @@ class MemoryManager:
             else:
                 new_content = f"{index_block}\n{content}"
 
-            self._write_file(filepath, new_content)
+            # F-4 修复：内容未变则不写盘（避免每次 index 重写路径派生链接造成
+            # 无意义 churn / git diff；结构仍幂等）。
+            if new_content != content:
+                self._write_file(filepath, new_content)
+                changed = True
 
             # 基于写入后的内容重新计算章节行号
             chapters = self._extract_chapters(new_content)
@@ -1992,11 +1999,18 @@ class MemoryManager:
                 })
 
         # v5.2.2：两个工具写入区恒按全量生成（见上方 P0 修复说明）
+        # F-4 修复：主索引 / 路由卡写入区内部已做"内容未变则不写盘"守卫，
+        # 故重复运行 index 对未变更的体系为零 churn（仅记录真实变更）。
+        main_before = self._read_file(self.main_file) if os.path.exists(self.main_file) else ""
         self._generate_main_index(all_sub_files)
         self._generate_route_card(all_sub_files)
-        self._save_state()
-        if record:
-            self._add_changelog_entry('index', target_file or '(全部)', 'agent', '更新索引表 + 写前路由卡')
+        main_after = self._read_file(self.main_file) if os.path.exists(self.main_file) else ""
+        if main_after != main_before:
+            changed = True
+        if changed:
+            self._save_state()
+            if record:
+                self._add_changelog_entry('index', target_file or '(全部)', 'agent', '更新索引表 + 写前路由卡')
         print(f"[OK] 索引表已更新（刷新头部索引 {len(target_list)} 个 / 主索引与路由卡按全量 "
               f"{len(all_sub_files)} 个子文件生成）")
 
@@ -2042,6 +2056,7 @@ class MemoryManager:
         new_block = f"{MAIN_INDEX_START_TAG}\n{new_index}\n{MAIN_INDEX_END_TAG}\n"
 
         main_content = self._read_file(self.main_file) if os.path.exists(self.main_file) else ""
+        orig_main = main_content
         start_tag = MAIN_INDEX_START_TAG
         end_tag = MAIN_INDEX_END_TAG
         idx_start = main_content.find(start_tag)
@@ -2053,7 +2068,8 @@ class MemoryManager:
                 if end_pos < len(main_content) and main_content[end_pos] == '\n':
                     end_pos += 1
                 main_content = main_content[:idx_start] + new_block + main_content[end_pos:]
-                self._write_file(self.main_file, main_content)
+                if main_content != orig_main:
+                    self._write_file(self.main_file, main_content)
                 return
 
         # 兼容旧格式（无哨兵）
@@ -2068,7 +2084,8 @@ class MemoryManager:
                     break
             end_pos = legacy + consumed
             main_content = main_content[:legacy] + new_block + main_content[end_pos:]
-            self._write_file(self.main_file, main_content)
+            if main_content != orig_main:
+                self._write_file(self.main_file, main_content)
             return
 
         # 主文件尚无索引表：插入新段
@@ -2079,7 +2096,8 @@ class MemoryManager:
                             + '\n## 速查索引表\n\n' + new_block + main_content[insert_at:])
         else:
             main_content = f"## 速查索引表\n\n{new_block}{main_content}"
-        self._write_file(self.main_file, main_content)
+        if main_content != orig_main:
+            self._write_file(self.main_file, main_content)
 
     # ------------------------------------------------------------------------
     # v3.3.0：写前路由卡 —— 由子文件 YAML 四要素生成，消除手册/主文件手工同步
@@ -2375,7 +2393,8 @@ class MemoryManager:
     # remove — 删除子文件（v2.0.0: .bak备份、清理related、删除后check）
     # ------------------------------------------------------------------------
 
-    def remove(self, filename: str, force: bool = False, dry_run: bool = False):
+    def remove(self, filename: str, force: bool = False, dry_run: bool = False,
+                no_interactive: bool = False):
         """删除子文件（含引用清理、related 字段同步、重新编号、完整性检查）"""
         # 路径遍历防护
         try:
@@ -2419,8 +2438,18 @@ class MemoryManager:
             print(f"[WARN] 以下文件引用了 {safe_filename}:")
             for ref_file, _ in references:
                 print(f"  - {ref_file}")
-            # 交互式确认（非 TTY / Agent 自动化场景自动跳过）
-            if sys.stdin.isatty():
+            # F-2 修复：非交互环境下 `input()` 在 stdin 关闭时会抛 EOFError（原仅靠
+            # `sys.stdin.isatty()` 判定，而 Agent / 管道环境 isatty() 可能为 True 却
+            # 无真实输入）。现显式识别 `--no-interactive`：
+            #   - dry-run 是预览、永不真正删除，无需确认，直接进入下方预览分支；
+            #   - 真实删除须显式 `--force`，否则有序退出并给出指引，不再弹确认。
+            if dry_run:
+                pass
+            elif no_interactive:
+                print("[ERROR] 非交互环境删除须加 --force（避免无确认误删）；"
+                      "预览可用 `remove --dry-run --force`")
+                return False
+            elif sys.stdin.isatty():
                 confirm = input(f"确认删除 {safe_filename}？(y/N): ").strip().lower()
                 if confirm not in ('y', 'yes'):
                     print("[INFO] 已取消删除")
@@ -4057,12 +4086,18 @@ class MemoryManager:
             if not s:
                 return None
             try:
-                return datetime.fromisoformat(s.replace('Z', '+00:00'))
+                dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
             except ValueError:
                 try:
-                    return datetime.fromisoformat(s + 'T00:00:00+00:00')
+                    dt = datetime.fromisoformat(s + 'T00:00:00+00:00')
                 except ValueError:
                     return None
+            # F-1 修复：统一为 UTC 感知，避免与变更日志条目（UTC 感知）比较时
+            # 出现 offset-naive vs offset-aware 的 TypeError（原 `--before/--after`
+            # 传日期 / 裸时间戳即触发，手册 §4.1 范例写法崩溃）。
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
 
         ts_before = _parse_ts(before)
         ts_after = _parse_ts(after)
@@ -4074,6 +4109,8 @@ class MemoryManager:
             for e in entries:
                 try:
                     et = datetime.fromisoformat(e['timestamp'].replace('Z', '+00:00'))
+                    if et.tzinfo is None:
+                        et = et.replace(tzinfo=timezone.utc)
                 except ValueError:
                     continue
                 if ts_before and et < ts_before:
@@ -4155,7 +4192,7 @@ class MemoryManager:
 def main():
     parser = argparse.ArgumentParser(
         prog='memory-mgr.py',
-        description='MEMORY.md 多文件记忆系统维护工具 v5.3.0',
+        description=f'MEMORY.md 多文件记忆系统维护工具 {__version__}',
         epilog='示例: python memory-mgr.py check --verbose'
     )
     parser.add_argument('--main-file', help='主记忆文件路径（不指定则交互式确认）')
@@ -4327,7 +4364,7 @@ def main():
                      scope_out=args.scope_out)
         sys.exit(0 if ok is not False else 1)
     elif args.command == 'remove':
-        ok = mgr.remove(args.file, args.force, args.dry_run)
+        ok = mgr.remove(args.file, args.force, args.dry_run, args.no_interactive)
         sys.exit(0 if ok is not False else 1)
     elif args.command == 'rewrite':
         mgr.rewrite(args.file, args.dry_run)
