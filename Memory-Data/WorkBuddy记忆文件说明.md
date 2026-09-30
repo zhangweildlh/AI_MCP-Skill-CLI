@@ -626,7 +626,7 @@ uv run --project D:\Tools\Assembly\python\myenv python memory-mgr.py ^
   3. **端到端真实态层（只读）**：真实体系（`~/.workbuddy/MEMORY.md` + `Memory-Data/Memory-*.md`）断言 `check` / `validate` / `verify` / `selftest` / `changelog` 退出 0。
   4. **命令级集成层（临时隔离）**：`tempfile` 副本覆盖全部 13 个子命令与边界——
      `selftest`(指针①) / `verify`(指针②) / `check` / `validate` / `index`(F-4 零 churn 幂等) / `add`(dry-run+真实写入) / `rewrite`(dry-run+真实写入) / `remove`(F-2 dry-run+非交互双判据+白名单拒绝工具脚本+`..` 路径穿越拦截) / `route` / `next-num` / `get-offset`(有效章节+章节缺失+文件缺失) / `number`(`--init` 预览+未带 `--init` 守卫 rc=2) / `sync` / `restore`(无 `--force` 守卫不破坏性回滚) / `changelog` / `diff`(F-1 时区) / 版本号单一事源(F-3) / `resolve_paths` 启动期路径校验(主文件/子目录不存在→rc=2 中止)。破坏性用例一律隔离，绝不触碰真实体系。
-- **全场景覆盖矩阵**：脚本内置矩阵（层 × 子命令 × 场景 × 体系），当前 **28 项**用例，运行即打印 PASS/FAIL 汇总表，退出码全 PASS=0 / 任一 FAIL=1。覆盖目标 = 13 个子命令全中 + `.py` 关键分支全中 + 启动期/边界全中。
+- **全场景覆盖矩阵**：脚本内置矩阵（层 × 子命令 × 场景 × 体系），当前 **29 项**用例，运行即打印 PASS/FAIL 汇总表，退出码全 PASS=0 / 任一 FAIL=1。覆盖目标 = 13 个子命令全中 + `.py` 关键分支全中 + 启动期/边界全中。
 - **运行**（本机环境事实：uv 管 Python，禁裸 python）：
   `uv run --project D:\Tools\Assembly\python\myenv python Memory-Data\test_memory_system.py`
 

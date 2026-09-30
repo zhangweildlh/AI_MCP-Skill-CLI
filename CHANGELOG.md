@@ -1,5 +1,16 @@
 ---
 
+## [2026-09-30]
+
+### Fixed
+- **meta/Memory-Data：记忆体系维护工具链 v5.3.2 修复（code-review-combo 三路审计收敛）**：
+  - **F-1（remove 非交互 EOFError 守卫）**：`remove()` 在 `sys.stdin.isatty()` 为真但 stdin 已关闭的 Agent / 管道环境，`input()` 会抛 `EOFError`。现显式 `try/except EOFError: confirm='n'`，捕获后视为取消删除，避免堆栈上冒泡中断调用方（review-spd 与 ocr review 均报 medium，both/confirmed）。
+  - **F-2（`index --force` 死参数修复）**：`index()` 声明 `force` 却从未在 body 读取，主索引 / 路由卡 / 子文件头索引三处"未变更不写盘"守卫也不接收 `force`，`--force` 实为死参数。现 `force` 真正透传并绕过三处守卫，强制重新生成索引表与写前路由卡。
+  - **子文件头索引幂等缺陷（F-2 测试设计中发现并修复，前置必备）**：`index()` 将 `content` 重赋为"剥离索引后的版本"，写盘守卫却以"含索引的 new_content"对比"已剥离的 content"——两者恒不等，致每个子文件头索引每次都写盘、`changed` 恒为 True、changelog 每次新增记录；F-4「零 churn」此前仅对主文件成立、对子文件失效。现改为剥离前保留 `orig_content` 作幂等基准，普通 `index` 对已收敛体系为真正空操作（`--force` 才强制写盘 + 记录）。
+  - **Added（测试）**：`test_memory_system.py` 新增 `index --force` 命令级集成用例——判别量：对已收敛体系，普通 `index` 不新增 changelog、`index --force` 强制新增 1 条；覆盖矩阵 28 → 29 项，全量 29/29 PASS、无回归。
+
+---
+
 ## [2026-09-24]
 
 ### Changed

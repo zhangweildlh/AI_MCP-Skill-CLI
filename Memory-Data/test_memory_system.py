@@ -194,6 +194,48 @@ def run():
         except Exception as e:  # noqa: BLE001
             record("命令级集成", "index", "F-4 零 churn 幂等", "临时隔离", False, repr(e))
 
+        # F-2 index --force 死参数修复：force 须真正触发写盘 + 记录 changelog
+        try:
+            import json as _json
+            tmp_main_f, tmp_sub_f = build_tmp_system()
+            # 先两次 index 收敛，消除首次生成造成的 churn（使体系进入"已索引"稳态）
+            run_mgr(tmp_main_f, tmp_sub_f, "index")
+            run_mgr(tmp_main_f, tmp_sub_f, "index")
+            # 读取基线 changelog 记录数（--json 取近 7 天 recent，实时写入必在窗口内）
+            c_base = run_mgr(tmp_main_f, tmp_sub_f, "changelog", "--json")
+            n_base = 0
+            if c_base.returncode == 0:
+                try:
+                    n_base = len(_json.loads(c_base.stdout).get("changelog", []))
+                except Exception:
+                    n_base = 0
+            # 普通 index（无变更）：F-4 行为，不应新增记录
+            r_plain = run_mgr(tmp_main_f, tmp_sub_f, "index")
+            c_plain = run_mgr(tmp_main_f, tmp_sub_f, "changelog", "--json")
+            n_plain = 0
+            if c_plain.returncode == 0:
+                try:
+                    n_plain = len(_json.loads(c_plain.stdout).get("changelog", []))
+                except Exception:
+                    n_plain = 0
+            # index --force：应强制重写（绕过未变更守卫）+ 新增 1 条记录
+            r_force = run_mgr(tmp_main_f, tmp_sub_f, "index", "--force")
+            c_force = run_mgr(tmp_main_f, tmp_sub_f, "changelog", "--json")
+            n_force = 0
+            if c_force.returncode == 0:
+                try:
+                    n_force = len(_json.loads(c_force.stdout).get("changelog", []))
+                except Exception:
+                    n_force = 0
+            ok = (r_plain.returncode == 0 and r_force.returncode == 0
+                  and n_plain == n_base and n_force == n_base + 1)
+            record("命令级集成", "index", "F-2 --force 死参数修复(强制重写+记录changelog)",
+                   "临时隔离", ok,
+                   f"rc_plain={r_plain.returncode} rc_force={r_force.returncode} "
+                   f"记录 {n_base}→plain {n_plain}→force {n_force}")
+        except Exception as e:  # noqa: BLE001
+            record("命令级集成", "index", "F-2 --force 死参数修复", "临时隔离", False, repr(e))
+
         # add 预览（dry-run，不写盘）
         try:
             r = run_mgr(tmp_main, tmp_sub, "add", "--topic", "测试主题",

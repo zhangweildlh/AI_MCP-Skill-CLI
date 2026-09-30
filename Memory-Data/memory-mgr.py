@@ -1936,6 +1936,8 @@ class MemoryManager:
         for sub_file in target_list:
             filepath = join_paths(self.sub_files_dir, sub_file)
             content = self._read_file(filepath)
+            orig_content = content  # F-4 幂等基准：与"剥离索引前的原始文件内容"比较，
+                                    # 而非已剥离版本（否则 new_content 恒含索引、与剥离版恒不等）
             metadata, _ = self._parse_yaml_frontmatter(content)
             chapters = self._extract_chapters(content)
 
@@ -1969,7 +1971,8 @@ class MemoryManager:
 
             # F-4 修复：内容未变则不写盘（避免每次 index 重写路径派生链接造成
             # 无意义 churn / git diff；结构仍幂等）。
-            if new_content != content:
+            # F-2 修复：--force 须真正生效，绕过"未变更不写盘"守卫，强制重写。
+            if force or new_content != orig_content:
                 self._write_file(filepath, new_content)
                 changed = True
 
@@ -2002,8 +2005,9 @@ class MemoryManager:
         # F-4 修复：主索引 / 路由卡写入区内部已做"内容未变则不写盘"守卫，
         # 故重复运行 index 对未变更的体系为零 churn（仅记录真实变更）。
         main_before = self._read_file(self.main_file) if os.path.exists(self.main_file) else ""
-        self._generate_main_index(all_sub_files)
-        self._generate_route_card(all_sub_files)
+        # F-2 修复：将 force 透传给两个工具写入区，使 --force 真正绕过"未变更不写盘"守卫。
+        self._generate_main_index(all_sub_files, force=force)
+        self._generate_route_card(all_sub_files, force=force, verbose=True)
         main_after = self._read_file(self.main_file) if os.path.exists(self.main_file) else ""
         if main_after != main_before:
             changed = True
@@ -2014,7 +2018,7 @@ class MemoryManager:
         print(f"[OK] 索引表已更新（刷新头部索引 {len(target_list)} 个 / 主索引与路由卡按全量 "
               f"{len(all_sub_files)} 个子文件生成）")
 
-    def _generate_main_index(self, sub_files: list):
+    def _generate_main_index(self, sub_files: list, force: bool = False):
         """生成主文件索引表（v2.0.0: 全量章节 + 特殊条目）
         特殊条目：
         - 对 Memory-GitHub全流程操作.md 头部二级索引的指向
@@ -2068,7 +2072,7 @@ class MemoryManager:
                 if end_pos < len(main_content) and main_content[end_pos] == '\n':
                     end_pos += 1
                 main_content = main_content[:idx_start] + new_block + main_content[end_pos:]
-                if main_content != orig_main:
+                if force or main_content != orig_main:
                     self._write_file(self.main_file, main_content)
                 return
 
@@ -2200,7 +2204,7 @@ class MemoryManager:
             anchor = m.start() if m else 0
         return main_content[:anchor] + block + main_content[anchor:]
 
-    def _generate_route_card(self, sub_files: list, verbose: bool = True) -> dict:
+    def _generate_route_card(self, sub_files: list, verbose: bool = True, force: bool = False) -> dict:
         """生成 / 更新主文件「写前路由卡」（v3.3.0 新增）
 
         数据源：各子文件 YAML 的 ROUTE_CARD_FIELDS 字段。
@@ -2215,7 +2219,7 @@ class MemoryManager:
         main_content, removed = self._remove_legacy_route_card(main_content)
         new_content = self._replace_main_block(
             main_content, block, ROUTE_CARD_START_TAG, ROUTE_CARD_END_TAG)
-        if new_content != self._read_file(self.main_file):
+        if force or new_content != self._read_file(self.main_file):
             self._write_file(self.main_file, new_content)
         if verbose:
             print(f"[OK] 写前路由卡已更新（{len(sub_files)} 个子文件，数据源：子文件 YAML 四要素）")
@@ -2450,7 +2454,12 @@ class MemoryManager:
                       "预览可用 `remove --dry-run --force`")
                 return False
             elif sys.stdin.isatty():
-                confirm = input(f"确认删除 {safe_filename}？(y/N): ").strip().lower()
+                try:
+                    confirm = input(f"确认删除 {safe_filename}？(y/N): ").strip().lower()
+                except EOFError:
+                    # F-1 修复：Agent / 管道环境 isatty() 为 True 但 stdin 已关闭时，
+                    # `input()` 抛 EOFError。捕获后视为取消，避免堆栈上冒泡中断调用方。
+                    confirm = 'n'
                 if confirm not in ('y', 'yes'):
                     print("[INFO] 已取消删除")
                     return False
