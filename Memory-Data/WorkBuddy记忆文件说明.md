@@ -622,10 +622,11 @@ uv run --project D:\Tools\Assembly\python\myenv python memory-mgr.py ^
 
 - **四层覆盖**：
   1. **单元层**：`memory-mgr.py selftest`（纯函数回归 33 项，零依赖、不读写业务文件）——被编排调用，不重复实现。
-  2. **链接/验收层**：`verify`（五项验收一键化，第 2 项调用 `断链检测.py`）。
-  3. **端到端真实态层（只读）**：真实体系（`~/.workbuddy/MEMORY.md` + `Memory-Data/Memory-*.md`）断言 `check` / `validate` / `verify` / `selftest` 退出 0。
-  4. **命令级集成层（临时隔离）**：`tempfile` 副本覆盖 F-1 `diff` 时区 / F-2 `remove` 双判据 / F-3 版本号单一事源 / F-4 `index` 零 churn 幂等 / `add` / `rewrite` / `route` / `next-num`。破坏性用例一律隔离，绝不触碰真实体系。
-- **全场景覆盖矩阵**：脚本内置矩阵（层 × 子命令 × 场景 × 体系），运行即打印 PASS/FAIL 汇总表，退出码全 PASS=0 / 任一 FAIL=1。
+  2. **链接/验收层**：`verify`（五项验收一键化，第 2 项调用 `断链检测.py`）；另独立调用 `断链检测.py` 对 P-1 越界引用 / P-2 缺回链 / P-3 无锚点链接 / P-4 锚点重复 四分支做注入式交叉验证。
+  3. **端到端真实态层（只读）**：真实体系（`~/.workbuddy/MEMORY.md` + `Memory-Data/Memory-*.md`）断言 `check` / `validate` / `verify` / `selftest` / `changelog` 退出 0。
+  4. **命令级集成层（临时隔离）**：`tempfile` 副本覆盖全部 13 个子命令与边界——
+     `selftest`(指针①) / `verify`(指针②) / `check` / `validate` / `index`(F-4 零 churn 幂等) / `add`(dry-run+真实写入) / `rewrite`(dry-run+真实写入) / `remove`(F-2 dry-run+非交互双判据+白名单拒绝工具脚本+`..` 路径穿越拦截) / `route` / `next-num` / `get-offset`(有效章节+章节缺失+文件缺失) / `number`(`--init` 预览+未带 `--init` 守卫 rc=2) / `sync` / `restore`(无 `--force` 守卫不破坏性回滚) / `changelog` / `diff`(F-1 时区) / 版本号单一事源(F-3) / `resolve_paths` 启动期路径校验(主文件/子目录不存在→rc=2 中止)。破坏性用例一律隔离，绝不触碰真实体系。
+- **全场景覆盖矩阵**：脚本内置矩阵（层 × 子命令 × 场景 × 体系），当前 **28 项**用例，运行即打印 PASS/FAIL 汇总表，退出码全 PASS=0 / 任一 FAIL=1。覆盖目标 = 13 个子命令全中 + `.py` 关键分支全中 + 启动期/边界全中。
 - **运行**（本机环境事实：uv 管 Python，禁裸 python）：
   `uv run --project D:\Tools\Assembly\python\myenv python Memory-Data\test_memory_system.py`
 
