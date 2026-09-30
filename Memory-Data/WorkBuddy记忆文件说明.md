@@ -616,6 +616,19 @@ uv run --project D:\Tools\Assembly\python\myenv python memory-mgr.py ^
   1. 旧版**只校验带 `#锚点` 的链接**、跳过纯文件链接；v4.5.0 已增 **P-3** 单列纯文件链接清单，不再静默跳过（"文件不存在"型断链仍以 `check` 维度1/3 为准）。
   2. 跨文件指向 `MEMORY.md` 的断锚：主文件锚点已由 `main()` 注入 `all_anchors['MEMORY.md']`，实测指向主文件的跨文件锚点可正常校验；仅在目标文件既非子文件、也非主文件时才会落入"未知文件"分支（`target_anchors` 为空）而可能误报，当前未触发。
 
+### 4.3 测试与唯一测试源
+
+> **唯一测试入口**：`Memory-Data/test_memory_system.py`（记忆体系测试的**单一事实源**），编排四层测试，消除散落的临时测试 / 报告。改完工具须先跑它，再跑 `verify`。
+
+- **四层覆盖**：
+  1. **单元层**：`memory-mgr.py selftest`（纯函数回归 33 项，零依赖、不读写业务文件）——被编排调用，不重复实现。
+  2. **链接/验收层**：`verify`（五项验收一键化，第 2 项调用 `断链检测.py`）。
+  3. **端到端真实态层（只读）**：真实体系（`~/.workbuddy/MEMORY.md` + `Memory-Data/Memory-*.md`）断言 `check` / `validate` / `verify` / `selftest` 退出 0。
+  4. **命令级集成层（临时隔离）**：`tempfile` 副本覆盖 F-1 `diff` 时区 / F-2 `remove` 双判据 / F-3 版本号单一事源 / F-4 `index` 零 churn 幂等 / `add` / `rewrite` / `route` / `next-num`。破坏性用例一律隔离，绝不触碰真实体系。
+- **全场景覆盖矩阵**：脚本内置矩阵（层 × 子命令 × 场景 × 体系），运行即打印 PASS/FAIL 汇总表，退出码全 PASS=0 / 任一 FAIL=1。
+- **运行**（本机环境事实：uv 管 Python，禁裸 python）：
+  `uv run --project D:\Tools\Assembly\python\myenv python Memory-Data\test_memory_system.py`
+
 ---
 
 ## 5. 标准审计流程（每次维护后 / 每周）
