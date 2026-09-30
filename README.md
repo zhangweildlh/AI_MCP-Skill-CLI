@@ -28,7 +28,7 @@
 | 14 | `ticktick` | — | 单文件 | 仓库根 `Skill-滴答清单智能任务解析创建器.md` | 解析自然语言指令，批量创建/管理滴答清单(TickTick)任务 |
 | 15 | `code-audit-consolidation` | 1.0.0 | 单文件 | 仓库根 `Skill-多源代码审查整合收敛.md` | 整合多视角审计报告，去重归因、交叉分析、根因分析，产出唯一根治报告（由 `Skill-多代码审计报告归一收敛.md` 重命名而来） |
 | 16 | `external-tool-onboarding` | — | 单文件 | 仓库根 `Skill-外部工具引入评估与落地.md` | 外部工具与外部资产的引入评估与接入落地通用工作流 |
-| 17 | `task-methodology-consolidation` | — | 单文件 | 仓库根 `Skill-对当前对话会话做经验沉淀和方法论固化.md` | 对当前对话会话做经验沉淀和方法论固化（踩坑/避坑/成败经验 → 开箱即用方法论） |
+| 17 | `task-methodology-consolidation` | 3.2.1 | 单文件 | 仓库根 `Skill-对当前对话会话做经验沉淀和方法论固化.md` | 对当前对话会话做经验沉淀和方法论固化（踩坑/避坑/成败经验 → 开箱即用方法论） |
 
 > 注：
 > - 已退役/移除，不再纳入说明：`anysearch-skill`（2026-07-23 清理其独立目录，CLI 现位于 `web-search/anysearch-skill/scripts/anysearch_cli.py`）、`github-repo-sync`（2026-07-24 退役，能力并入 `github-personal-manager`）。
