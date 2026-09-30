@@ -3,7 +3,7 @@
 ## 0 元信息与使用说明
 - 0.1 文件定位与权威性：本文件是本仓库所有 git 操作的纪律单一事实源；任何 Agent 在读写本仓库任何文件或执行任何 git 操作前，必须先完整读取本文件并遵循（读取本文件本身除外）。
 - 0.2 适用对象与强制前置：适用于所有 Agent（WorkBuddy、本地 CLI 类 Agent 等）；网页版 LLM 无本地文件访问，须经本地 Agent 中转执行。
-- 0.3 阅读顺序与快速索引：先读 1→3 章（认识仓库与红线），再按需读 4→5 章（干活与交付），第 6 章为本文件自身维护协议，第 7→8 章为特殊 Skill 副本与开发态最小化纪律（改动 chrome-devtools 或目录型 Skill 时必读）。外部被引用文件 SOUL.md、MEMORY.md 位于用户级 `~/.workbuddy/`，属更高层跨项目约束，仅被本文件引用、不被本文件重定义。
+- 0.3 阅读顺序与快速索引：先读 1→3 章（认识仓库与红线），再按需读 4→5 章（干活与交付），第 6 章为本文件自身维护协议，第 7→9 章为特殊 Skill 副本、开发态最小化纪律与测试资产纪律（改动 chrome-devtools 或目录型 Skill 时必读第 7→8 章；涉及测试资产时必读第 9 章）。外部被引用文件 SOUL.md、MEMORY.md 位于用户级 `~/.workbuddy/`，属更高层跨项目约束，仅被本文件引用、不被本文件重定义。
 
 ## 1 仓库结构总览
 - 1.1 单 git 仓库、多独立 Skill：本仓库是一个 git 仓库，每个一级子目录是一个独立 Skill 包（或共享基础设施），根级 Skill-*.md 为单文件 Skill；业务上相互独立，但基础设施（scripts/ 统一调度、github-personal-manager/scripts/ 复用）可共享，不视为关联。
@@ -72,7 +72,7 @@
   | 无法判定 scope | 运行（tier0 密钥/忽略） | 不运行/降级 | 运行（required） |
 
   `main` 分支保护（classic protected branch）required checks 含 `smoke` 与 meta 全量 `run_all`（二者失败均阻断合并）；`smoke-scoped` 对 meta 变更 skipping，不列入 required。
-- 5.4 测试约定：本仓库自动化冒烟集中在 `scripts/smoke/`（tier0-6，`run_all.py` 支持 `--scope` 按 scope 过滤；其中 `tier6` 为版本锁一致性门禁，仅对含 `version-lock.md` 的技能生效，主干锁与 main HEAD 不一致且未标注历史快照时致命阻断）；提交前可本地运行 `uv run --project D:/Tools/Assembly/python/myenv python scripts/smoke/run_all.py --tier 0,1 --staged`（本机禁裸 python，一律经 uv 调用，工程路径为本机环境事实，其他机器按各自环境调整）；CI 按变更 scope 触发对应检查，meta 变更触发全量；各 Skill 自带测试（如 `github-personal-manager/smoke`、`web-search/tests` 等）保留在各自 Skill 目录内自包含，调度统一收拢到 `scripts/smoke` 入口。
+- 5.4 测试约定：本仓库自动化冒烟集中在 `scripts/smoke/`（tier0-6，`run_all.py` 支持 `--scope` 按 scope 过滤；其中 `tier6` 为版本锁一致性门禁，仅对含 `version-lock.md` 的技能生效，主干锁与 main HEAD 不一致且未标注历史快照时致命阻断）；提交前可本地运行 `uv run --with requests python scripts/smoke/run_all.py --tier 0,1 --staged`（本机禁裸 python，一律经 uv 调用，工程路径为本机环境事实，其他机器按各自环境调整）；CI 按变更 scope 触发对应检查，meta 变更触发全量；各 Skill 自带测试（如 `github-personal-manager/smoke`、`web-search/tests` 等）保留在各自 Skill 目录内自包含，调度统一收拢到 `scripts/smoke` 入口（唯一测试源与四类测试入口、扫描优先/复用优先、收尾打扫、资产管理详见第 9 章 测试资产纪律）。
 - 5.5 **docs-sync gate 与目录型提交的交互（操作指引）**：
   - `sop_docs_sync_check.sh`（docs-sync gate）依据改动类型分层检查。当变更无法被归类为 command/config/feature/behavior/dependency/rename/copy/example/docs 中的任何一种时（如**文件删除**、图片/数据资源变更），脚本将其标为 `UNKNOWN`，**保守触发全部 Tier 1/2/3 检查**，包括 Tier 1 的 README/CHANGELOG/AGENTS.md 同步要求。
   - **目录型 commit 与 docs(meta) commit 的成对模式**：目录型 Skill 的 worktree 分支提交时，pre-commit hook 的 scope 校验仅允许 `<scope_dir>/*` 下的文件（见 §3.2），CHANGELOG.md 等 meta 文件无法随目录型提交一起暂存。因此，当目录型 Skill 内发生文件删除或内容修改时：
@@ -112,3 +112,19 @@
   - **删除测试 fixture 的配套改造**：若被删除的文件属于五类文件之⑤「测试衍生文件」（如二进制测试 fixture：`.docx`/`.pdf`/`.png` 样本），且测试代码硬依赖该文件，须**同步改造测试链路**——在测试代码中加入「fixture 缺失 → 自动调生成脚本现场合成」的降级逻辑，确保从零克隆仓库后直接运行测试仍 100% 通过。生成脚本必须是**确定性的**（不依赖随机种子、实时 API、外部服务；内容为纯虚构/演示用），合成产物须被 `.gitignore` 排除、不得提交入库。若原 `.gitignore` 中存在针对已删除 fixture 的反向忽略规则（如 `!tests/fixtures/*.docx`），删除后应注释掉这些规则并保留历史注释。
 - 8.6 **配套基线**：各目录型 Skill 或仓库根 `.gitignore` 须列出五类相关模式（`__pycache__/`、`*.pyc`、`build/`、`dist/`、`node_modules/` 及 >100MB 二进制程序等），与 §2.4（排除与忽略）及 §3.2（hook 允许清单含 `.gitignore`）衔接；`.gitignore` 自身改动见 §8.5（meta 分支处理）。
 - 8.7 **单一事实源**：依据 SOUL.md 单一事实源原则，第 7.1 条"最小化原则"改为引用本章，不在两处重复定义。**引用方向恒为 AGENTS.md → SOUL.md，禁止反向（SOUL.md 不得引用 AGENTS.md）**。
+
+## 9 测试资产纪律（唯一测试源）
+- 9.1 唯一测试源定义：`scripts/smoke/run_all.py` 是仓库测试**唯一调度入口**；`scripts/smoke/test_manifest.py` 是测试资产**唯一清单**（single source of truth）。各 Skill 自带测试（§8.3⑤ 允许入库的可复用测试脚本）保留在各自目录内自包含，但**必须登记于清单并由 `run_all.py` 统一调度**，禁止散落 ad-hoc 调用。
+- 9.2 测试类型与入口（四类）：
+  1. **冒烟 (smoke)**：仓库级纪律门禁 = `run_all.py --tier 0,1[,2,3]`；项目冒烟 = `run_all.py --scope dir/X --project-tests`（离线 / 本地工具部分）。
+  2. **CI（本地 + 远端）**：本地预提交 = `uv run --with requests python scripts/smoke/run_all.py --tier 0,1 --staged`；远端 = `smoke.yml` 自动调用 `run_all.py`（仅仓库级纪律门禁：meta 变更全量 tier0-3+5+6，scope 变更仅 tier0 基础门禁）。**项目级测试当前为本地预推送门禁，未接入远端 required CI**（异构环境 / 需本地工具 / 真实态风险高，按"最小作用域、不破坏 CI"原则刻意不接；如需启用须在清单显式标注并单独 matrix）。
+  3. **回归 (regression)**：`run_all.py --scope dir/X --project-tests`（含各 Skill 回归套件）。
+  4. **真实态 (real-state)**：需真实 API / 二进制 / 网络的测试，`run_all.py --scope dir/X --project-tests --allow-real`（显式门控，绝不进 CI；与既有 `SMOKE_PROBE_API` 门控哲学一致）。
+- 9.3 扫描优先 / 复用优先纪律：任何新建 / 修改测试任务前，先 `run_all.py --list-tests` 扫描唯一清单；满足需求且可复用者**必须复用**；不满足者**优先修改既有再复用**；最后才造新（呼应 §2-2 最小作用域 + SOUL 单一事实源）。新增测试须补登清单；遗弃测试须从清单移除。
+- 9.4 收尾打扫纪律：每次测试后必须清理临时 / 过程 / 垃圾文件——`run_all.py --cleanup` 自动清理已知测试临时目录（`code-review-combo/.verify_tmp`、`github-personal-manager/smoke/tmp`、`tender-review-kit/tests/workspace`）与 `__pycache__`；各测试脚本须自清理 `mktemp` 产物（如 `tender-review-kit` 已自清）。与 §8.3⑤ 衔接（测试衍生文件禁入库）。
+- 9.5 测试资产管理（新增 / 修改 / 删除）：
+  - 各 Skill 自带测试脚本（`tests/`、`smoke/`、`references/`）→ 随该 Skill 的 `dir` scope 走 worktree + PR（第 4 章）；
+  - 仓库级测试基础设施（`scripts/smoke/*`，含 `test_manifest.py`、`run_all.py`）→ `meta` scope，走标准分支 + PR（第 5 章），触发全量 CI；
+  - 任一测试文件增删改均须**同步更新 `test_manifest.py` 清单**（保持唯一事实源）；
+  - 测试脚本的编写 / 修改 / 新建严格遵循 `Memory-代码纪律与Git操作.md §2-2`（六红线 / 统一优先级裁决器 / 全局契约面 / 分阶段操作手册 / 回归纪律）。
+- 9.6 清单维护：`test_manifest.py` 的 `TEST_ENTRIES` 即唯一事实源；新增测试目录须与 `scan_unregistered()` 口径一致（运行 `run_all.py --list-tests` 核对无遗漏）。

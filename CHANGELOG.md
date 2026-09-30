@@ -9,6 +9,13 @@
   - **子文件头索引幂等缺陷（F-2 测试设计中发现并修复，前置必备）**：`index()` 将 `content` 重赋为"剥离索引后的版本"，写盘守卫却以"含索引的 new_content"对比"已剥离的 content"——两者恒不等，致每个子文件头索引每次都写盘、`changed` 恒为 True、changelog 每次新增记录；F-4「零 churn」此前仅对主文件成立、对子文件失效。现改为剥离前保留 `orig_content` 作幂等基准，普通 `index` 对已收敛体系为真正空操作（`--force` 才强制写盘 + 记录）。
   - **Added（测试）**：`test_memory_system.py` 新增 `index --force` 命令级集成用例——判别量：对已收敛体系，普通 `index` 不新增 changelog、`index --force` 强制新增 1 条；覆盖矩阵 28 → 29 项，全量 29/29 PASS、无回归。
 
+### Added
+- **meta/AGENTS.md + scripts/smoke：建立测试资产「唯一测试源」纪律与调度（deep-discuss + codebase-memory 双技能分析结论）**：
+  - **新增 `scripts/smoke/test_manifest.py`（唯一清单）**：登记全仓测试资产（仓库级冒烟 + 14 个目录型 / 根级 Skill + Memory-Data），每项含 scope / 入口路径 / 调用命令 / 类型(smoke|regression|real-state) / 风险(offline|needs-binary|needs-api)；提供 `list_tests()` / `run_project_tests()` / `cleanup()` / `scan_unregistered()` 四能力，作为"测试在哪、入口、怎么调用"的唯一事实源。
+  - **扩展 `scripts/smoke/run_all.py`（仅加性 flag，既有 CLI 契约不变）**：新增 `--list-tests`（列清单）、`--project-tests [--allow-real]`（按 scope 跑项目级测试，needs-api 默认门控）、`--cleanup`（清测试临时目录）；`test_manifest` 惰性导入，CI 默认路径零影响。
+  - **AGENTS.md 新增第 9 章「测试资产纪律」**：定义唯一测试源、四类测试入口（冒烟 / CI / 回归 / 真实态）与调用方式、扫描优先 / 复用优先纪律、收尾打扫纪律、测试资产管理规则（各 Skill 测试随 dir scope 走 worktree+PR；仓库级测试基建随 meta 走标准分支+PR；增删改须同步清单）；§5.4 与 §0.3 同步指向第 9 章。
+  - **决策**：项目级测试刻意不接入远端 required CI（异构环境 / 需本地工具 / 真实态风险），保留为本地预推送门禁 + 真实态显式 `--allow-real` 门控，与既有 `SMOKE_PROBE_API` 门控哲学一致。
+
 ---
 
 ## [2026-09-24]
