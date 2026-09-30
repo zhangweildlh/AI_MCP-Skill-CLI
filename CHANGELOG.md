@@ -24,6 +24,11 @@
   - **§9.6 测试资产管理拆分为分步流程**：9.6.1 新增 / 9.6.2 修改 / 9.6.3 删除退役 / 9.6.4 编写纪律，每步明确"登记清单 + 走哪个 scope PR + 验证"，覆盖整个测试体系的维护、修改、更新。
   - **新增 §9.7 清单与 CI 协同维护**：`TEST_ENTRIES` 唯一事实源 + `scan_unregistered()` 口径对齐 + CI 与本地门禁同源同口径。
 
+### Changed
+- **file/task-methodology-consolidation：升级「任务方法论沉淀」单文件 Skill 至 v3.2.1**：
+  - 撤回 `Workbuddy专属/Skill-task-methodology-consolidation.md` 开发态副本（该文件为未跟踪本地文件、已删除、未入库），统一以根级单文件 `Skill-对当前对话会话做经验沉淀和方法论固化.md`（AGENTS.md §2.2 登记 `file/task-methodology-consolidation`）作为唯一开发态副本；部署态 `C:/Users/15794/.workbuddy/skills/task-methodology-consolidation/SKILL.md` 与开发态已核验字节一致。
+  - 版本 `3.1.0 → 3.2.1`：脱敏闸门、双前缀命名（p1-/p2-）、落盘位置等章节细化，对外行为契约不变。
+
 ---
 
 ## [2026-09-24]
