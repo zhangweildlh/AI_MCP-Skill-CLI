@@ -26,6 +26,7 @@
 ```json
 {
   "tool": "open-code-review",
+  "delegate": true,
   "mode": "delegate | review | scan",
   "repository": "<仓库路径>",
   "target": {
@@ -105,3 +106,11 @@
 ## 与确定性 merge 的衔接
 
 若本 JSON 后续交由 `code-review-combo` 的确定性 `merge_reports` 合并，请勿在叙事层重新裁决 findings；merge 负责去重与裁决，宿主只负责如实产出上述结构。人类可读报告模板见 `local/report-narrative.md`。
+
+### delegate 标记纪律（与 merge_reports 第三源识别强绑定）
+
+`merge_reports` 对 `.json` 报告的 `comments[]` 默认标 `source="ocr"`。为使本委托报告被识别为**独立第三源 `delegate`**（与 `ocr` 原生审查、`review-spd` 跨源互验），**顶层必须显式置 `"delegate": true`（或 `"mode": "delegate"`）**。
+
+- **漏标后果**：本报告被当作 `ocr` 同源，与 `ocr review` 报告（报告 A）同键时按「同源键碰撞」拆为近重复 `ocr-only`，导致 `summary.ocr_only` 虚高、交叉覆盖效果被低估（历史根因，详见 SKILL.md「避坑」小节）。
+- **带标效果**：三源齐备时 `merge_reports` 的 `mode` 自动变为 `tri-cross-validation`，`sources` 含 `open-code-review-delegate (host delegate)`，A 与 A' 真正交叉验证成 `both`。
+- 上述示例结构已含 `"delegate": true`，宿主收敛 JSON 时**务必保留**，不可省略。

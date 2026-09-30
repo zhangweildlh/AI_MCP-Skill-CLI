@@ -98,7 +98,8 @@ function normalizeItems(items, source, filePath) {
       suggestion: sugg,
       existing_code: c.existing_code || "",
       source: source,
-      verified_by: (source === "ocr") ? "ocr-only" : "review-spd-only",
+      verified_by: source + "-only",
+      _sources: [source],
       cross_check: "new",
       _file: filePath
     });
@@ -153,10 +154,14 @@ function readReport(p) {
     return normalizeItems(obj, "ocr", p);
   }
   if (obj.comments) {
-    return normalizeItems(obj.comments, "ocr", p);
+    // delegate 报告须带 delegate:true 或 mode:"delegate" 标记方识别为独立第三源；
+    // 未标记一律回退 ocr（向后兼容旧行为，避免两 ocr 族报告被误判为跨源）。
+    const src = (obj.delegate === true || obj.mode === "delegate") ? "delegate" : "ocr";
+    return normalizeItems(obj.comments, src, p);
   }
   if (obj.findings) {
-    return normalizeItems(obj.findings, "review-spd", p);
+    const src = (obj.delegate === true || obj.mode === "delegate") ? "delegate" : "review-spd";
+    return normalizeItems(obj.findings, src, p);
   }
   process.stderr.write("警告: 报告无 comments/findings，跳过: " + p + "\n");
   return [];
@@ -185,9 +190,11 @@ for (const f of all) {
   const k = keyOf(f);
   if (map.has(k)) {
     const ex = map.get(k);
-    if (ex.source !== f.source) {
-      // 跨源命中：交叉验证
-      ex.verified_by = "both";
+    // 跨源命中：仅当 f 来自尚未计入的源时做交叉验证；否则（同源键碰撞或已计入源的重复）拆歧义
+    if (ex.source !== f.source && ex._sources.indexOf(f.source) < 0) {
+      // 跨源命中：交叉验证（ocr / delegate / review-spd 三源任意组合，≥2 源即 both）
+      ex._sources.push(f.source);
+      ex.verified_by = (ex._sources.length >= 2) ? "both" : (ex._sources[0] + "-only");
       if (ex.severity === f.severity) {
         ex.cross_check = "confirmed";
       } else {
@@ -200,7 +207,7 @@ for (const f of all) {
       if (!ex.suggestion && f.suggestion) ex.suggestion = f.suggestion;
       if (!ex.existing_code && f.existing_code) ex.existing_code = f.existing_code;
     } else {
-      // 同源键碰撞（如 OCR 同位置两条不同 bug）：拆歧义，保留为独立项
+      // 同源键碰撞（如 OCR 同位置两条不同 bug）或已计入源的重复：拆歧义，保留为独立项
       dupCount[k] = (dupCount[k] || 1) + 1;
       const k2 = k + "#" + dupCount[k];
       map.set(k2, f);
@@ -224,23 +231,18 @@ const summary = {
   total_findings: findings.length,
   files_reviewed: new Set(findings.map(function (f) { return f.path; })).size,
   by_source: {},
-  verified_by: { both: 0, "ocr-only": 0, "review-spd-only": 0 },
+  verified_by: { both: 0, "ocr-only": 0, "delegate-only": 0, "review-spd-only": 0 },
   confirmed: 0, disputed: 0, new: 0,
-  ocr_only: 0, review_spd_only: 0,
+  ocr_only: 0, delegate_only: 0, review_spd_only: 0,
   severity_dist: { critical: 0, high: 0, medium: 0, low: 0 },
   category_dist: {},
   dropped_style: droppedStyle
 };
 findings.forEach(function (f) {
-  // 各 source 计数：both 同时计入 ocr 与 review-spd，单源仅计入自身
-  if (f.verified_by === "both") {
-    summary.by_source["ocr"] = (summary.by_source["ocr"] || 0) + 1;
-    summary.by_source["review-spd"] = (summary.by_source["review-spd"] || 0) + 1;
-  } else if (f.verified_by === "ocr-only") {
-    summary.by_source["ocr"] = (summary.by_source["ocr"] || 0) + 1;
-  } else if (f.verified_by === "review-spd-only") {
-    summary.by_source["review-spd"] = (summary.by_source["review-spd"] || 0) + 1;
-  }
+  // 各 source 计数：按实际贡献源（_sources）累加；both 计入所有贡献源，单源仅计入自身
+  (f._sources || [f.source]).forEach(function (s) {
+    summary.by_source[s] = (summary.by_source[s] || 0) + 1;
+  });
   if (summary[f.severity] != null) summary[f.severity] += 1;   // 兼容旧字段
   if (summary.severity_dist[f.severity] != null) summary.severity_dist[f.severity] += 1;
   summary.category_dist[f.category] = (summary.category_dist[f.category] || 0) + 1;
@@ -249,6 +251,7 @@ findings.forEach(function (f) {
   else if (f.cross_check === "disputed") summary.disputed += 1;
   else if (f.cross_check === "new") summary.new += 1;
   if (f.verified_by === "ocr-only") summary.ocr_only += 1;
+  else if (f.verified_by === "delegate-only") summary.delegate_only += 1;
   else if (f.verified_by === "review-spd-only") summary.review_spd_only += 1;
 });
 
@@ -284,10 +287,21 @@ const cleanFindings = findings.map(function (f) {
   return o;
 });
 
+// 实际参与合并的源（用于 sources 字段与 mode 判定；按输入动态计算，不硬编码）
+const actualSources = {};
+all.forEach(function (it) { actualSources[it.source] = true; });
+const SOURCE_LABEL = {
+  "ocr": "open-code-review-delegate",                              // 原生审查（报告 A），向后兼容旧标签
+  "delegate": "open-code-review-delegate (host delegate)",          // 宿主委托主审（报告 A'），独立第三源
+  "review-spd": "review-spd"
+};
+const sourceList = Object.keys(actualSources).sort().map(function (s) { return SOURCE_LABEL[s] || s; });
+const reportMode = Object.keys(actualSources).length >= 3 ? "tri-cross-validation" : "dual-cross-validation";
+
 const report = {
   tool: "code-review-combo",
-  mode: "dual-cross-validation",
-  sources: ["open-code-review-delegate", "review-spd"],
+  mode: reportMode,
+  sources: sourceList,
   findings: cleanFindings,
   summary: summary
 };
@@ -312,13 +326,13 @@ function table(headers, rows) {
 
 let md = "";
 md += "# 代码合并审计报告 (code-review-combo)\n\n";
-md += "> 模式: `dual-cross-validation`　|　生成器: `scripts/merge_reports`（确定性，未调用 LLM）\n\n";
+md += "> 模式: `" + reportMode + "`　|　生成器: `scripts/merge_reports`（确定性，未调用 LLM）\n\n";
 
 md += "## 总览 (Overview)\n\n";
 md += "- **总 findings**: " + summary.total_findings + "\n";
 md += "- **文件数**: " + summary.files_reviewed + "\n";
 md += "- **跨源验证**: confirmed=" + summary.confirmed + " / disputed=" + summary.disputed + "\n";
-md += "- **单源覆盖**: ocr-only=" + summary.ocr_only + " / review-spd-only=" + summary.review_spd_only + "\n";
+md += "- **单源覆盖**: ocr-only=" + summary.ocr_only + " / delegate-only=" + summary.delegate_only + " / review-spd-only=" + summary.review_spd_only + "\n";
 md += "- **丢弃的 style 噪音**: " + summary.dropped_style + " 条（视为噪音，未计入 findings）\n";
 md += "- **severity 分布**: critical=" + summary.severity_dist.critical +
       " / high=" + summary.severity_dist.high +
@@ -396,6 +410,7 @@ md += "- category 8↔5 映射：ocr/delegate 的 `maintainability`/`documentati
       "`style` 视为噪音已丢弃（共 " + summary.dropped_style + " 条）。\n";
 md += "- 跨源 `both` 判定在映射后口径一致：同一 (path,start_line,end_line,category) 被两源报告即交叉验证。\n";
 md += "- disputed 项已取两源中更高 severity。\n";
+md += "- delegate 报告须带 `delegate: true`（或 `mode: \"delegate\"`）标记，方识别为独立第三源；未标记按 `ocr` 同源处理（旧行为，两 ocr 族报告同键会被拆为近重复 `ocr-only`）。\n";
 
 fs.writeFileSync(mdPath, md);
 

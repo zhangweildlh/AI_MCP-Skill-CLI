@@ -31,7 +31,7 @@
 > 注意：内嵌的 `review-spd` 子技能为上流英文副本（源仓库 `zhu1090093659/spec_driven_develop`，见第六节 6.1），由 combo 主技能以中文统一编排。如需严格中文一致，可将其 `SKILL.md` 本地化为中文，但须同步保持 JSON Schema（category/mode/summary）与 Phase 1–6 契约不变，避免破坏阶段三合并兼容性。
 
 - 正文中的「open-code-review-delegate 子技能」与其底层工具「OCR / ocr」指代同一子技能。
-- JSON 字段 `verified_by` 取值 `ocr-only` 即「仅 open-code-review-delegate 子技能发现」；`review-spd-only` 即「仅 review-spd 发现」；`both` 即「两者共同确认」。
+- JSON 字段 `verified_by` 取值 `ocr-only` 即「仅 `ocr` 原生审查发现」；`delegate-only` 即「仅 `ocr delegate` 宿主委托主审发现」；`review-spd-only` 即「仅 review-spd 发现」；`both` 即「多源（ocr / delegate / review-spd 任意组合）共同确认」。`delegate` 源须由 delegate 报告顶层 `delegate: true`（或 `mode: "delegate"`）标记触发，漏标则按 `ocr` 同源处理（详见 SKILL.md「避坑」小节）。
 - JSON 字段 `cross_check` 取值 `confirmed`（交叉验证确认）/ `new`（新发现）/ `disputed`（有争议）。
 
 ---
@@ -52,8 +52,9 @@
 
 **输出（摘要）**：
 ```json
-{ "tool": "code-review-combo", "mode": "dual-cross-validation", "summary": { "files_reviewed": 3, "high": 1, "medium": 2, "ocr_only": 1, "review_spd_only": 1 } }
+{ "tool": "code-review-combo", "mode": "dual-cross-validation", "summary": { "files_reviewed": 3, "high": 1, "medium": 2, "ocr_only": 1, "delegate_only": 0, "review_spd_only": 1 } }
 ```
+> 当委托报告（报告 A'）带 `delegate: true` 标记时，`mode` 为 `tri-cross-validation`、`summary` 额外含 `delegate_only`，`sources` 含 `open-code-review-delegate (host delegate)`；漏标则按两源 `dual-cross-validation` 处理。
 
 ### 示例 2：边界场景 —— 目标非 Git 仓库
 
@@ -114,11 +115,11 @@
 
 | combo 字段组合 | 含义 | 对应的上游「校验强度」意图 |
 |---------------|------|---------------------------|
-| `verified_by=both` + `cross_check=confirmed` | 两引擎（open-code-review-delegate / review-spd）独立发现且 severity 一致，**机器交叉确认** | 最高置信，≈ L1（always 机器校验）+ L2 强共识 |
-| `verified_by=ocr-only` / `review-spd-only` + `cross_check=new` | 仅单源发现、尚待核实 | ≈ L2 / L3 分级人工评审（需宿主实读代码核实，见 Stage3 步骤 2） |
+| `verified_by=both` + `cross_check=confirmed` | 多引擎（open-code-review 原生审查 / open-code-review-delegate 宿主审查 / review-spd）独立发现且 severity 一致，**机器交叉确认** | 最高置信，≈ L1（always 机器校验）+ L2 强共识 |
+| `verified_by=ocr-only` / `delegate-only` / `review-spd-only` + `cross_check=new` | 仅单源发现、尚待核实 | ≈ L2 / L3 分级人工评审（需宿主实读代码核实，见 Stage3 步骤 2） |
 | `cross_check=disputed` | 双源 severity 冲突，保守升级取较高者 + 宿主裁决 | ≈ 需 escalate 的高风险 tier |
 
-即：`verified_by`（both / ocr-only / review-spd-only）表达「**谁确认**」，`cross_check`（confirmed / new / disputed）表达「**确认强度**」——二者组合已完整覆盖上游 L1/L2/L3 想区分的「校验强度梯度」。故 B1 评估结论为**不融合**（不引入上游字面词汇，避免术语错位）。
+即：`verified_by`（both / ocr-only / delegate-only / review-spd-only）表达「**谁确认**」，`cross_check`（confirmed / new / disputed）表达「**确认强度**」——二者组合已完整覆盖上游 L1/L2/L3 想区分的「校验强度梯度」。故 B1 评估结论为**不融合**（不引入上游字面词汇，避免术语错位）。
 
 **② 上游 `github Pre-flight` 的「门禁」意图由 combo `Stage0 probe` 承担，但实现不同 → B3 不融合**
 
@@ -255,6 +256,7 @@ gh api repos/zhu1090093659/spec_driven_develop/contents/plugins/spec-driven-deve
 
 | 同步时间 | 子技能 | 上游 SHA / 版本 | 改动摘要 |
 |----------|--------|----------------|----------|
+| 2026-09-30 | **delegate 第三源支持（非上游同步）** | combo 本地提交（见 PR） | `scripts/merge_reports` 支持 ocr / delegate / review-spd 三源识别：delegate 报告须带 `delegate: true`（或 `mode: "delegate"`）标记方识别为独立第三源，与 ocr / review-spd 跨源交叉验证成 `both`；无标记回退 `ocr`（向后兼容）。`verified_by` 新增 `delegate-only`、`summary` 新增 `delegate_only` 与 `by_source.delegate`，`mode` 按实际源数动态取 `dual-cross-validation` / `tri-cross-validation`，`sources` 按输入动态计算。新增 `tests/fixtures/delegate_report.json` 与三源回归断言（保留两报告契约不变）。`SKILL.md` 用法示例 / 输出 Schema / 避坑小节、`delegate-json-schema.md` 标记纪律、`README.md` 术语与字段表同步更新。回归 `tests/test_merge_reports.sh` 两报告 + 三报告全 PASS。 |
 | 2026-08-18 | **低优先级澄清 + 断链/硬编码路径修复（非上游同步）** | combo 本地提交 `04a3d42` | 应用语义审计 5 项低优先级待修项：C1 delegate SKILL `version` 加注"元数据版本"区别于 ocr CLI v1.9.5；C3 SKILL 术语约定补全 `review-spd-only`/`both` 释义（对齐 README「二、术语约定」）；C4 `delegate-json-schema.md` 注明其 `summary` 为 A' 收敛规范、最终以 `merge_reports` 为准；E3 SKILL 前置条件措辞改为"不引入新的 LLM/SDK 依赖"。另修复：README 将假文件名 `Skill-元技能，Skill校验器.md` 改为引用 `skill-creator` 技能（非仓库内文件，消除悬空引用）；`local/setup.md` 机器专属 Node 路径改为 `<NODE_GLOBAL_DIR>`/`<NODE_HOME>` 占位符（消除硬编码路径）。回归 `tests/test_merge_reports.sh` 11/11 PASS、`guard.sh` PASS。 |
 | 2026-08-18 | open-code-review-delegate doc 同步升级 | 上游 `alibaba/open-code-review` @ **v1.9.5**（纯镜像，仅顶部 6 行本地声明） | 审计确认 combo `open-code-review-delegate/SKILL.md` 与上游 v1.9.5 发布版逐字节一致（仅顶部 6 行镜像声明为本地）。**修正 2026-08-17 行「文档副本滞后」结论**：delegate 文档已随 v1.9.5 镜像更新、不再滞后；基线由 `b1c7c6a` 更新为 `v1.9.5`。review-spd 真上游仍冻结 `d5d3477`、combo 副本（fork `35cc1e8` JSON 输出改造）领先上游，无需跟随。回归 `tests/test_merge_reports.sh` OVERALL PASS(11/11)；安装副本与 Git 副本 diff 逐字节一致。 |
 | 2026-08-17 | **上游分叉现状更正（非功能性跟随）** | open-code-review 真上游自 combo 基线 `b1c7c6a` (2026-08-07) 后：delegate_cmd.go (#892 / #784)、shared.go (SARIF #820 / 遥测 / LLM 重试)、scan_cmd.go (SARIF / #783 `--format json` 修复)、resolver.go / keycmd.go / provider_cmd.go (#605 token-from-command / 多 provider) 均有实质更新 | **更正 2026-08-08 行「仓库最新仅改 CLI Go 代码」记录已过时**：open-code-review 自 `b1c7c6a` 后 delegate / scan / shared / resolver 多模块均有实代码更新（非仅 CLI 文案）。本质澄清：combo 与上游的偏离**此前**为 `open-code-review-delegate/SKILL.md` 文档副本滞后（非 CLI 分叉）；**但 delegate 文档副本已于 2026-08-18 审计同步升级为上游 v1.9.5 纯镜像（仅顶部 6 行本地声明），现已与上游最新发布版对齐，不再滞后**（见 6.6 同日期记录）。ocr CLI 本体仍由本地自装最新（实测 `v1.9.5`），combo 目录不内嵌 CLI、仅维护文档副本。review-spd 真上游仍冻结 `d5d3477`、combo 副本（fork `35cc1e8` JSON 输出改造）属领先上游的有益分叉，结论不变。后续跟进一律按 6.4「3-way 合并」保留本地增强，并据 6.7 保全清单回放。 |
@@ -357,6 +359,7 @@ code-review-combo/
 | 10 | S.U.P.E.R 架构质量镜 | 上游仅给缺陷维度，缺架构质量维度 | 跨切面架构质量审查（单一职责/单向流/端口/环境无关/可替换） | 新增 `local/super-philosophy.md`（融合 `super-philosophy.md` @ `3eb0550`，MIT 署名）；父 `SKILL.md` 核心原则加「架构质量镜」段 | 新增 `local/super-philosophy.md`；改 `SKILL.md` | 各路 + 宿主 Stage3 套用 10 项核查，架构问题以 `category: other` 产出；不改 `merge_reports` | 补「仅缺陷维度」缺口，零外部依赖 |
 | 11 | 裁决契约（writer model） | combo 已有单一写者设计但未显式立约 | 显式「子技能只出报告 / 宿主唯一写者 / APPROVED·FIXED·ESCALATE 裁决」契约 | 父 `SKILL.md` 加「Stage3 裁决契约」段（融合 `code-reviewer.md` @ `37e2c6c`，MIT 署名）；`local/report-narrative.md` 加 Verdict 段 | 改 `SKILL.md`、`local/report-narrative.md` | 不改三路流水线与 `merge_reports` | 把隐式设计显式化，便于维护与陌生 Agent 跟进 |
 | 12 | 仓库一致性守卫 | combo 有测试但缺引用/版本/JSON 卫生守卫 | 离线 repo 卫生（引用存在性/版本一致/JSON合法/py_compile） | 新增 `tests/guard.sh`（融合 `validate.sh` @ `ca48847`，MIT 署名）；`verify_combo.sh` 调 `guard.sh` | 新增 `tests/guard.sh`；改 `tests/verify_combo.sh` | 与三路流水线正交，无运行时依赖 | 补齐仓库健壮性，机制上可 drop-in |
+| 13 | merge_reports delegate 第三源 | 委托报告（报告 A'）与 ocr review（报告 A）同用 `comments[]`，旧逻辑统归 `ocr` 源，同键被当同源碰撞拆近重复 `ocr-only`，致 `summary.ocr_only` 虚高 | Stage3 三源（ocr / delegate / review-spd）真交叉验证 | `merge_reports` 识别 delegate 报告顶层 `delegate: true`（或 `mode: "delegate"`）标记为独立第三源，与 ocr / review-spd 跨源互验；`verified_by` 增 `delegate-only`、`summary` 增 `delegate_only` 与 `by_source.delegate`，`mode`/`sources` 动态计算；新增 `tests/fixtures/delegate_report.json` + 三源回归断言（两报告契约不变） | 改 `scripts/merge_reports` | 改动 `scripts/merge_reports`、`tests/test_merge_reports.sh`、新增 `tests/fixtures/delegate_report.json` | Stage3 调用；输出被 `local/report-narrative.md` 消费 |
 
 ### 7.4 无法解耦项及原因
 

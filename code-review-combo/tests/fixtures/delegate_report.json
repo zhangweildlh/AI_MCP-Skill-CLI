@@ -1,0 +1,13 @@
+{
+  "status": "complete",
+  "tool": "open-code-review",
+  "mode": "delegate",
+  "delegate": true,
+  "summary": { "files_reviewed": 4, "coverage_rate": "100%" },
+  "comments": [
+    { "path": "b.sh", "content": "del-1 overlap(ocr+rs)", "existing_code": "x", "start_line": 20, "end_line": 20, "category": "bug", "severity": "high" },
+    { "path": "c.sh", "content": "del-2 overlap crit", "existing_code": "x", "start_line": 30, "end_line": 30, "category": "bug", "severity": "critical" },
+    { "path": "d.sh", "content": "del-3 overlap ocr 4a (FIX: ocr+delegate->both)", "existing_code": "x", "start_line": 40, "end_line": 40, "category": "bug", "severity": "high" },
+    { "path": "h.sh", "content": "del-4 delegate-unique", "existing_code": "x", "start_line": 10, "end_line": 12, "category": "bug", "severity": "medium" }
+  ]
+}

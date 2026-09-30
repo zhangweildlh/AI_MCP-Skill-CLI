@@ -76,7 +76,83 @@ if (fails === 0) { console.log("OVERALL: PASS"); process.exit(0); }
 else { console.log("OVERALL: FAIL (" + fails + " 项断言失败)"); process.exit(1); }
 ' "$OUT"
 
-rc=$?
+rc2=$?
 # 清理合并产物（.json + 新增 .md）；不再生成 .txt
 rm -f "$OUT" "${OUT%.json}.md"
-exit $rc
+
+# ==========================================================================
+# 三源回归（ocr + delegate + review-spd）—— 验证 delegate 第三源修复
+# --------------------------------------------------------------------------
+# 旧行为：delegate 报告（报告 A'）无标记，被 readReport 归为 ocr 同源，与
+# 报告 A 同键时按「同源碰撞」拆为近重复 ocr-only，使 summary.ocr_only 虚高。
+# 新行为：delegate 报告带 delegate:true 标记，识别为独立第三源，与 ocr / review-spd
+# 任意组合跨源交叉验证为 both；未标记仍回退 ocr（向后兼容）。
+# ==========================================================================
+OUT3="$FIX/_out3.merged.json"
+echo ""
+echo "=============================================="
+echo " code-review-combo 三源回归: ocr + delegate + review-spd"
+echo "=============================================="
+
+if ! bash "$MERGE" "$FIX/ocr_report.json" "$FIX/delegate_report.json" "$FIX/reviewspd_report.md" "$OUT3"; then
+  echo "RESULT: FAIL (merge_reports 三源执行异常)" >&2
+  exit 1
+fi
+
+"$NODE_BIN" -e '
+const fs = require("fs");
+const r = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+const f = r.findings;
+let fails = 0;
+function check(name, cond) {
+  if (cond) { console.log("  PASS: " + name); }
+  else { console.log("  FAIL: " + name); fails++; }
+}
+const by = f.reduce((a,x)=>{a[x.verified_by]=(a[x.verified_by]||0)+1;return a;},{});
+const cc = f.reduce((a,x)=>{a[x.cross_check]=(a[x.cross_check]||0)+1;return a;},{});
+
+check("总 findings = 9 (实际 " + f.length + ")", f.length === 9);
+check("verified_by.both = 3 (实际 " + (by.both||0) + ")", (by.both||0) === 3);
+check("verified_by.ocr-only = 3 (实际 " + (by["ocr-only"]||0) + ")", (by["ocr-only"]||0) === 3);
+check("verified_by.delegate-only = 1 (实际 " + (by["delegate-only"]||0) + ")", (by["delegate-only"]||0) === 1);
+check("verified_by.review-spd-only = 2 (实际 " + (by["review-spd-only"]||0) + ")", (by["review-spd-only"]||0) === 2);
+check("cross_check.confirmed = 2 (实际 " + (cc.confirmed||0) + ")", (cc.confirmed||0) === 2);
+check("cross_check.disputed = 1 (实际 " + (cc.disputed||0) + ")", (cc.disputed||0) === 1);
+check("cross_check.new = 6 (实际 " + (cc.new||0) + ")", (cc.new||0) === 6);
+
+// 修复验证：d.sh:40:40:bug 旧行为会被拆成 2 条 ocr-only（近重复）；
+// 新行为：ocr 4a 与 delegate 同键跨源交叉验证为 both（1 条 both + 1 条 ocr-only 碰撞）。
+const dsh = f.filter(x => x.path === "d.sh" && x.start_line === 40 && x.category === "bug");
+check("d.sh:40 共 2 条 (实际 " + dsh.length + ")", dsh.length === 2);
+check("d.sh:40 含 1 条 both（ocr+delegate 跨源修复）", dsh.some(x => x.verified_by === "both"));
+check("d.sh:40 含 1 条 ocr-only（同源碰撞保留）", dsh.some(x => x.verified_by === "ocr-only"));
+
+// 第三源验证：h.sh 仅 delegate 报告 -> delegate-only
+const h = f.filter(x => x.path === "h.sh" && x.start_line === 10);
+check("h.sh:10 仅 delegate-only（第三源标识生效）", h.length === 1 && h[0].verified_by === "delegate-only");
+
+// 三源计数与 mode/sources
+check("summary.by_source.review-spd = 4", (r.summary.by_source["review-spd"]||0) === 4);
+check("summary.delegate_only = 1", (r.summary.delegate_only||0) === 1);
+check("mode = tri-cross-validation", r.mode === "tri-cross-validation");
+check("sources 含三源（review-spd + host delegate）",
+  Array.isArray(r.sources) && r.sources.length >= 3 &&
+  r.sources.some(s => s.indexOf("review-spd") >= 0) &&
+  r.sources.some(s => s.indexOf("host delegate") >= 0));
+
+console.log("");
+if (fails === 0) { console.log("OVERALL(3-source): PASS"); }
+else { console.log("OVERALL(3-source): FAIL (" + fails + " 项断言失败)"); }
+process.exit(fails === 0 ? 0 : 1);
+' "$OUT3"
+
+rc3=$?
+rm -f "$OUT3" "${OUT3%.json}.md"
+
+# 合并退出码：两报告与三报告均须 PASS
+if [ "$rc2" -ne 0 ] || [ "$rc3" -ne 0 ]; then
+  echo "RESULT: FAIL (rc2=$rc2 rc3=$rc3)"
+  exit 1
+fi
+echo "RESULT: PASS (两报告向后兼容 + 三报告 delegate 第三源)"
+exit 0
