@@ -1,10 +1,45 @@
 ---
 
+## [2026-09-30]
+
+### Fixed
+- **meta/Memory-Data：记忆体系维护工具链 v5.3.2 修复（code-review-combo 三路审计收敛）**：
+  - **F-1（remove 非交互 EOFError 守卫）**：`remove()` 在 `sys.stdin.isatty()` 为真但 stdin 已关闭的 Agent / 管道环境，`input()` 会抛 `EOFError`。现显式 `try/except EOFError: confirm='n'`，捕获后视为取消删除，避免堆栈上冒泡中断调用方（review-spd 与 ocr review 均报 medium，both/confirmed）。
+  - **F-2（`index --force` 死参数修复）**：`index()` 声明 `force` 却从未在 body 读取，主索引 / 路由卡 / 子文件头索引三处"未变更不写盘"守卫也不接收 `force`，`--force` 实为死参数。现 `force` 真正透传并绕过三处守卫，强制重新生成索引表与写前路由卡。
+  - **子文件头索引幂等缺陷（F-2 测试设计中发现并修复，前置必备）**：`index()` 将 `content` 重赋为"剥离索引后的版本"，写盘守卫却以"含索引的 new_content"对比"已剥离的 content"——两者恒不等，致每个子文件头索引每次都写盘、`changed` 恒为 True、changelog 每次新增记录；F-4「零 churn」此前仅对主文件成立、对子文件失效。现改为剥离前保留 `orig_content` 作幂等基准，普通 `index` 对已收敛体系为真正空操作（`--force` 才强制写盘 + 记录）。
+  - **Added（测试）**：`test_memory_system.py` 新增 `index --force` 命令级集成用例——判别量：对已收敛体系，普通 `index` 不新增 changelog、`index --force` 强制新增 1 条；覆盖矩阵 28 → 29 项，全量 29/29 PASS、无回归。
+
+---
+
 ## [2026-09-24]
 
 ### Changed
+- **meta/Memory-Data：维护工具链升级至 v5.2.3（豆包 + DeepSeek 第二轮双背靠背审计的质证修复）**：对两份 V2 报告逐项质证——**成立项改代码、不成立项实测否决**（否决：循环检测漏报、CRLF frontmatter 边界、`add --content` 路径歧义、`_sync_cross_file_anchors` 子串匹配、子进程输出限制/进程组 kill、时间解析宽捕获、Markdown 链接 `\]` 转义与锚点后随字符）。
+  - **Fixed（原子写）**：`_write_file` 由就地 `open(path,'w')` 覆写改为「落 `<文件>.tmp` + `os.replace`」——原实现在写入中途崩溃 / 磁盘满时会把文件截成半截，而 `.bak` 只在写入**前**生成，挡不住中途损坏。实测：失败路径返回 False、原文件一字不动、无 `.tmp` 残留。
+  - **Fixed**：`verify` 第 5 项在非 git 环境判 **SKIP**（原：`_git_repo_root()` 失败时返回 `sub_files_dir` 非空 → `or` 右侧回退永不生效 → git 缺失被误标 ERROR）。
+  - **Fixed**：`validate --auto-fix` 与 `check --fix` 同源**停用**（原打印"已尝试修复"属虚假陈述，且会 `sync(force=True)` 写盘，与手册 §0.2「严禁盲修」冲突）。
+  - **Fixed**：§10 第10条 引用方向——`§X` 是本手册条目编号标记，对主文件 / 子记忆文件恒为**跨文件引用**，按 §10 第13条不受方向约束；工具不再误报（实测消除子文件2 的 4 处「依 §10 第5条」假阳性）。该条目由 §5 步骤4 B 段移至 C 段（Agent 判读）。
+  - **Fixed（单一事源）**：抽出 `MANUAL_FILE_NAME` / `MAIN_FILE_NAME` / `ALLOWED_EXTRA_TARGETS`，`check` 维度3 / 维度14 与 `断链检测.py` 的 `ALLOWED_TARGETS` 三处复用（原为三份互不联动的字面量）。
+  - **Refactor**：循环检测收敛为迭代式 `find_cycles` + `_build_sub_ref_graph`（单一图构建 + 单一判环，无递归深度上限）。审计称的"长环 / 双独立环漏报"经实测**否决**——原 `rec_stack` 即当前 DFS 路径，判据完备。
+  - **Fixed（YAML / 容错）**：行内 `#` 注释按 YAML 规范剥离（未加引号遇「空格+`#`」截断、加引号以闭合引号为界）；`unescape_yaml_scalar` 去掉 NUL 占位符改单趟 `re.sub`；`_parse_num_tail` 编号后无空格不再返 None（改用负向预查 `(?![-.\d])`）；`add` 取最大 N 的异常捕获拓宽到 `OSError` / `UnicodeDecodeError`；时间戳解析异常收窄为 `ValueError` / `TypeError`（重扫动作移出 try，避免异常时重复重扫）；`strip_inline_code` 支持双反引号；越界检查主文件改用真值判定。
+  - **Added**：`selftest` 子命令——27 项核心纯函数回归断言（锚点换算 / YAML 反转义与行内注释 / 越界判定 / 编号尾段 / 环检测 / scope 切分 / 内联代码剥离），零依赖、不读写任何业务文件。
+  - **Docs**：手册同步至 v5.2.3（§0.3 原子写 / §4.1 子命令表 +`selftest`、`--auto-fix` 停用 / §5 步骤4 第10条 移至 C 段 / §6.1 新增 D-14、D-15 / §10 对应关系表 / §11）。
 - **meta/AGENTS.md：沉淀两条 P\*.md 方法论的高价值信息**（不引用 P\*.md 文件本身，内容内聚入纪律）：
   - **§5.5 新增「docs-sync gate 与目录型提交的交互」操作指引**：覆盖 `sop_docs_sync_check.sh` 对文件删除等无法归类的变更标为 `UNKNOWN`、保守触发全部 Tier 检查的行为；明确目录型 commit 与 `docs(meta)` commit 的成对模式（目录型 PR 合并后走独立 meta commit 补齐 CHANGELOG/README）；给出提交被拦截时的诊断顺序（区分 docs-sync gate 拦截 vs scope 校验拦截）；列明禁忌（不得 `--no-verify` 绕过 hook、不得以 PR 描述代替 meta commit）。
+  - **meta/Memory-Data：维护工具链升级至 v5.2.2（豆包 + DeepSeek 双背靠背审计的质证修复）**：对两份审计报告逐项质证——**成立项改代码、不成立项留痕否决**（否决：递归 DFS 栈溢出、H4 归入 H3 范围、verify 改用 returncode 主判、GFM 锚点对齐、行内 `#` 截断）。
+    - **Fixed（P0-1）**：`index --file X` 原会把主索引表②与写前路由卡表①**整区重写为只剩 X 一条**（数据破坏级，手册 §4.1 却把该用法列为典型用法）。改为 `--file` 只决定刷新哪个文件的头部速查索引，两个工具写入区恒按全量生成。实测：执行前后主文件**零差异**，主索引仍含全部 6 个子文件。
+    - **Fixed（P0-2）**：`check --fix` 原在「移除链接后该行变空」时**整行删除**，同行其它链接与正文一并丢失。按手册 §0.2「严禁盲修」**停用自动修复**，改为只打印待核清单供人工按 §7 处置。
+    - **Fixed（P0-3）**：`_sync_cross_file_anchors` 的同文件锚点替换正则缺少上下文约束，正文中形态相同的 `(#锚点` 会被篡改；改为仅在 `[文本](#锚点)` 内替换并跳过代码围栏。
+    - **Fixed**：YAML 读取侧补齐对称反转义（`unescape_yaml_scalar`），多行字符串指示符 `|` / `>` 由静默丢内容改为显式报错中止（零依赖取舍，不引入 pyyaml）。
+    - **Fixed**：`route` 的 `scope_in` / `scope_out` 按手册 §2.2 的 `；` 逐条切分（原整段当一条，逐条匹配失效）；短查询（< 4 字）抬高命中阈值。
+    - **Fixed**：`add` 的 `file_number` 改以**磁盘全部子文件 YAML** 为准（原只读 state 缓存，会分配到重复 N）并写入 state；`--start-number` **停用**（§0.12 禁止手工指定）。
+    - **Refactor / 其它**：`check` 维度3 改为白名单内校验（越界统一交维度14）；维度7 用精确文件名判定；维度6 与 `validate` 纪律2 合并为 `_find_duplicate_paragraphs`（消除双源）；`_collect_headings_for_anchor` 收敛为 `_scan_headings_ordered` 的适配层；主索引「大文件降级指向」去硬编码文件名改按行数阈值；`remove` 只删链接 token 不整行丢弃；备份失败**阻断**写入/删除（§0.3）；`_strip_local_index` 改按哨兵定界（防索引叠加）；`verify` 用 `git rev-parse` 定仓库根；`_list_sub_files` 过滤目录。
+    - **Docs**：手册同步至 v5.2.2（§0.12 / §0.17 / §4.1 / §6.1 新增 D-12、D-13 / §11）；修正 §0.17「check 检测不到越界」的旧表述（v5.2.1 维度14 已覆盖）。
+  - **meta/Memory-Data：记忆体系维护工具链升级至 v5.2.1（P0 缺陷修复 + 三项能力补齐）**：
+    - **Fixed（P0）**：`memory-mgr.py` 的 `_collect_headings_for_anchor` 原按 H2/H3/H4 分组收集，与「按文档顺序一一对应」的契约矛盾，导致 `rewrite` 前后按位置配对**错配**、跨文件锚点被静默改写为错误目标（即"插章后章节消失"的真实根因）。改为单遍扫描按文档顺序收集 + 跳过代码围栏，并新增「标题文本序列不一致」显式告警。同步修正手册 §3.4 的事实定性（原表述"静默丢弃整章正文"不准确，实测正文一行不丢，真实故障是编号位移 + 锚点错配）。
+    - **Added**：`route`（归属判定 / 读前精判，四要素打分 + 定位链下一步）、`next-num`（下一个可用编号 + 插章路径 A/B 判定）、`verify`（五项验收一键化）三个子命令；`check` 新增维度13 主文件必备结构（含「规则三：记忆读取纪律」强制项）与维度14 体系外越界引用（白名单制，消解手册 §6 D-8 盲区）。
+    - **Refactor**：`heading_to_anchor` / `strip_heading_number` / `extract_target_filename` 收归 `memory-mgr.py` 为单一事源，`断链检测.py` 改为 import 复用（导入失败回退内置），消除两脚本间的实现漂移风险。
+    - **手册 `WorkBuddy记忆文件说明.md`** 同步至 v5.2.1（§3.4 / §4.1 / §4.2 / §5 / §6.1 / §7.5 / 速查索引 / §11）。
   - **§8.5 新增「删除测试 fixture 的配套改造」**：删除五类文件之⑤（测试衍生文件/二进制 fixture）时，若测试硬依赖该文件，须同步改造测试链路——加入「fixture 缺失 → 自动调生成脚本现场合成」的降级逻辑；生成脚本须确定性（无随机种子/实时 API/外部服务）、合成产物须被 `.gitignore` 排除不入库；历史反向忽略规则注释保留备查。
 
 ---

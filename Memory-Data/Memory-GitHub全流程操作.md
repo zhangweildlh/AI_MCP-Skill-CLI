@@ -12,7 +12,7 @@ parent: "MEMORY.md"
 positioning: "Git / GitHub 从认证到发版的全生命周期作业手册"
 role: "GitHub 作业流程层"
 theme: "git/gh 工具与认证 / 账户 / gh 能力 / 提交门禁 / CI / 十大工作流"
-scope_in: "gh 命令速查；账户信息；提交前文档同步门禁；Fork CI 实证要点；工作流一~十（自动激活、信息读取与搜索、日常同步巡检、标准代码修改、多工作树并行开发、CI 失败排错、Release 发版、分支清理回收、PR 全生命周期、清理工区维护）"
+scope_in: "需查 gh 命令用法时（命令速查）；需账户 / 身份信息时；提交代码前（文档同步门禁）；Fork 仓库跑 CI 时（实证要点）；判断 GitHub 技能是否该自动激活时；查仓库 / 代码 / Issue / PR 信息时；做每日三方同步巡检时；改代码走标准分支 + PR 时；多工作树并行开发时；CI 变红需排错时；要发版 Release 时；清理已合并分支时；开 PR / 审 PR / 合 PR 时；清理工区时"
 scope_out: "通用代码写法 → 子文件2；环境禁令与工具链 → 子文件1；非 Git 场景的协作坑 → 子文件4"
 summary: "git/gh认证、账户信息、gh速查、提交前门禁、Fork CI、github-personal-manager、信息读取、同步巡检、标准代码修改、多工作树、CI排错、Release、分支清理、PR全生命周期、清理工区"
 keywords: ["PR", "fork", "worktree", "CI", "gh速查", "同步巡检"]
