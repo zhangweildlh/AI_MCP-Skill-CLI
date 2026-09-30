@@ -11,6 +11,10 @@
   uv run --with requests python scripts/smoke/run_all.py --list          # 仅列出发现的 Skill
   uv run --with requests python scripts/smoke/run_all.py --strict        # WARN 也视为失败
   uv run --with requests python scripts/smoke/run_all.py --json out.json # 输出 JSON 报告
+  uv run --with requests python scripts/smoke/run_all.py --list-tests    # 列出全部测试资产（唯一清单）
+  uv run --with requests python scripts/smoke/run_all.py --scope dir/web-search --project-tests              # 跑某 scope 项目级测试（离线+本地工具）
+  uv run --with requests python scripts/smoke/run_all.py --scope dir/web-search --project-tests --allow-real # 含真实态（需 API）
+  uv run --with requests python scripts/smoke/run_all.py --cleanup       # 清理测试临时/过程文件
 
 scope 取值（方案 Y 纪律）：
   dir/<目录名>   —— 目录型 Skill（如 dir/chrome-devtools）
@@ -85,7 +89,26 @@ def main() -> int:
     ap.add_argument("--list", action="store_true", help="仅列出发现的 Skill 并退出")
     ap.add_argument("--staged", action="store_true",
                     help="Tier0 仅扫描已暂存(staged)文件（预提交钩子场景）")
+    ap.add_argument("--list-tests", action="store_true",
+                    help="列出全部测试资产（唯一清单 scripts/smoke/test_manifest.py）并退出")
+    ap.add_argument("--project-tests", action="store_true",
+                    help="运行项目级测试（按 --scope 过滤；离线+本地工具；needs-api 需 --allow-real）")
+    ap.add_argument("--allow-real", action="store_true",
+                    help="与 --project-tests 配合：允许运行 needs-api 真实态测试（默认门控）")
+    ap.add_argument("--cleanup", action="store_true",
+                    help="清理测试衍生/临时/过程文件（与 AGENTS.md §8.3⑤ 衔接）")
     args = ap.parse_args()
+
+    # ---- 测试资产调度分支（唯一测试源，惰性导入，不影响默认/CI 路径）----
+    if args.list_tests:
+        import test_manifest
+        return test_manifest.list_tests()
+    if args.cleanup:
+        import test_manifest
+        return test_manifest.cleanup()
+    if args.project_tests:
+        import test_manifest
+        return test_manifest.run_project_tests(args.scope, args.allow_real)
 
     if args.list:
         for sk in discover_skills():
