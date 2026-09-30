@@ -114,17 +114,39 @@
 - 8.7 **单一事实源**：依据 SOUL.md 单一事实源原则，第 7.1 条"最小化原则"改为引用本章，不在两处重复定义。**引用方向恒为 AGENTS.md → SOUL.md，禁止反向（SOUL.md 不得引用 AGENTS.md）**。
 
 ## 9 测试资产纪律（唯一测试源）
-- 9.1 唯一测试源定义：`scripts/smoke/run_all.py` 是仓库测试**唯一调度入口**；`scripts/smoke/test_manifest.py` 是测试资产**唯一清单**（single source of truth）。各 Skill 自带测试（§8.3⑤ 允许入库的可复用测试脚本）保留在各自目录内自包含，但**必须登记于清单并由 `run_all.py` 统一调度**，禁止散落 ad-hoc 调用。
-- 9.2 测试类型与入口（四类）：
+
+本仓库测试体系采用「仓库级调度中枢 + 项目级执行单元」两层架构，由单一文件登记、单一入口调度，禁止散落 ad-hoc 测试调用。
+
+- 9.1 层级关系（仓库级 vs 项目级）：
+  - **仓库级（元 / meta）**：`scripts/smoke/` 是测试体系的中枢——
+    - `run_all.py` = **唯一调度入口**（所有测试的最终调用面，Agent 与 CI 只认这一层）；
+    - `test_manifest.py` = **唯一清单**（single source of truth，登记全部测试资产）。
+    - 调度树（单向引用，项目级不反向依赖入口）：
+      ```
+      run_all.py  ← 唯一入口（Agent / CI 只认这一层）
+      ├─ 仓库纪律门禁：tier0-6（密钥/忽略/结构/合规/运行/触发/scope一致性/版本锁）
+      └─ 项目级测试调度：--project-tests [--allow-real]
+          └─ test_manifest.py 按 scope 派发子进程 → 各 Skill 目录内测试脚本
+      ```
+  - **项目级（各 Skill 目录内自包含）**：`tests/`、`smoke/`、`references/` 等目录中的可复用测试脚本（§8.3⑤ 允许入库）；它们是"执行单元"，**仅通过登记于清单后**才被仓库级入口调度，彼此独立、互不跨 Skill 依赖。
+  - **关系本质**：仓库级是"调度中枢 + 纪律门禁"，项目级是"执行单元"；二者通过 `test_manifest.py` 单向衔接（run_all → manifest → 各 Skill 测试），项目级测试**不得反向 import / 调用** run_all 或彼此硬耦合。
+- 9.2 统一入口与调度纪律：
+  - **统一入口 = `run_all.py`**。任何冒烟 / CI / 回归 / 真实态测试**必须经本入口或其登记的子命令调用**；禁止在仓库任意位置手写 `python xxx/test.py` / `bash yyy/run.sh` 之类的散落调用（违反单一事实源，且易绕过真实态门控与打扫纪律）。
+  - 调度子命令（均为加性 flag，既有 `--tier/--scope/--json/--strict/--list/--staged` 契约不变）：
+    - `run_all.py --list-tests`：列出唯一清单（测试在哪、入口、怎么调用）；
+    - `run_all.py --scope dir/X --project-tests [--allow-real]`：按 scope 跑项目级测试（needs-api 默认门控，须 `--allow-real`）；
+    - `run_all.py --cleanup`：清理测试临时 / 过程 / 垃圾文件；
+    - `test_manifest` 惰性导入，CI 默认路径零影响。
+- 9.3 四类测试类型与入口（冒烟 / CI / 回归 / 真实态）：
   1. **冒烟 (smoke)**：仓库级纪律门禁 = `run_all.py --tier 0,1[,2,3]`；项目冒烟 = `run_all.py --scope dir/X --project-tests`（离线 / 本地工具部分）。
-  2. **CI（本地 + 远端）**：本地预提交 = `uv run --with requests python scripts/smoke/run_all.py --tier 0,1 --staged`；远端 = `smoke.yml` 自动调用 `run_all.py`（仅仓库级纪律门禁：meta 变更全量 tier0-3+5+6，scope 变更仅 tier0 基础门禁）。**项目级测试当前为本地预推送门禁，未接入远端 required CI**（异构环境 / 需本地工具 / 真实态风险高，按"最小作用域、不破坏 CI"原则刻意不接；如需启用须在清单显式标注并单独 matrix）。
+  2. **CI（本地 + 远端）**：本地预提交 = `uv run --with requests python scripts/smoke/run_all.py --tier 0,1 --staged`；远端 = `smoke.yml` 自动调用 `run_all.py`（仅仓库级纪律门禁：meta 变更全量 tier0-3+5+6，scope 变更仅 tier0 基础门禁）。**项目级测试刻意不接入远端 required CI**（异构环境 / 需本地工具 / 真实态风险高，按"最小作用域、不破坏 CI"原则刻意不接；如需启用须在清单显式标注并单独 matrix）。
   3. **回归 (regression)**：`run_all.py --scope dir/X --project-tests`（含各 Skill 回归套件）。
   4. **真实态 (real-state)**：需真实 API / 二进制 / 网络的测试，`run_all.py --scope dir/X --project-tests --allow-real`（显式门控，绝不进 CI；与既有 `SMOKE_PROBE_API` 门控哲学一致）。
-- 9.3 扫描优先 / 复用优先纪律：任何新建 / 修改测试任务前，先 `run_all.py --list-tests` 扫描唯一清单；满足需求且可复用者**必须复用**；不满足者**优先修改既有再复用**；最后才造新（呼应 §2-2 最小作用域 + SOUL 单一事实源）。新增测试须补登清单；遗弃测试须从清单移除。
-- 9.4 收尾打扫纪律：每次测试后必须清理临时 / 过程 / 垃圾文件——`run_all.py --cleanup` 自动清理已知测试临时目录（`code-review-combo/.verify_tmp`、`github-personal-manager/smoke/tmp`、`tender-review-kit/tests/workspace`）与 `__pycache__`；各测试脚本须自清理 `mktemp` 产物（如 `tender-review-kit` 已自清）。与 §8.3⑤ 衔接（测试衍生文件禁入库）。
-- 9.5 测试资产管理（新增 / 修改 / 删除）：
-  - 各 Skill 自带测试脚本（`tests/`、`smoke/`、`references/`）→ 随该 Skill 的 `dir` scope 走 worktree + PR（第 4 章）；
-  - 仓库级测试基础设施（`scripts/smoke/*`，含 `test_manifest.py`、`run_all.py`）→ `meta` scope，走标准分支 + PR（第 5 章），触发全量 CI；
-  - 任一测试文件增删改均须**同步更新 `test_manifest.py` 清单**（保持唯一事实源）；
-  - 测试脚本的编写 / 修改 / 新建严格遵循 `Memory-代码纪律与Git操作.md §2-2`（六红线 / 统一优先级裁决器 / 全局契约面 / 分阶段操作手册 / 回归纪律）。
-- 9.6 清单维护：`test_manifest.py` 的 `TEST_ENTRIES` 即唯一事实源；新增测试目录须与 `scan_unregistered()` 口径一致（运行 `run_all.py --list-tests` 核对无遗漏）。
+- 9.4 扫描优先 / 复用优先纪律：任何新建 / 修改测试任务前，先 `run_all.py --list-tests` 扫描唯一清单；满足需求且可复用者**必须复用**；不满足者**优先修改既有再复用**；最后才造新（呼应 §2-2 最小作用域 + SOUL 单一事实源）。新增测试须补登清单；遗弃测试须从清单移除。
+- 9.5 收尾打扫纪律：每次测试后必须清理临时 / 过程 / 垃圾文件——`run_all.py --cleanup` 自动清理已知测试临时目录（`code-review-combo/.verify_tmp`、`github-personal-manager/smoke/tmp`、`tender-review-kit/tests/workspace`）与 `__pycache__`；各测试脚本须自清理 `mktemp` 产物（如 `tender-review-kit` 已自清）。与 §8.3⑤ 衔接（测试衍生文件禁入库）。
+- 9.6 测试资产管理（新增 / 修改 / 删除，必须系统化执行）：
+  - **9.6.1 新增测试**：① 在对应 Skill 目录编写测试脚本（遵循 §2-2）；② 登记进 `test_manifest.py` 的 `TEST_ENTRIES`（填 scope / path / cmd / kind / risk / note）；③ 确定提交路径——Skill 自带测试随该 Skill 的 `dir` scope 走 worktree + PR（第 4 章），仓库级测试基建（含 `test_manifest.py`、`run_all.py`）随 `meta` 走标准分支 + PR（第 5 章）；④ 本地 `run_all.py --list-tests` 核对登记无误、`--project-tests` 验证可跑。
+  - **9.6.2 修改测试**：沿用 9.6.1 的提交路径；若测试行为变化（类型 / 风险 / 命令改变），须**同步更新**清单对应条目的 kind / risk / cmd；回归验证确保未破坏既有契约。
+  - **9.6.3 删除 / 退役测试**：从 Skill 目录删除脚本的**同时**，必须从 `test_manifest.py` 移除对应条目（保持唯一事实源无悬空）；随对应 scope PR 提交；若该测试曾写入 `scan_unregistered()` 口径，同步更新。
+  - **9.6.4 编写纪律**：测试脚本的编写 / 修改 / 新建严格遵循 `Memory-代码纪律与Git操作.md §2-2`（六红线 / 统一优先级裁决器 / 全局契约面 / 分阶段操作手册 / 回归纪律）。
+- 9.7 清单与 CI 协同维护：`test_manifest.py` 的 `TEST_ENTRIES` 即唯一事实源；新增测试目录须与 `scan_unregistered()` 口径一致（运行 `run_all.py --list-tests` 核对无遗漏）；CI（`smoke.yml`）与本地预推送门禁通过同一套清单命令口径对齐，确保"改了测试资产必改清单、改了清单必能调度"。
