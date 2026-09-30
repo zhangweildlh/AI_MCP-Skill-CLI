@@ -248,18 +248,19 @@ ocr review --provider <P> --format json --audience agent -b "$CTX" ...
 
 ### Stage3：merge_reports 确定性合并去重 → 唯一审计报告（.json + .md）
 
-> **可执行自动化（推荐）**：本技能内置 `./scripts/merge_reports`（bash + node，零外部依赖，含 `bash ./tests/test_merge_reports.sh` 回归校验）完成「归一化 + 跨源去重 + 按 severity 排序 + 唯一报告输出（`.json` + `.md`）」的全部逻辑。三路报告（报告 A = `ocr review`、报告 A' = `ocr delegate`、报告 B = `review-spd`）循环读入、统一合并：
+> **可执行自动化（推荐）**：本技能内置 `./scripts/merge_reports`（bash + node，零外部依赖，含 `bash ./tests/test_merge_reports.sh` 回归校验）完成「归一化 + 跨源去重 + 按 severity 排序 + 唯一报告输出（`.json` + `.md`）」的全部逻辑。三路报告（报告 A = `ocr review`、报告 A' = `ocr delegate`、报告 B = `review-spd`）循环读入、统一合并。**关键**：报告 A'（委托主审）的 JSON 必须带 `delegate: true`（或 `mode: "delegate"`）标记，脚本据此将其识别为独立第三源 `delegate` 并与 `ocr` / `review-spd` 跨源交叉验证；若漏标，A' 会被误判为 `ocr` 同源，与 A 同键时按「同源碰撞」拆为近重复 `ocr-only`（历史虚高根因，详见下文「避坑（delegate 第三源与同源碰撞）」）。
 > ```bash
 > bash ./scripts/merge_reports <报告A.json> <报告A'.json> <报告B.md|json> [<输出名>]
+> #   报告A'（ocr delegate）JSON 须含 delegate:true 标记（否则被当作 ocr 同源，触发近重复碰撞）
 > #   位置参数均为输入报告（≥2 份，顺序不限）；
 > #   最后一段若以 .json/.md 结尾且参数≥3，则视为输出名，其余皆为输入报告。
 > #   载体自动识别：.md → 抽 ```json 块 findings[]（review-spd）；
-> #                 .json 含 comments[] → ocr/delegate（content→comment 双字段兼容）；
+> #                 .json 含 comments[] → ocr 或 delegate（凭 delegate:true / mode:delegate 标记区分；content→comment 双字段兼容）；
 > #                 .json 含 findings[] → review-spd。
 > # 输出：<输出>.json（机器可操作）+ <输出>.md（人类可读，确定性结构化）
 > ```
 > 合并规则（确定性，非 LLM）：
-> - **跨源判定**：同一 `(path, start_line, end_line, category)` 被两路及以上报告 → `verified_by=both`；severity 一致 → `cross_check=confirmed`，不一致 → `cross_check=disputed` 并**取两源中更高 severity**（保守升级）；仅单源 → `ocr-only` / `review-spd-only` + `cross_check=new`。
+> - **跨源判定**：同一 `(path, start_line, end_line, category)` 被两路及以上报告 → `verified_by=both`；severity 一致 → `cross_check=confirmed`，不一致 → `cross_check=disputed` 并**取较高 severity**（保守升级）；仅单源 → `ocr-only` / `delegate-only` / `review-spd-only` + `cross_check=new`。跨源涵盖 `ocr` / `delegate` / `review-spd` 任意组合（含 `ocr`+`delegate` 两 ocr 族引擎互验）。
 > - **category 8↔5 映射**：ocr/delegate 的 8 类归一；`maintainability` / `documentation` → 归入 `other`；`style` 视为噪音**整体丢弃**（计入 `summary.dropped_style`），保证跨源 `both` 在映射后口径一致。
 > - **双字段兼容**：ocr/delegate 用 `content`，review-spd 用 `comment`；`suggestion_code` ↔ `suggestion`，脚本自动归一。
 >
@@ -279,7 +280,7 @@ combo 的编排遵循「单一写者」模型（writer model），与上游执�
 - **宿主（编排者）是验收权威**：`merge_reports` 做确定性合并去重并产出审计报告文件（`.json`+`.md`，机器可复现）；宿主 LLM 仅按 `./local/report-narrative.md` **叙事、不重判**——对合并结果给出 `APPROVED` / `FIXED` / `ESCALATE` 三态 Verdict 标签并写入叙事，但**绝不重判单条 finding 的 severity / 误报 / 去重**（这些由 `merge_reports` 决定性决定），对外 status 也仅基于该合并结果标注。
 - **最终裁决词汇**：对齐上游评审员契约，宿主对合并结果给出 `APPROVED`（全部交叉验证通过、无保留项） / `FIXED`（单源或 disputed 项经宿主实读代码核实后已确认有效或已修复） / `ESCALATE`（存在需 redesign 或需用户决策的高风险项）三态结论；`ESCALATE` 项须在报告中显式列出并说明下一步。
 
-由本技能（宿主）执行最终裁决——即基于合并结果给出 `APPROVED` / `FIXED` / `ESCALATE` 三态 Verdict，**必须结合实际代码**（尤其对 `ocr-only` / `review-spd-only` 单源项与 `disputed` 项实读代码核实，见步骤 2），但**绝不重判单条 finding 的 severity / 误报 / 去重**（这些由 `merge_reports` 决定性决定，见上方「宿主是验收权威」段）。
+由本技能（宿主）执行最终裁决——即基于合并结果给出 `APPROVED` / `FIXED` / `ESCALATE` 三态 Verdict，**必须结合实际代码**（尤其对 `ocr-only` / `delegate-only` / `review-spd-only` 单源项与 `disputed` 项实读代码核实，见步骤 2），但**绝不重判单条 finding 的 severity / 误报 / 去重**（这些由 `merge_reports` 决定性决定，见上方「宿主是验收权威」段）。
 
 > **合并基准（关键）**：合并去重**仅基于 `comments[]` / `findings[]` 的发现数组**，按每条发现的 `path` + `start_line` + `end_line` + `category` 去重；**绝不依赖 `manifest`**——`ocr review` 的 `manifest` 仅含 operation/coverage 元数据、`ocr scan` 输出**无 `manifest`**，二者都无法承载 findings，合并逻辑不得读取 `manifest`。Stage1 的 OCR / delegate 报告以 `comments[]` 为载体（字段用 `content`），review-spd 报告以 `findings[]` 为载体（字段用 `comment`），Stage3 统一归一化后去重。
 
@@ -288,8 +289,8 @@ combo 的编排遵循「单一写者」模型（writer model），与上游执�
    - 仅单源报的（重点验证：读取实际代码核实真伪，确认则保留，误报则丢弃）；
    - severity 冲突的（读取代码核实后取较高者或据实定级）；
    - 疑似误报（无代码证据支撑的，静默丢弃）。
-2. **真实验证**：对「仅单源报」或「disputed」项，必须打开实际代码核实，禁止直接采信子技能结论。**注意**：`merge_reports` 完成机械合并后，宿主仍须对「仅单源（ocr-only / review-spd-only）」与「disputed」项实读代码核实。
-3. **去重合并与字段赋值**：按 `path` + `start_line` + `end_line` + `category` 去重（与「合并基准」一致），合成一份 findings 列表，按 severity 排序（Critical / High / Medium / Low）。若同一代码位置被多源以不同 `category` 报告，视为同一缺陷合并，`category` 取更具体者（优先 bug / security / performance，其次 test，再次 other），并据来源标记 `verified_by`。对每条去重后的 finding **显式赋值** `verified_by`（both / ocr-only / review-spd-only）与 `cross_check`（confirmed / new / disputed）；并据 `verified_by` 统计 `summary.ocr_only` / `summary.review_spd_only`。
+2. **真实验证**：对「仅单源报」或「disputed」项，必须打开实际代码核实，禁止直接采信子技能结论。**注意**：`merge_reports` 完成机械合并后，宿主仍须对「仅单源（ocr-only / delegate-only / review-spd-only）」与「disputed」项实读代码核实。
+3. **去重合并与字段赋值**：按 `path` + `start_line` + `end_line` + `category` 去重（与「合并基准」一致），合成一份 findings 列表，按 severity 排序（Critical / High / Medium / Low）。若同一代码位置被多源以不同 `category` 报告，视为同一缺陷合并，`category` 取更具体者（优先 bug / security / performance，其次 test，再次 other），并据来源标记 `verified_by`。对每条去重后的 finding **显式赋值** `verified_by`（both / ocr-only / delegate-only / review-spd-only）与 `cross_check`（confirmed / new / disputed）；并据 `verified_by` 统计 `summary.ocr_only` / `summary.delegate_only` / `summary.review_spd_only`。
 4. **唯一审计报告**：同时给出
    - 人类可读文本（findings-first，按严重度分组，含 `Residual Risks` / `Testing Gaps` / `Verification`）；
    - 结构化 JSON（combo 自有 Schema，见下文「输出：唯一审计报告格式」，字段稳定便于下游 / Agent 消费）。
@@ -301,8 +302,8 @@ combo 的编排遵循「单一写者」模型（writer model），与上游执�
 ```json
 {
   "tool": "code-review-combo",
-  "mode": "dual-cross-validation",
-  "sources": [ "open-code-review-delegate", "review-spd" ],
+  "mode": "dual-cross-validation | tri-cross-validation",
+  "sources": [ "open-code-review-delegate", "open-code-review-delegate (host delegate)", "review-spd" ],
   "findings": [
     {
       "path": "src/foo.go",
@@ -314,19 +315,20 @@ combo 的编排遵循「单一写者」模型（writer model），与上游执�
       "content": "问题描述（ocr/delegate 用 content，review-spd 用 comment，脚本已归一）",
       "suggestion": "修复建议（可选）",
       "existing_code": "相关代码片段（可选）",
-      "verified_by": "both | ocr-only | review-spd-only",
+      "verified_by": "both | ocr-only | delegate-only | review-spd-only",
       "cross_check": "confirmed | new | disputed"
     }
   ],
   "summary": {
     "total_findings": 1,
     "files_reviewed": 1,
-    "by_source": { "ocr": 0, "review-spd": 0 },
-    "verified_by": { "both": 0, "ocr-only": 0, "review-spd-only": 0 },
+    "by_source": { "ocr": 0, "delegate": 0, "review-spd": 0 },
+    "verified_by": { "both": 0, "ocr-only": 0, "delegate-only": 0, "review-spd-only": 0 },
     "confirmed": 0,
     "disputed": 0,
     "new": 0,
     "ocr_only": 0,
+    "delegate_only": 0,
     "review_spd_only": 0,
     "severity_dist": { "critical": 0, "high": 0, "medium": 0, "low": 0 },
     "category_dist": {},
@@ -335,9 +337,10 @@ combo 的编排遵循「单一写者」模型（writer model），与上游执�
 }
 ```
 
-- `verified_by`：该项由两者共同确认（both）/ 仅 open-code-review-delegate 发现（ocr-only）/ 仅 review-spd 发现（review-spd-only）。
+- `verified_by`：该项由多源共同确认（both）/ 仅 `ocr` 原生审查发现（ocr-only）/ 仅 `delegate` 宿主委托主审发现（delegate-only）/ 仅 review-spd 发现（review-spd-only）。
 - `cross_check`：交叉验证结论（确认 confirmed / 新发现 new / 有争议 disputed）。下游可据此判断置信度。
-- `summary.ocr_only` / `summary.review_spd_only`：仅由单一引擎发现、经 Stage3 核实后保留的项数，用于量化交叉覆盖效果。
+- `summary.ocr_only` / `summary.delegate_only` / `summary.review_spd_only`：仅由单一引擎发现、经 Stage3 核实后保留的项数，用于量化交叉覆盖效果。
+- `mode`：`dual-cross-validation`（两源）或 `tri-cross-validation`（含 delegate 标记的三源）；`sources` 为实际参与合并的引擎标签数组（按输入动态计算，非固定值）；delegate 引擎标签固定为 `open-code-review-delegate (host delegate)` 以便与 `ocr` 原生审查（`open-code-review-delegate`）区分。
 - `summary.severity_dist`：按 `critical / high / medium / low` 嵌套的 severity 分布（**权威字段**）；为兼容旧消费方，`summary` 顶层**同时**存在扁平的 `critical / high / medium / low` 别名（由 `merge_reports` 同值回填），下游应优先读取 `severity_dist`。
 - `summary.by_source` / `verified_by` / `confirmed` / `disputed` / `new` / `category_dist` / `dropped_style` / `total_findings` / `files_reviewed`：交叉覆盖与分类统计，详见 `merge_reports` 实现。
 - `content` 与 `comment` 双字段兼容：ocr/delegate 报告用 `content`，review-spd 报告用 `comment`，`merge_reports` 归一后**两者都保留**在输出中（下游任选其一即可）。
@@ -382,6 +385,16 @@ combo 的编排遵循「单一写者」模型（writer model），与上游执�
 | 4 | 有无「修一漏一」？ | 所有调用点已联动验证 |
 | 5 | 有无「无全局视野」？ | 契约面已绘制并注入三路 |
 | 6 | 有无「未做回归」？ | Stage4 修复纪律已引导用户锁定回归 |
+
+## 避坑（delegate 第三源与同源碰撞）
+
+- **坑**：报告 A'（`ocr delegate` 委托主审）的 JSON 漏标 `delegate: true` / `mode: "delegate"`。
+  - **后果**：`merge_reports` 的 `readReport` 对 `comments[]` 一律标 `source="ocr"`，使 A 与 A' 被当作**同源**；二者对同一代码位置都报时，不会跨源交叉验证成 `both`，而是按「同源键碰撞」拆为两条近重复的 `ocr-only`，导致 `summary.ocr_only` 虚高、交叉覆盖效果被低估。
+  - **正解**：A' 的宿主收敛 JSON 必须带 `delegate: true`（或 `mode: "delegate"`）标记（见 `local/delegate-json-schema.md`）；脚本据此将其识别为独立第三源 `delegate`，与 `ocr` / `review-spd` 任意组合跨源互验。三源齐备时 `mode` 自动变为 `tri-cross-validation`，`sources` 含 `open-code-review-delegate (host delegate)`。
+  - **兜底（向后兼容）**：若某历史/外部 delegate 报告未带标记，按 `ocr` 同源处理属预期旧行为；如需其独立计源，补标记后重跑即可。
+- **坑**：输出名缺 `.json` / `.md` 后缀。
+  - **后果**：最后一段参数被误判为「输入报告」而非输出名，导致该报告被当作额外输入读取（缺失即 ENOENT 跳过告警），输出名回退默认值。
+  - **正解**：显式带后缀，如 `merged.json` 或 `merged.md`，确保最后一段被正确识别为输出名。
 
 ## 异常处理
 
