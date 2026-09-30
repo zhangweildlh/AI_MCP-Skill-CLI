@@ -141,11 +141,15 @@ def _filter(scope: str | None, allow_real: bool):
 
 def list_tests() -> int:
     """打印测试资产清单（唯一事实源视图）。"""
+    # SCOPE 列宽按最长 scope 动态取值（+2 留间隔），避免长 scope 与 KIND 列粘连
+    scope_w = max((len(e["scope"]) for e in TEST_ENTRIES), default=0) + 2
+    kind_w, risk_w, name_w = 12, 14, 20
+    sep_w = scope_w + kind_w + risk_w + name_w + 4
     print("=== 测试资产清单（唯一事实源：scripts/smoke/test_manifest.py）===")
-    print(f"{'SCOPE':<26}{'KIND':<12}{'RISK':<14}{'NAME':<20}PATH")
-    print("-" * 100)
+    print(f"{'SCOPE':<{scope_w}}{'KIND':<{kind_w}}{'RISK':<{risk_w}}{'NAME':<{name_w}}PATH")
+    print("-" * sep_w)
     for e in TEST_ENTRIES:
-        print(f"{e['scope']:<26}{e['kind']:<12}{e['risk']:<14}{e['name']:<20}{e['path']}")
+        print(f"{e['scope']:<{scope_w}}{e['kind']:<{kind_w}}{e['risk']:<{risk_w}}{e['name']:<{name_w}}{e['path']}")
     print("-" * 100)
     print("说明：")
     print("  - 仓库级冒烟(smoke-tier0-6) 是 CI 唯一自动入口；其余为本地/人工门禁。")
