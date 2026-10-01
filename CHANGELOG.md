@@ -31,6 +31,22 @@
 
 ---
 
+## [2026-10-01]
+
+### Changed
+- **file/task-methodology-consolidation：升级「任务方法论沉淀」单文件 Skill 至 v3.4.0（deep-discuss 七阶段深度调研后的 B+ 增强方案）**：
+  - **第七节由「经验提炼三原则」升级为「三问闸门」**：写产物前必过「问一 价值（三个月后忘了会再踩坑吗）→ 问二 可移植（去专有名词后仍成立即 P2）→ 问三 查重（固定目录是否已有同主题/同根因产物）」，三问全过才落笔；任一问 skip 即不写新产物，归并路径收敛到第十七节。
+  - **第十节自检清单同步**：新增 `c. 过第七节三问闸门`、`e. 第六段过可复用产物六项强制校验`、`h. 过第十七节产物级查重与 See Also`，并规定汇报须写明「查重结论：命中 <文件名> → 并入/补指针/新建」，无痕视为未查重。
+  - **版本 `3.2.1 → 3.4.0`**：对外触发契约不变（同一组触发词），仅内部工序强化；`description` 增补触发词「经验固化」「任务复盘」「方法论归档」「把上一轮任务沉淀一下」。
+
+### Added
+- **file/task-methodology-consolidation：第十七节「产物级查重与 See Also」**：把三问中的「问三」落成可执行工序——列目录（`ls -1` / `Get-ChildItem`）→ 比对主题与根因 → 三处置按优先级「并入既有（首选）/ 只补 See Also 双向指针（次选）/ 新建（末选，须注明与被归并产物的关系）」；与第十五节跨轮 `pattern-rule` 检测、第十二节反例⑤的边界显式划清（本项只管单轮写前去重）。
+- **file/task-methodology-consolidation：第十八节「交付前部署态核验」**：收尾硬关门动作——开发态（仓库根）与部署态（`%USERPROFILE%\.workbuddy\skills\<name>\SKILL.md`）须 `md5sum` 哈希一致 + `cmp` 零差异；明确「字节数不同且 md5 相近」的根因通常是部署态是旧副本而非换行符差异，一律 `cp -f` 原样复制纠偏后复验；纯经验沉淀（未改 Skill 本体）场景本节不触发。
+- **file/task-methodology-consolidation：第八节补充「可复用产物六项强制校验」**：针对模板第六段（可复用产物片段）立规矩——可复制 / 可验证（带退出码或输出信号）/ 已实测（未实测须降置信度）/ 带环境前提（OS、工具链、版本）/ 无明文凭证 / 可独立使用。
+- **部署态路径事实更正**：上版条目记的部署态路径 `C:/Users/15794/.workbuddy/skills/...` 与本机实际不符；实测当前会话 `%USERPROFILE% = C:\Users\Administrator`、`C:\Users\15794` 不存在，本轮以 `C:/Users/Administrator/.workbuddy/skills/task-methodology-consolidation/SKILL.md` 为部署态，同步后 md5 `c1fb59285d007b17156f53d0ed96d15c`、26255 字节、`cmp` 零差异。
+
+---
+
 ## [2026-09-24]
 
 ### Changed
