@@ -29,9 +29,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMBO_DIR="$(cd "$SCRIPT_DIR/.." && (pwd -W 2>/dev/null || pwd))"
 CACHE_FILE="$COMBO_DIR/.ocr-provider-cache.json"
 
-# ocr config 路径：Windows 下优先 USERPROFILE，否则回退 $HOME
+# ocr config 路径：Windows 下优先 USERPROFILE，否则回退 $HOME。
+# 选路判据是「候选路径可用」，不是「候选文件已存在」：只要 USERPROFILE 下的 .opencodereview/
+# 目录存在（哪怕尚未生成 config.json，例如 ocr 更新清掉过配置），就优先它，避免回退到一条
+# 连父目录都不存在的悬空路径。历史缺陷：判据用 [ -f ] 时，目录存在但无 config.json 会回退到
+# $HOME 下不存在的目录，随后同步写入直接抛 ENOENT，致本脚本四个子命令（list/probe/mark/clear）
+# 全部崩溃、Stage0 provider 选择入口 100% 失效。父目录缺失的根治手段见下方 node 同步块。
 CFG="$USERPROFILE/.opencodereview/config.json"
-[ -f "$CFG" ] || CFG="$HOME/.opencodereview/config.json"
+if [ ! -f "$CFG" ] && [ ! -d "$USERPROFILE/.opencodereview" ]; then
+  CFG="$HOME/.opencodereview/config.json"
+fi
 _cfgdir="$(dirname "$CFG")"
 if [ -d "$_cfgdir" ]; then
   _cfgdir="$(cd "$_cfgdir" && (pwd -W 2>/dev/null || pwd))"
@@ -47,6 +54,7 @@ SKILL_LOCAL="$COMBO_DIR/config/providers.json"
 if [ -f "$SKILL_LOCAL" ]; then
   node -e "$(cat <<'NODE'
     const fs = require('fs');
+    const path = require('path');
     const local = process.argv[1];
     const ocrCfg = process.argv[2];
     let localJ;
@@ -65,6 +73,11 @@ if [ -f "$SKILL_LOCAL" ]; then
     if (merged !== incoming) {
       try { if (fs.existsSync(ocrCfg)) fs.copyFileSync(ocrCfg, ocrCfg + '.bak'); } catch (e) {}
       Object.assign(ocrJ.custom_providers, cp);
+      // 根治：ocr 全局配置目录可能尚未初始化（首次运行 / ocr 更新后 config.json 被清），
+      // 直接 writeFileSync 会因父目录缺失抛 ENOENT 使整脚本崩溃，故写前先递归建目录。
+      try { fs.mkdirSync(path.dirname(ocrCfg), { recursive: true }); }
+      catch (e) { process.stderr.write('select-provider: 创建 ocr 配置目录失败 ' + e.message + '\n'); process.exit(1); }
+      try { if (fs.existsSync(ocrCfg)) fs.copyFileSync(ocrCfg, ocrCfg + '.bak'); } catch (e) {}
       fs.writeFileSync(ocrCfg, JSON.stringify(ocrJ, null, 2) + '\n');
       process.stderr.write('select-provider: 已将本地 custom_providers 同步至 ocr 配置 (' + Object.keys(cp).join(', ') + ')\n');
     } else {

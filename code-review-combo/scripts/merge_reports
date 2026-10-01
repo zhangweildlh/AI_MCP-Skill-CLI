@@ -136,10 +136,10 @@ function readReport(p) {
     raw = fs.readFileSync(p, "utf8");
   } catch (e) {
     process.stderr.write("警告: 跳过无法读取的报告: " + p + " (" + e.message + ")\n");
-    return [];
+    return { items: [], usable: false };
   }
   if (p.toLowerCase().endsWith(".md")) {
-    return normReviewSpd(raw, p);
+    return { items: normReviewSpd(raw, p), usable: true };
   }
   // .json（ocr / delegate / review-spd 纯 JSON）
   let obj;
@@ -147,30 +147,41 @@ function readReport(p) {
     obj = JSON.parse(raw);
   } catch (e) {
     process.stderr.write("警告: 跳过无法解析的 JSON 报告: " + p + " (" + e.message + ")\n");
-    return [];
+    return { items: [], usable: false };
   }
   if (Array.isArray(obj)) {
     // 裸数组：按 comments 语义处理（ocr 源）
-    return normalizeItems(obj, "ocr", p);
+    return { items: normalizeItems(obj, "ocr", p), usable: true };
   }
   if (obj.comments) {
     // delegate 报告须带 delegate:true 或 mode:"delegate" 标记方识别为独立第三源；
     // 未标记一律回退 ocr（向后兼容旧行为，避免两 ocr 族报告被误判为跨源）。
     const src = (obj.delegate === true || obj.mode === "delegate") ? "delegate" : "ocr";
-    return normalizeItems(obj.comments, src, p);
+    return { items: normalizeItems(obj.comments, src, p), usable: true };
   }
   if (obj.findings) {
     const src = (obj.delegate === true || obj.mode === "delegate") ? "delegate" : "review-spd";
-    return normalizeItems(obj.findings, src, p);
+    return { items: normalizeItems(obj.findings, src, p), usable: true };
   }
   process.stderr.write("警告: 报告无 comments/findings，跳过: " + p + "\n");
-  return [];
+  return { items: [], usable: false };
 }
 
 // ---- 循环读取所有报告并合并 ----------------------------------------------
 const all = [];
+let usableReports = 0;                     // 能识别出 comments/findings 容器的报告数
 for (const p of reportPaths) {
-  all.push.apply(all, readReport(p));
+  const res = readReport(p);
+  if (res.usable) usableReports++;
+  all.push.apply(all, res.items);
+}
+// 「有效报告 0 份」绝不等于「代码无缺陷」。旧行为在此处仍以 0 findings 正常退出，
+// 下游 report-narrative 会把工具故障（路径写错 / 上游报告未生成）伪装成「无问题」并给出
+// APPROVED——这是高危假绿。故此处改为非 0 退出，明确区分「输入故障」与「干净结论」。
+if (usableReports === 0) {
+  process.stderr.write("FAIL: " + reportPaths.length + " 份输入报告均无法解析出 comments/findings" +
+                       "（有效报告 0 份），未产出合并报告。这不是「无缺陷」结论，请核对报告路径后重试。\n");
+  process.exit(1);
 }
 
 const SEV_ORDER = { critical: 0, high: 1, medium: 2, low: 3 };
