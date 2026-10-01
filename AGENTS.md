@@ -7,11 +7,11 @@
 
 ## 1 仓库结构总览
 - 1.1 单 git 仓库、多独立 Skill：本仓库是一个 git 仓库，每个一级子目录是一个独立 Skill 包（或共享基础设施），根级 Skill-*.md 为单文件 Skill；业务上相互独立，但基础设施（scripts/ 统一调度、github-personal-manager/scripts/ 复用）可共享，不视为关联。
-- 1.2 单元分类：目录型 Skill（14）/ 根级 Skill 文件（8）/ 共享基础设施（scripts、.github 等）/ 其他根级文件（@*.md、mimo_mcp.py，归 meta，见 §2.3）。
+- 1.2 单元分类：目录型 Skill（13）/ 根级 Skill 文件（8）/ 共享基础设施（scripts、.github 等）/ 其他根级文件（@*.md、mimo_mcp.py，归 meta，见 §2.3）。
 - 1.3 三类管理路径：目录型 Skill → 开 worktree（第 4 章）；根级 Skill 文件与其他根级文件 → 标准分支+PR（第 5 章）；meta 变更 → 触发全量 CI。
 
 ## 2 Scope 清单
-- 2.1 目录型 Skill（14 个，scope 标识 `dir/<目录名>`）：
+- 2.1 目录型 Skill（13 个，scope 标识 `dir/<目录名>`）：
   - `dir/chrome-devtools`
   - `dir/code-review-combo`
   - `dir/codebase-memory`
@@ -22,7 +22,6 @@
   - `dir/open-medical-skills`
   - `dir/playwright-360chrome`
   - `dir/ref-material-writing`
-  - `dir/self-improvement`
   - `dir/tender-review-kit`
   - `dir/web-search`
   - `dir/Workbuddy专属`（无 SKILL.md，按目录 scope 处理；合集目录，内含子 Skill，统一按目录 scope 管理）
@@ -90,16 +89,35 @@
 - 6.2 章节数据段（§2.1–§2.4）可由 `scripts/sync-scope-manifest.py --update` 自动重写，其余纪律章节人工维护并遵循 §6.1「先更新本文件」原则。
 - 6.3 修订记录：本文件改动走 `meta` scope，须触发全量 CI；修订后更新 CHANGELOG.md。
 
-## 7 特殊 Skill 的副本纪律（目前以 chrome-devtools 为唯一定义对象）
+## 7 特殊 Skill 的副本纪律（chrome-devtools 为典型定义对象，副本映射见 §7.2）
 - 7.1 **chrome-devtools 主副本与部署副本关系**：
   - **主副本**：`D:/Documents/AI_MCP-Skill-CLI/chrome-devtools/`（本仓库内，本机示例，其他机器按各自环境调整），是唯一修改源头。所有需求、BUG 修复、功能增强必须先在此处归因分析、根源分析、追溯分析；**修改须走第 4 章 worktree 纪律**（在对应 worktree 内改动 chrome-devtools 目录型 Skill），合并回 main 即为主工作树同步，部署从合并后版本执行。
   - **部署副本**：各用户的 `C:/Users/<username>/.workbuddy/skills/chrome-devtools/`（本机示例），通过运行 `node localization/deploy.cjs` 从主副本生成。**严禁直接修改部署副本**，所有改动须经主副本 → 重新部署。
   - **修改纪律**：每次修改主副本（经 worktree 合并回 main）后，必须重新运行 `node localization/deploy.cjs` 以同步到部署副本；部署副本的 `local-config.json` 和 `mcp-local-config.json` 是用户机器的本地配置，不入库、不随主副本分发。
   - **最小化原则**：主副本保持最小化，遵循第 8 章 开发态目录型 Skill 最小化纪律（五类文件不纳入版本控制）；一切可通过脚本生成/下载的文件均不入库，仅保留源码和部署脚本；Agent 通过指令下载、生成、衍生的内容不属于主副本范畴。
   - **自动安装纪律**：`cli_run.cjs` 已内置安装逻辑（`npm install -g chrome-devtools-mcp`，`PUPPETEER_SKIP_DOWNLOAD=1`）；该安装由用户在本机主动触发部署副本激活时执行（若 MCP 服务不可用，据需跳过，非 Agent 未经授权擅自修改全局环境），Agent 无需手动干预。
+- 7.2 **开发态副本 ↔ 部署态副本映射表（唯一映射登记处）**：下表登记本仓库每个已部署 Skill 的「开发态（仓库内）→ 部署态（用户级 skills 目录，本机示例）」对应关系。§7.1 的 chrome-devtools 主副本/部署副本为本表第一条特例。任何 Skill 落地部署前，须先在本表补登记再执行，以免出现「开发态有、部署态缺失/错位/被同名外部体占用」三种漂移。
+  - 实测数据（2026-10-01 采集，路径为本机示例，其他机器按各自环境调整）：
+
+  | name | 开发态（仓库内相对路径） | 部署态（用户级 skills 目录） | 开发态形态 | 部署态形态 | 实测（字节 / 行数 / 去 CR 后 md5） | 判定 |
+  |---|---|---|---|---|---|---|
+  | `chrome-devtools` | `chrome-devtools/` | `chrome-devtools/` | 目录型 | 目录型 | 16924 B × 16914 B；diff 仅 2 hunk，均属空行与行尾 | 实质一致（详见 §7.1） |
+  | `skill-forge` | `Skill-元技能，Skill创建校验器.md` | `skill-forge/SKILL.md` | 根级单文件 | 目录（仅 SKILL.md） | 44029 B × 43220 B，809 行；去 CR 后同 `59e67db6…`，diff 0 行 | **实质一致**（仅 CRLF/LF 差异） |
+  | `memory-consolidate` | `Workbuddy专属/Skill-memory-consolidate.md` | `memory-consolidate/SKILL.md` | 合集目录内单文件 | 目录（仅 SKILL.md） | 30060 B × 29823 B，237 行；去 CR 后同 `29c0f524…`，diff 0 行 | **实质一致**（仅 CRLF/LF 差异） |
+  | `workflow-distill` | `Workbuddy专属/Skill-workflow-distill.md` | `workflow-distill/SKILL.md` | 合集目录内单文件 | 目录（仅 SKILL.md） | 17990 B × 17805 B，185 行；去 CR 后同 `46b490b7…`，diff 0 行 | **实质一致**（仅 CRLF/LF 差异） |
+  | `task-methodology-consolidation` | `Skill-对当前对话会话做经验沉淀和方法论固化.md` | `task-methodology-consolidation/SKILL.md` | 根级单文件 | 目录（仅 SKILL.md） | 双侧 26255 B，同 `c1fb5928…` | 实质一致（单文件→目录形态转换） |
+  | `workbuddy-workspace-migration` | `Workbuddy专属/workbuddy-workspace-migration/` | `workbuddy-workspace-migration/` | 合集目录内子 Skill | 目录 | 双侧 25522 B，同 `296e1f3b…` | 实质一致（仅所在目录不同） |
+  | `self-improvement` | ~~`self-improvement/`（scope `dir/self-improvement`）~~（已随 PR 移除） | **无对应部署目录**；同名的 `self-improvement-system__skillhub/` 系外部安装体，非本仓库部署副本 | 目录型 | 未部署 / 被同名外部体占用 | 仓库版 4312 B，外部版 5577 B，正文不同 | **未部署**，开发态已移除（裁决见 §7.4） |
+- 7.3 **副本判等口径（硬规则）**：判定两副本是否「实质一致」，**只**以「去掉行尾回车后（`tr -d '\r'`）两侧 md5 相同 且 `diff` 输出 0 行」为准；**CRLF/LF 行尾差异一律不计为实质差异**。`Workbuddy专属` 下单文件与部署目录 `SKILL.md` 的字节差恰好等于文件行数（237 / 185 / 809 行），即每行仅多一个 CR 字节；若仅比对原始 md5，会把这类副本误判为「版本分叉」。本条为据上述实测补正（原纪律未定义判等口径）。
+- 7.4 **`self-improvement` 同名占用（2026-10-01 已裁决并执行）**：部署态 `self-improvement-system__skillhub/` 是外部（SkillHub）安装的运行态副本（含 `references/`、`lessons.md`、`mistakes.md`、`playbook.md`、`soul.md`、`session-log.md`、`_meta.json`、`_icon.png`），其 frontmatter 采用 Markdown 标题式 `## name: self-improvement`（非 YAML 键），与仓库原 `self-improvement/SKILL.md` 的 YAML 式 frontmatter 写法不同，但 name / description / author / version 完全一致（均为 OpenClaw v1.2.0）。
+  - **裁决结论（用户 2026-10-01）**：保留部署态增强版 `self-improvement-system__skillhub`，既不迁回也不新建同名部署目录；仓库开发态 `dir/self-improvement` 属**未部署冗余副本**，予以移除。删除后不影响任何已部署技能，运行时功能零退化。
+  - **执行结果**：开发态 `self-improvement/`（5 个受跟踪文件：`SKILL.md` / `_icon.png` / `_meta.json` / `_skillhub_meta.json` / `references/protocol.md`）已随 PR 移除；`AGENTS.md` §2.1 同步摘除 `dir/self-improvement` 登记。
+  - **门禁联动（重要）**：「目录型删除」天然无法单 PR 闭环——pre-commit scope 校验只允许目录型 commit 暂存 `<scope_dir>/*`，改不了 `AGENTS.md`；而 smoke Tier5 要求「已登记目录必须存在」，否则判 FATAL。故删除目录与摘登记必须拆成两条 PR：**先 meta 摘登记（合入后 Tier5 不再检查该 dir），再目录型删目录**。此顺序为硬约束，不可颠倒。
+  - **后续注意**：本仓库不再承载该 name 的开发态；若将来需要把该 Skill 纳入部署，须在用户级 `skills/` 下另建独立目录（不得与 `self-improvement-system__skillhub` 同名冲突），并先在 §7.2 补登记。
+- 7.5 **映射表维护规则**：本表为人工维护段（非 §2.1–§2.4 机器可重写数据段）。`Workbuddy专属/` 属 `scripts/sync-scope-manifest.py` 的 `MANUAL_KEEP_DIRS` 人工豁免合集目录，其内的 `Skill-*.md`（如 `Skill-memory-consolidate.md`、`Skill-workflow-distill.md`）不在 scope 清单扫描口径内，故其部署映射由本表承接，不写入 §2.2 表格（避免与脚本输出口径冲突）。落地部署前须先查本表，确认目标部署路径未被同名外部安装体占用。
 
 ## 8 开发态目录型 Skill 最小化纪律
-- 8.1 **范围**：本仓库内全部目录型 Skill（按一级目录计数 14 个；`Workbuddy专属` 为合集目录、其内含子 Skill 不额外计数，统一按该目录 scope 管理）均视为"开发态"（源版本，相对部署副本而言）。本纪律仅约束目录型 Skill；单文件型 Skill 因其为单文件、天然可移植，不在范围内。
+- 8.1 **范围**：本仓库内全部目录型 Skill（按一级目录计数 13 个；`Workbuddy专属` 为合集目录、其内含子 Skill 不额外计数，统一按该目录 scope 管理）均视为"开发态"（源版本，相对部署副本而言）。本纪律仅约束目录型 Skill；单文件型 Skill 因其为单文件、天然可移植，不在范围内。
 - 8.2 **最小状态定义**："最小状态"指版本库/远端中的**跟踪状态**；工作树可临时存在本纪律禁止的文件，但不得纳入版本控制。
 - 8.3 **禁止纳入版本控制的五类文件**（即不跟踪、不提交、不推送）：
   - ① 经网络可下载得到的文件（任一 Agent 阅读 SKILL.md/README 后可自行下载，且来源、版本、获取命令可复现；需登录/付费/特定授权方可获取者不在此列）；
