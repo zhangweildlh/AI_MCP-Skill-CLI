@@ -145,6 +145,14 @@ validate_json() {
     console.log("  manifest=" + (hasManifest ? "存在" : "无") +
                 " (期望:" + (kind === "review" ? "存在" : "无") + ")");
     if (missingOpt > 0) console.log("  WARN: 有 " + missingOpt + " 处可选字段(existing_code/suggestion_code)缺失（不致命）");
+    // OBS-A 加固：结构校验只验「字段齐不齐、枚举对不对」，ocr 因 provider 失效而静默返回
+    // 空 comments[] 时照样判 PASS，形成「没审出东西 = 没问题」的假绿。此处对 comments 为空
+    // 单独告警，标明这是「未产生审查结论」而非「代码无缺陷」。退出码语义不变——靶子本身
+    // 无变更（如空仓库、干净 main）时 comments 为 0 是合法结论，仍须判 PASS。
+    if (n === 0) {
+      console.log("  WARN: comments 为空（0 条）—— 结构合规但未产生审查结论；" +
+                  "若系 provider 失效 / 靶子无变更所致，此结果不可当作「代码无缺陷」使用");
+    }
 
     if (missingReq > 0) { console.log("  FAIL: 有 " + missingReq + " 处必填字段缺失"); ok = false; }
     if (badSev > 0)       { console.log("  FAIL: 有 " + badSev + " 条 severity 非法"); ok = false; }
