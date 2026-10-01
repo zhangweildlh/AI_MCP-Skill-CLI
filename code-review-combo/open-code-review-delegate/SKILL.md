@@ -1,14 +1,11 @@
----
-disable-model-invocation: true
----
-
 <!--
-本文件为上游 alibaba/open-code-review @ v1.9.5 的纯镜像（仅 SKILL.md 一个文件）。
+本文件为上游 alibaba/open-code-review @ v1.12.11 的纯镜像（仅 SKILL.md 一个文件）。
 code-review-combo 的本地化增强（自动安装、Win11 路径、功能覆盖表、委托宿主 JSON Schema 包装、人类报告 prompt）已抽到 ./local/ 目录。
 跟进上游：用 `gh api repos/alibaba/open-code-review/contents/skills/open-code-review-delegate/SKILL.md?ref=<新tag> -H 'Accept: application/vnd.github.raw'` 取最新内容覆盖本文件即可，combo 增强不受影响。
 -->
 
 ---
+disable-model-invocation: true
 name: open-code-review-delegate
 description: >
   Delegation mode for open-code-review (OCR). Instead of OCR calling an LLM
@@ -25,26 +22,12 @@ compatibility: >
 metadata:
   author: alibaba
   homepage: https://github.com/alibaba/open-code-review
-  version: "1.0.0"   # 此 version 为 SKILL 文档「元数据版本」，与 ocr CLI 版本（实测 v1.9.5，以本地 `ocr --version` 为准）无关，请勿混淆
+  version: "1.0.0"   # 此 version 为 SKILL 文档「元数据版本」，与 ocr CLI 版本（实测 v1.12.11，以本地 `ocr --version` 为准）无关，请勿混淆
 ---
 
 # Open Code Review — Delegation Mode
 
 A skill for performing AI code review where OCR provides deterministic engineering (file filtering, rule resolution) and the host agent performs the actual review using its own intelligence and tools.
-
-## Prerequisites
-
-```bash
-which ocr || echo "NOT INSTALLED"
-```
-
-If `ocr` is not installed:
-
-```bash
-npm install -g @alibaba-group/open-code-review
-```
-
-No LLM configuration is needed for delegation mode.
 
 ## Workflow
 
@@ -161,7 +144,7 @@ If the user requested "review and fix":
 | `--rule <path>` | Custom rule.json path |
 | `--exclude <patterns>` | Comma-separated exclude patterns |
 | `-b, --background <text>` | Business context |
-| `-B, --background-file <path>` | Business context from Markdown file |
+| `-B, --background-file <path>` | Business context from Markdown file (takes precedence over `-b`) |
 | `-f, --format <text\|json>` | Output format; use `json` for agent integrations |
 
 ## Gotchas
@@ -172,3 +155,42 @@ If the user requested "review and fix":
 - **Untracked files in workspace mode** — `preview` includes untracked files. For these, read the file directly instead of using `git diff`.
 - **Background context** — pass `--background` to `preview` when you have requirement context; it appears in the output for your reference during review.
 - **Coverage is mandatory** — every `reviewable_files` entry must end as reviewed or explicitly skipped; do not silently omit files.
+
+### Recovering Oversized Background Context
+
+`--background-file` has two independent limits. The raw file must not exceed
+1 MiB, and the sanitized content must not exceed 8000 characters. Either
+condition aborts the command. When the command reports either limit:
+
+1. Do not silently truncate the source file.
+2. Summarize the original material while preserving its requirements,
+   constraints, acceptance criteria, and other review-critical details.
+3. Retry the affected command by passing the summary as one shell-safe
+   argument (for example, use a quoted/escaped argument produced by the host
+   shell, or write it to a new size-bounded file and pass that file). Do not
+   place untrusted summary text directly in a double-quoted shell template;
+   `$()`, backticks, quotes, and variable references can still be evaluated.
+   Omit the original `--background-file` so the CLI does not reload the same
+   oversized file and fail again.
+4. If a faithful summary is not possible, omit the OCR background entirely and
+   read the original material directly during the review.
+
+### Troubleshooting CLI Version Compatibility
+
+The `--format` flag is available in `ocr` v1.9.0 and later. The Skill and the
+installed CLI can be updated independently. If a requested `preview` or `rule`
+command with `--format json` fails specifically with `unknown flag: --format`,
+rerun it without the flag and use text output for the rest of the delegation
+run. Preserve the explicit mode, ref, file, and rule information from that
+output; do not parse text output as JSON or invent missing schema fields. Do
+not retry without the flag for any other error; report it and stop the affected
+workflow.
+
+The host-agent Skill may consume the equivalent text output to complete its
+review checklist. Programmatic integrations that require `schema_version` or
+other JSON fields must require a JSON-capable CLI instead: verify with
+`ocr --version` and upgrade when necessary:
+
+```bash
+npm install -g @alibaba-group/open-code-review
+```
