@@ -30,7 +30,10 @@ if ! bash "$MERGE" "$FIX/ocr_report.json" "$FIX/reviewspd_report.md" "$OUT"; the
 fi
 
 # 用 node 做断言（环境已有 node）
-"$COMBO_DIR/scripts/select-provider" >/dev/null 2>&1 || true   # 仅确认 node 可用（select-provider 内即 node）
+# 注意：不可调用 select-provider 来充当「node 是否可用」探针。
+# select-provider 是业务脚本（会执行 ocr 配置同步的写副作用），且其崩溃会被 `|| true` 吞掉，
+# 于是形成「测试绿、工具链已坏」的假绿——曾掩盖 select-provider 同步块 ENOENT 全崩的 P1 缺陷。
+# 断言前只需判断 node 是否在 PATH 中，与业务脚本无耦合。
 NODE_BIN="$(command -v node || true)"
 if [ -z "$NODE_BIN" ]; then echo "ERROR: 无 node，无法断言" >&2; exit 2; fi
 

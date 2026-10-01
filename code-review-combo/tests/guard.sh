@@ -144,6 +144,9 @@ else
     echo "[PASS] (f) py_compile — 无可编译 .py"
   else
     if $PYBIN -m py_compile $py_files 2>/tmp/guard_py.err; then
+      # py_compile 会在各 .py 同级写入 __pycache__/*.pyc。这是校验的临时副产物，须即时清理：
+      # 不清理会随技能副本一起进入交付目录（实测部署态残留 2 个 .pyc），污染部署产物。
+      find "$ROOTW" -type d -name "__pycache__" -not -path "*/.git/*" -exec rm -rf {} + 2>/dev/null || true
       echo "[PASS] (f) py_compile — $(echo "$py_files" | wc -l | tr -d ' ') .py OK"
     else
       echo "[FAIL] (f) py_compile — 见 /tmp/guard_py.err"

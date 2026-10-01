@@ -45,8 +45,23 @@ fi
 
 # ---- 路径解析 ----
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# code-review-combo 的上两级 = AI_MCP-Skill-CLI（git 靶子仓库）
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# 靶子 git 仓库：自脚本位置逐级向上探测最近的 .git 根。
+# 旧实现硬假设「上两级 = 仓库根」，该假设只在开发态成立（<repo>/code-review-combo/tests）；
+# 部署态路径为 ~/.workbuddy/skills/code-review-combo/tests，上两级是 ~/.workbuddy（非 git 库），
+# 结果 git rev-parse HEAD 失败、脚本 exit 3「无法解析仓库 HEAD」，验收在部署态 100% 不可用。
+# OCR_REPO_DIR 亦可显式指定靶子仓库，供跨仓库验收场景使用。
+REPO_DIR="${OCR_REPO_DIR:-}"
+if [ -z "$REPO_DIR" ]; then
+  _probe="$SCRIPT_DIR"
+  while [ -n "$_probe" ] && [ "$_probe" != "/" ] && [ "$_probe" != "$(dirname "$_probe")" ]; do
+    if [ -e "$_probe/.git" ]; then REPO_DIR="$_probe"; break; fi
+    _probe="$(dirname "$_probe")"
+  done
+fi
+if [ -z "$REPO_DIR" ] || [ ! -e "$REPO_DIR/.git" ]; then
+  echo "ERROR: 未找到靶子 git 仓库根（将 OCR_REPO_DIR 指向含 .git 的目录）" >&2
+  exit 3
+fi
 # 产物临时目录：优先用 mktemp 可移植临时目录，回退到技能内 .verify_tmp（避免硬编码绝对路径）
 WORK_TMP="$(mktemp -d 2>/dev/null || echo "$SCRIPT_DIR/../.verify_tmp")"
 SCAN_TARGET="$WORK_TMP/scan-nongit-target"
