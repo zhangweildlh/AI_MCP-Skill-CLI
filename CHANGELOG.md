@@ -45,6 +45,17 @@
 - **file/task-methodology-consolidation：第八节补充「可复用产物六项强制校验」**：针对模板第六段（可复用产物片段）立规矩——可复制 / 可验证（带退出码或输出信号）/ 已实测（未实测须降置信度）/ 带环境前提（OS、工具链、版本）/ 无明文凭证 / 可独立使用。
 - **部署态路径事实更正**：上版条目记的部署态路径 `C:/Users/15794/.workbuddy/skills/...` 与本机实际不符；实测当前会话 `%USERPROFILE% = C:\Users\Administrator`、`C:\Users\15794` 不存在，本轮以 `C:/Users/Administrator/.workbuddy/skills/task-methodology-consolidation/SKILL.md` 为部署态，同步后 md5 `c1fb59285d007b17156f53d0ed96d15c`、26255 字节、`cmp` 零差异。
 
+### Fixed
+- **dir/code-review-combo：开发态 → 部署态双态审查与 BUG 修复闭环（PR #115，6 项缺陷 + 1 项加固）**：
+  - **F-1（P1，根植开发态源文件）：`scripts/select-provider` 四个子命令（`list`/`probe`/`mark`/`clear`）在部署态 100% 崩溃**。选路判据用 `[ -f "$CFG" ]`（config 文件是否存在），当 `USERPROFILE/.opencodereview/` 目录已存在但 `config.json` 尚未生成时回退到一条父目录根本不存在的悬空路径，同步写盘 `writeFileSync` 抛 `ENOENT`，Node 堆栈直接使整脚本退出 1、Stage0 provider 选择入口整体失效。修复：选路判据由「文件存在」改为「目录存在」；写前 `fs.mkdirSync(path.dirname(ocrCfg), { recursive: true })` 根治父目录缺失。修复后部署态 `list` 输出 8 个真实 provider、`probe` 返回真实延迟数据且 rc=0。
+  - **F-2（P1，根植开发态源文件）：`tests/verify_combo.sh` 在部署态恒 `exit 3`（无法解析仓库 HEAD）**。旧实现硬假设「脚本上两级 = 仓库根」，该假设只在开发态成立（`<repo>/code-review-combo/tests`）；部署态路径为 `~/.workbuddy/skills/code-review-combo/tests`，上两级是 `~/.workbuddy`（非 git 库），验收流程在部署态完全不可用。修复：自脚本位置逐级向上探测最近的 `.git` 根，并支持 `OCR_REPO_DIR` 显式指定靶子仓库。
+  - **F-3（P2，部署过程引入的脏产物）：`tests/guard.sh` 的 `py_compile` 校验后残留 `__pycache__/*.pyc` 进入交付目录**（实测部署态残留 2 个）。修复：`py_compile` 成功后即时清理 `__pycache__`，修复后部署态 `__pycache__` 数量为 0。
+  - **F-4（P2，根植开发态源文件，假绿）：`tests/test_merge_reports.sh` 误用 `select-provider` 充当「node 是否可用」探针**，叠加 `|| true` 会吞掉业务脚本崩溃，形成「测试绿、工具链已坏」的假绿（正是掩盖 F-1 全崩缺陷的遮蔽层）。修复：改为 `command -v node` 判定，与业务脚本彻底解耦。
+  - **F-5（P2，根植开发态源文件，高危假绿）：`scripts/merge_reports` 在「有效报告 0 份」时仍以 0 findings 正常退出**，下游 `report-narrative` 会把工具故障（路径写错 / 上游报告未生成）伪装成「无问题」并给出 `APPROVED`。修复：`readReport` 返回值改为 `{items, usable}` 以区分解析能力，`usableReports === 0` 时向 stderr 输出「这不是「无缺陷」结论，请核对报告路径后重试」并 `exit 1`，把「输入故障」与「干净结论」彻底分开。
+  - **F-6（P3，加固）：`tests/verify_combo.sh` 在 `comments` 为 0 时仍判 PASS，构成「没审出东西 = 没问题」的假绿**。原结构校验只验字段齐备与枚举合规，ocr 因 provider 失效静默返回空 `comments[]` 时照样 PASS。修复：对 `n === 0` 单独打印 WARN，明示「结构合规但未产生审查结论，不可当作「代码无缺陷」使用」；**退出码语义不变**（靶子本身无变更时 comments 为 0 是合法结论）。
+  - **验证矩阵**：部署态全场景回归覆盖 `guard.sh`（a–f 全项）、`merge_reports`（全有效 / 全无效 / 三源交叉）、`test_merge_reports.sh`、单测 19/19、静态断链扫描（3 处 broken reference 清零）、`verify_combo.sh` 靶子解析，以及 E2E 真实运行态（`select-provider` 四子命令、`review-context.py --path`、三源 `merge_reports` + `tri-cross-validation`）；双态 5 个修复文件经逐字节 `cmp` 核验一致。本轮无 P0/P1/P2 未关项。
+  - **遗留（非源码可修，仅记录）**：上游 `ocr scan` 在最小临时目录即 100s 无输出、rc=124、产物 0 字节（无 combo 参与），致 `verify_combo` 的 [2/2] 非 git 靶子阶段本环境无法跑完，属上游 CLI 行为，缓解方案为以 `OCR_REPO_DIR` 指定 git 靶子仓库完成验收。
+
 ---
 
 ## [2026-09-24]
