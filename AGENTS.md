@@ -8,7 +8,7 @@
 ## 1 仓库结构总览
 - 1.1 单 git 仓库、多独立 Skill：本仓库是一个 git 仓库，每个一级子目录是一个独立 Skill 包（或共享基础设施），根级 Skill-*.md 为单文件 Skill；业务上相互独立，但基础设施（scripts/ 统一调度、github-personal-manager/scripts/ 复用）可共享，不视为关联。
 - 1.2 单元分类：目录型 Skill（13）/ 根级 Skill 文件（8）/ 共享基础设施（scripts、.github 等）/ 其他根级文件（@*.md、mimo_mcp.py，归 meta，见 §2.3）。
-- 1.3 三类管理路径：目录型 Skill → 开 worktree（第 4 章）；根级 Skill 文件与其他根级文件 → 标准分支+PR（第 5 章）；meta 变更 → 触发全量 CI。
+- 1.3 三类管理路径：**目录型 Skill 与单文件型 Skill 文件（不论是否位于仓库根级）→ 一律开 worktree（第 4 章）**；其他根级文件（非 Skill）→ 标准分支+PR（第 5 章）；meta 变更 → 触发全量 CI。本条中「单文件型 Skill 文件」指以 Skill 定义文件形态存在的单元，含仓库根级 `Skill-*.md` 与任意子目录下的单文件 Skill；worktree 的核心目的是隔离多个相互独立的 Agent 对同一文件的并发修改，避免冲突。
 
 ## 2 Scope 清单
 - 2.1 目录型 Skill（13 个，scope 标识 `dir/<目录名>`）：
@@ -37,6 +37,7 @@
   | Skill-扫描Skill技能生成xml技能标签.md | `find-skill-to-xml` |
   | Skill-推广文章撰写.md | `promotion-writer` |
   | Skill-滴答清单智能任务解析创建器.md | `ticktick` |
+  | Skill-微信公众号文章抓取入iam库.md | `wechat-article-to-ima` |
 - 2.3 共享/元 scope（`meta`）：`scripts/`、`.github/`、`README.md`、`CHANGELOG.md`、`AGENTS.md`、`Memory-Data/`、`.githooks/`、`.gitignore`、`@*.md`、`mimo_mcp.py`。其中 `.githooks/`、`.gitignore` 为仓库纪律与门禁配置；`@*.md`、`mimo_mcp.py` 为其他根级文件，与本文件同走 meta 管理路径（标准分支+PR）。
 - 2.4 排除与忽略：`.workbuddy/`、`worktrees/`、`_gsdata_/`（GoodSync 本地同步状态目录，仅本机工具使用，忽略规则见仓库级 `.gitignore`）、`reports/`（本地巡检报告目录，不随仓库分发，忽略规则见仓库级 `.gitignore`）、密钥文件（`ref-material-writing/.env` 等，详见 §3.3）。
 - 2.5 清单维护规则：§2.1–§2.4 为机器可重写数据段，由 `scripts/sync-scope-manifest.py --update` 自动生成；人工修改须与脚本输出一致（数量、目录名、name 字段须与脚本扫描结果对齐）。除数据段外，本文件其余纪律章节为人工维护，遵循 §6.1「先更新本文件、再更新引用方」原则；新增/删除目录或根级 Skill 文件必须同步本节（docs-sync-checklist Tier 1 强制）。
@@ -46,7 +47,7 @@
 - 3.2 目录型 Skill 改动纪律：只允许在对应 worktree 中改动，禁止在仓库主工作树直接改目录型 Skill 内容。此纪律由 `.githooks/pre-commit` hook 强制拦截——在主工作树（仓库根 checkout，无论检出何分支）提交时，若暂存文件属于目录型 Skill 路径则直接阻断，仅允许 meta scope 文件变更（`.githooks/*`, `scripts/*`, `.github/*`, `README.md`, `CHANGELOG.md`, `AGENTS.md`, `Memory-Data/*`, `.gitignore`, `@*.md`, `mimo_mcp.py`）。**密钥与敏感文件（`.env`、`*.secret`、`providers.json` 等）一律拒绝，不在放行之列**；本放行清单与 §2.3 meta 清单一致，不以"隐藏文件"泛化放行（防止 `.env` 等密钥被误放）。
 - 3.3 密钥与敏感文件：禁止将 `ref-material-writing/.env`、`web-search/.env`、`code-review-combo/config/providers.json` 等密钥文件推入任何公开/远端分支。私有仓库豁免仅限显式授权（授权人、明确范围、留痕，见 MEMORY.md 决策 D-2026-0811-01），且豁免不扩展到公开/远端分支。
 - 3.4 越权操作：禁止未经授权执行 git push、force push、reset --hard、删除分支等破坏性/共享状态操作；Agent 需在权限范围内工作。**授权指用户显式指令；脚本参数 `--confirm` 仅为脚本级安全闸门，不等同用户显式授权**，对外/破坏性动作仍需用户显式确认。
-- 3.5 并发纪律：多 Agent 并发时各守各的 scope，修改不得超出分配范围；发现交叉立即暂停并上报用户（默认协调者）裁决后再继续。
+- 3.5 并发纪律：多 Agent 并发时各守各的 scope，修改不得超出分配范围；发现交叉立即暂停并上报用户（默认协调者）裁决后再继续。**worktree 是本仓库隔离并发修改的主要手段**：任一目录型 Skill 或单文件型 Skill 文件的改动（含根级 `Skill-*.md` 与非根级单文件 Skill）都必须在其专属 worktree 内完成，禁止在主工作树直接改动；主工作树 pre-commit 对这类路径一律拦截，属预期行为而非故障。
 
 ## 4 目录型 Skill 的 worktree 纪律
 - 4.1 worktree 挂载根：`<仓库根>/worktrees/<name>-<topic>-<YYYYMMDDHHMMSS>/`（已在 .gitignore 统一忽略，不入库）；分支 `feat/<name>-<topic>-<YYYYMMDDHHMMSS>`；**`feat/` 前缀 + 目录名 = 分支名**（时间戳一致）；对目录型 Skill，`<name>` 即其目录名（§2.1 以目录名作 scope，无独立 name 字段）；对根级文件型 Skill，`<name>` 为 §2.2 表格的 name 字段；`<topic>` 为简短任务核心目的（英文小写连字符，2–6 词 ≤30 字符，禁 B1/B2/b3 类序号）；时间戳由脚本一次 `date +%Y%m%d%H%M%S` 生成、目录与分支复用同一值。
@@ -89,8 +90,8 @@
 - 6.2 章节数据段（§2.1–§2.4）可由 `scripts/sync-scope-manifest.py --update` 自动重写，其余纪律章节人工维护并遵循 §6.1「先更新本文件」原则。
 - 6.3 修订记录：本文件改动走 `meta` scope，须触发全量 CI；修订后更新 CHANGELOG.md。
 
-## 7 特殊 Skill 的副本纪律（chrome-devtools 为典型定义对象，副本映射见 §7.2）
-- 7.1 **chrome-devtools 主副本与部署副本关系**：
+## 7 特殊 Skill 的副本纪律（副本映射见 §7.2）
+- 7.1 **主副本与部署副本关系**以 `chrome-devtools` 为例：
   - **主副本**：`D:/Documents/AI_MCP-Skill-CLI/chrome-devtools/`（本仓库内，本机示例，其他机器按各自环境调整），是唯一修改源头。所有需求、BUG 修复、功能增强必须先在此处归因分析、根源分析、追溯分析；**修改须走第 4 章 worktree 纪律**（在对应 worktree 内改动 chrome-devtools 目录型 Skill），合并回 main 即为主工作树同步，部署从合并后版本执行。
   - **部署副本**：各用户的 `C:/Users/<username>/.workbuddy/skills/chrome-devtools/`（本机示例），通过运行 `node localization/deploy.cjs` 从主副本生成。**严禁直接修改部署副本**，所有改动须经主副本 → 重新部署。
   - **修改纪律**：每次修改主副本（经 worktree 合并回 main）后，必须重新运行 `node localization/deploy.cjs` 以同步到部署副本；部署副本的 `local-config.json` 和 `mcp-local-config.json` 是用户机器的本地配置，不入库、不随主副本分发。
@@ -108,6 +109,7 @@
   | `task-methodology-consolidation` | `Skill-对当前对话会话做经验沉淀和方法论固化.md` | `task-methodology-consolidation/SKILL.md` | 根级单文件 | 目录（仅 SKILL.md） | 双侧 26255 B，同 `c1fb5928…` | 实质一致（单文件→目录形态转换） |
   | `workbuddy-workspace-migration` | `Workbuddy专属/workbuddy-workspace-migration/` | `workbuddy-workspace-migration/` | 合集目录内子 Skill | 目录 | 双侧 25522 B，同 `296e1f3b…` | 实质一致（仅所在目录不同） |
   | `self-improvement` | ~~`self-improvement/`（scope `dir/self-improvement`）~~（已随 PR 移除） | **无对应部署目录**；同名的 `self-improvement-system__skillhub/` 系外部安装体，非本仓库部署副本 | 目录型 | 未部署 / 被同名外部体占用 | 仓库版 4312 B，外部版 5577 B，正文不同 | **未部署**，开发态已移除（裁决见 §7.4） |
+  | `wechat-article-to-ima` | `Skill-微信公众号文章抓取入iam库.md`（仓库根级单文件 Skill） | **无部署态副本**；WorkBuddy 与定时任务直接按路径调用开发态副本，不经部署流程 | 根级单文件 | 未部署 / 直接调用开发态 | 待采集 | 已登记（2026-10-03）；按 §7.5 落地部署前须先完成本行登记 |
 - 7.3 **副本判等口径（硬规则）**：判定两副本是否「实质一致」，**只**以「去掉行尾回车后（`tr -d '\r'`）两侧 md5 相同 且 `diff` 输出 0 行」为准；**CRLF/LF 行尾差异一律不计为实质差异**。`Workbuddy专属` 下单文件与部署目录 `SKILL.md` 的字节差恰好等于文件行数（237 / 185 / 809 行），即每行仅多一个 CR 字节；若仅比对原始 md5，会把这类副本误判为「版本分叉」。本条为据上述实测补正（原纪律未定义判等口径）。
 - 7.4 **`self-improvement` 同名占用（2026-10-01 已裁决并执行）**：部署态 `self-improvement-system__skillhub/` 是外部（SkillHub）安装的运行态副本（含 `references/`、`lessons.md`、`mistakes.md`、`playbook.md`、`soul.md`、`session-log.md`、`_meta.json`、`_icon.png`），其 frontmatter 采用 Markdown 标题式 `## name: self-improvement`（非 YAML 键），与仓库原 `self-improvement/SKILL.md` 的 YAML 式 frontmatter 写法不同，但 name / description / author / version 完全一致（均为 OpenClaw v1.2.0）。
   - **裁决结论（用户 2026-10-01）**：保留部署态增强版 `self-improvement-system__skillhub`，既不迁回也不新建同名部署目录；仓库开发态 `dir/self-improvement` 属**未部署冗余副本**，予以移除。删除后不影响任何已部署技能，运行时功能零退化。
@@ -168,3 +170,9 @@
   - **9.6.3 删除 / 退役测试**：从 Skill 目录删除脚本的**同时**，必须从 `test_manifest.py` 移除对应条目（保持唯一事实源无悬空）；随对应 scope PR 提交；若该测试曾写入 `scan_unregistered()` 口径，同步更新。
   - **9.6.4 编写纪律**：测试脚本的编写 / 修改 / 新建严格遵循 `Memory-代码纪律与Git操作.md §2-2`（六红线 / 统一优先级裁决器 / 全局契约面 / 分阶段操作手册 / 回归纪律）。
 - 9.7 清单与 CI 协同维护：`test_manifest.py` 的 `TEST_ENTRIES` 即唯一事实源；新增测试目录须与 `scan_unregistered()` 口径一致（运行 `run_all.py --list-tests` 核对无遗漏）；CI（`smoke.yml`）与本地预推送门禁通过同一套清单命令口径对齐，确保"改了测试资产必改清单、改了清单必能调度"。
+- 9.8 **新增文件的测试覆盖分析（强制）**：凡新增文件，提交前必须完成测试覆盖分析并留痕。
+  1. 适用范围：不论是否位于仓库根级、不论是否为 Skill 文件，均适用。**排除项**：git 管理文件（`.gitignore`、`.githooks/*`、`.github/*`）、本仓库纪律文件（`AGENTS.md`、`README.md`、`CHANGELOG.md`）、`.workbuddy` 目录、`_gsdata_` 目录。
+  2. 分析内容：判断该文件是否具备三类测试——①冒烟测试；②全场景覆盖矩阵回归测试；③全边界覆盖矩阵校验测试。
+  3. 缺失处置：三类测试任一缺失时，须进一步分析是否需要补充、以及是否具有高补充价值。
+  4. 补充要求：判定为「有必要且高价值」者，必须补充对应测试后再提交；判定为「无需补充」者，须给出明确理由。
+  5. 留痕要求：上述分析与结论必须写入 PR 描述，禁止以「暂不需要」一笔带过。
