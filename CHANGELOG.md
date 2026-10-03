@@ -1,5 +1,15 @@
 ---
 
+## [2026-10-03]
+
+### Added
+- **file/wechat-article-to-ima：新增根级单文件 Skill `Skill-微信公众号文章抓取入iam库.md`（v1.1.0）**：按关键词检索微信公众号文章、抓取正文、批量入库腾讯 ima 知识库指定子目录并复验完整性；含参数配置区（全部带默认值、零输入可执行）、任务卡 A/B/C 轮转（主词簇/变体词簇跨轮覆盖）、前置依赖检查四项（wechat-article-search / ima-skills / web-search / firecrawl）、完整性闸门（≥800 字且 ≥5 句号）、判重（带 `.md` 后缀）、四类过滤词族、三级抓取降级链、限流退避与断点续跑。部署态为「无，WorkBuddy 直接调用开发态副本」。
+
+### Changed
+- **meta/AGENTS.md 纪律补强**：§1.3 目录型与根级 Skill 一律走 worktree（其他根级文件走标准分支+PR）；§3.5 worktree 为并发隔离主要手段；§2.2 与 §7.2 登记 `wechat-article-to-ima`（无部署态，直接调用开发态副本）；§9.8 新增文件三类测试覆盖分析门禁（排除项含 .workbuddy / _gsdata_）。
+
+---
+
 ## [2026-09-30]
 
 ### Fixed
