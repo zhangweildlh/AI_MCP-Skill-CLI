@@ -33,6 +33,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 | card_id | 字符串 | 空值 | 任务卡标识。传入时执行该卡；留空时按进度文件自动轮转选择 |
 | folder_id | 字符串 | 由 card_id 经任务卡配置表推导 | 目标子目录标识。A 卡为 folder_7511772189689986 |
 | keywords | 数组 | 由 card_id 与轮转序号推导 | 本轮检索的关键词簇。A 卡主词簇为工程总承包、EPC、总包 |
+| rotate_index | 整数 | 空值（两簇全搜） | 轮转序号，0=主词簇、1=变体词簇；传入时只检索该序号对应的词簇，未传入时主词簇与变体词簇逐一全搜（详见「任务卡轮转规则」） |
 | search_script_dir | 字符串 | 技能 wechat-article-search 的脚本目录 | 检索脚本所在目录，由该技能自身提供，本技能不内置该脚本 |
 | max_results | 整数 | 50 | 单个关键词检索返回条数上限，检索脚本内部硬上限为 50 |
 | cool_down_seconds | 整数 | 120 | 每检索完一个关键词后的冷却秒数，用于规避平台频控 |
