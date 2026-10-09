@@ -16,6 +16,28 @@ const isWin = process.platform === 'win32';
 // 跨机部署须由部署方设置该变量，或依赖 verify_browser.cjs 的注册表/PATH 自动检测，切勿假定此缺省路径存在。
 // 惰性读取（F3 修复：便于测试经环境变量覆盖，且保持运行时可被环境覆盖的一致性），而非模块加载时定死。
 function local360Dir() { return process.env['CHROME_DEVTOOLS_360_DIR'] || 'D:\\Tools\\360Chrome'; }
+// R3：兼容 360Chrome / 360Chromex 目录与程序名变体（部署目录与 exe 名均可能大小写/有无 x 不同）
+function local360DirCandidates() {
+  const env = process.env['CHROME_DEVTOOLS_360_DIR'];
+  const set = new Set();
+  if (env) {
+    set.add(env);
+    // 同名变体目录：360Chrome <-> 360Chromex 互转
+    set.add(env.replace(/360chrome$/i, (m) => (m === '360Chrome' ? '360Chromex' : '360Chrome')));
+  } else {
+    set.add('D:\\Tools\\360Chrome');
+    set.add('D:\\Tools\\360Chromex');
+  }
+  return [...set];
+}
+// 在某目录下查找 360 浏览器可执行文件（匹配 360chrome*.exe，大小写不敏感）
+function find360ExeInDir(dir) {
+  try {
+    const e = fs.readdirSync(dir).find((n) => /^360chrome.*\.exe$/i.test(n));
+    if (e) return path.join(dir, e);
+  } catch (e2) {}
+  return null;
+}
 
 function load() { return fs.existsSync(cfgPath) ? JSON.parse(fs.readFileSync(cfgPath, 'utf8')) : {}; }
 function save(c) { fs.writeFileSync(cfgPath, JSON.stringify(c, null, 2), 'utf8'); }
@@ -45,16 +67,24 @@ function collect() {
   if (isWin) {
     const PF = process.env.ProgramFiles || 'C:\\Program Files';
     const PF86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
-    // 已知安装位置（视为已注册）
-    add(path.join(local360Dir(), '360chromex.exe'), true, '360Chromex');
+    // 部署目录 + 程序名兼容性（R3）：360Chrome / 360Chromex 目录与 360chrome*.exe 程序名
+    for (const d of local360DirCandidates()) {
+      const ex = find360ExeInDir(d);
+      if (ex) add(ex, true, '360Chromex');
+    }
     add(path.join(PF, 'Google', 'Chrome', 'Application', 'chrome.exe'), true, 'Chrome');
     add(path.join(PF86, 'Google', 'Chrome', 'Application', 'chrome.exe'), true, 'Chrome');
-    add(path.join(PF, '360Chrome', '360chromex.exe'), true, '360Chromex');
-    add(path.join(PF86, '360Chrome', '360chromex.exe'), true, '360Chromex');
+    for (const base of [PF, PF86]) {
+      for (const d of [path.join(base, '360Chrome'), path.join(base, '360Chromex')]) {
+        const ex = find360ExeInDir(d);
+        if (ex) add(ex, true, '360Chromex');
+      }
+    }
     // 注册表 App Paths
     for (const key of [
       'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe',
       'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\360chrome.exe',
+      'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\360chromex.exe',
       'HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe',
     ]) {
       try {
@@ -70,10 +100,10 @@ function collect() {
     } catch (e) {}
     try {
       const out = execSync('reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" /s /f "360chrome.exe"', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-      (out.match(/.+?\\360chrome\.exe/gi) || []).forEach(p => add(p.trim(), true, '360Chromex'));
+      (out.match(/.+?\\360chrome.*\.exe/gi) || []).forEach(p => add(p.trim(), true, '360Chromex'));
     } catch (e) {}
     // PATH 中的候选（未注册，需确认）
-    for (const nm of ['360chromex.exe', 'chrome.exe']) {
+    for (const nm of ['360chromex.exe', '360chrome.exe', 'chrome.exe']) {
       try {
         const out = execSync('where ' + nm, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
         out.split(/\r?\n/).map(s => s.trim()).filter(Boolean).forEach(p => add(p, false, nm));
@@ -92,6 +122,9 @@ function userDataFor(exe, name) {
   const dir = path.dirname(exe);
   const lower = exe.toLowerCase();
   if (lower.includes('360') || name.toLowerCase().includes('360')) {
+    // 便携版优先 exe 同级 User Data，其次默认 360 部署目录的 User Data（R3）
+    const sibling = path.join(dir, 'User Data');
+    if (fs.existsSync(sibling)) return sibling;
     const std = path.join(local360Dir(), 'User Data');
     if (fs.existsSync(std)) return std;
   } else if (lower.includes('chrome')) {
@@ -127,7 +160,7 @@ let pick = null;
     const cfg = load();
     cfg.browserPath = pick.path;
     if (!cfg.browserUserDataDir) cfg.browserUserDataDir = userDataFor(pick.path, pick.name);
-    if (!cfg.debugPort) cfg.debugPort = 9222;
+    if (!cfg.debugPort) cfg.debugPort = 9223;
     save(cfg);
     console.log('[OK] 已自动检测并写入本地浏览器（已注册安装）: ' + pick.path);
     console.log('     用户数据目录: ' + cfg.browserUserDataDir);
@@ -148,7 +181,7 @@ let pick = null;
         const cfg = load();
         cfg.browserPath = c.path;
         if (!cfg.browserUserDataDir) cfg.browserUserDataDir = userDataFor(c.path, c.name);
-        if (!cfg.debugPort) cfg.debugPort = 9222;
+        if (!cfg.debugPort) cfg.debugPort = 9223;
         save(cfg);
         console.log('[已写入(未注册，请谨慎)] ' + c.path);
         process.exit(0);
@@ -157,7 +190,7 @@ let pick = null;
       const cfg = load();
       cfg.browserPath = a;
       if (!cfg.browserUserDataDir) cfg.browserUserDataDir = userDataFor(a, path.basename(a));
-      if (!cfg.debugPort) cfg.debugPort = 9222;
+      if (!cfg.debugPort) cfg.debugPort = 9223;
       save(cfg);
       console.log('[已写入] ' + a);
       process.exit(0);
@@ -171,7 +204,7 @@ let pick = null;
   const cfg = load();
   cfg.browserPath = input;
   if (!cfg.browserUserDataDir) cfg.browserUserDataDir = userDataFor(input, path.basename(input));
-  if (!cfg.debugPort) cfg.debugPort = 9222;
+  if (!cfg.debugPort) cfg.debugPort = 9223;
   save(cfg);
     console.log('[已写入] local-config.json -> browserPath: ' + input);
   })();

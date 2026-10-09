@@ -186,8 +186,12 @@ function genMcpConfig() {
   let json = fs.readFileSync(tpl, 'utf8');
   const bin = path.join(npmGlobalRoot(), 'chrome-devtools-mcp', 'build', 'src', 'bin', 'chrome-devtools-mcp.js');
   json = json.replace(/__GLOBAL_BIN__/g, bin.replace(/\\/g, '\\\\'));
+  // R4：以实际选用端口（cfg.debugPort，缺省 9223）替换 __PORT__ 占位符，使生成的 mcp-local-config.json 与 start.cjs 实际端口一致
+  const cfg = (function () { try { return JSON.parse(fs.readFileSync(path.join(REPO, 'local-config.json'), 'utf8')); } catch (e) { return {}; } })();
+  const port = cfg.debugPort || 9223;
+  json = json.replace(/__PORT__/g, String(port));
   fs.writeFileSync(path.join(REPO, 'mcp-local-config.json'), json, 'utf8');
-  console.log('[已写入] mcp-local-config.json (globalBin=' + bin + ')');
+  console.log('[已写入] mcp-local-config.json (globalBin=' + bin + ', port=' + port + ')');
 }
 
 function main() {
@@ -288,7 +292,7 @@ function main() {
   if (!cfg.browserUserDataDir && cfg.browserPath) {
     cfg.browserUserDataDir = path.join(path.dirname(cfg.browserPath), 'User Data');
   }
-  if (!cfg.debugPort) cfg.debugPort = 9222;
+  if (!cfg.debugPort) cfg.debugPort = 9223;
   writeConfig(cfg);
 
   console.log('\n[完成] 本地化注入与配置生成完毕。');

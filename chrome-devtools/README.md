@@ -343,20 +343,22 @@ node localization/upstream.cjs
 
 ### 10.3 底层真机点检（CDP 直连补充模式）
 
-> 本小节为「补充能力」：前文（第 2 节「步骤 1」、第 7 节）均以 chrome-devtools-mcp 的 MCP 工具 / CLI 子命令驱动浏览器；当这些工具不足以完成**更底层的真机诊断**时（如 headless 加载扩展验证、诊断页面卡死、扩展页面 DOM 断言），可在浏览器已以 9222 调试端口运行的前提下，用 Node 内置 `WebSocket` **直连 CDP**（不依赖 puppeteer/playwright 封装）。该模式与技能「`--browserUrl` 直连已运行的 360Chromex」底层路径一致，属兼容补充。
+> 本小节为「补充能力」：前文（第 2 节「步骤 1」、第 7 节）均以 chrome-devtools-mcp 的 MCP 工具 / CLI 子命令驱动浏览器；当这些工具不足以完成**更底层的真机诊断**时（如 headless 加载扩展验证、诊断页面卡死、扩展页面 DOM 断言），可在浏览器已以 9223 调试端口运行的前提下，用 Node 内置 `WebSocket` **直连 CDP**（不依赖 puppeteer/playwright 封装）。该模式与技能「`--browserUrl` 直连已运行的 360Chromex」底层路径一致，属兼容补充。
+>
+> **端口约定（重要）**：本机 **WorkBuddy 的 Electron 渲染进程占用 9222**，故 chrome-devtools 统一改用 **9223** 调试端口，避免端口冲突（与根 `SKILL.md`「步骤 1 / 形态一」配置、`local-config.json` 的 `debugPort` 缺省值、`mcp.json` 的 `--browserUrl` 保持一致）。请勿改回 9222，否则会误连到 WorkBuddy 自身而非 360Chromex，且 Electron 不支持经 CDP 新建标签页。
 >
 > 适用前提：Chrome / Chromium 系内核（含 360Chromex 等定制内核）+ 用 Node 内置 WebSocket 直连 CDP。
 
 **直连模式要点（避开 flatten 坑）**
 
-- 从 `http://127.0.0.1:9222/json/list` 取目标（按 `type==="page"` + url 片段匹配），直接 `new WebSocket(t.webSocketDebuggerUrl)`；连上后**立即** `Page.enable` + `Runtime.enable`。
+- 从 `http://127.0.0.1:9223/json/list` 取目标（按 `type==="page"` + url 片段匹配），直接 `new WebSocket(t.webSocketDebuggerUrl)`；连上后**立即** `Page.enable` + `Runtime.enable`。
 - **勿用 `Target.attachToTarget({flatten:true})`**：flatten 模式 `sessionId` 必须放在 CDP 消息**顶层**（`{id, sessionId, method, params}`）；若误塞进 `params`（写成 `{id, method, params:{sessionId}}`），命令会被路由到**浏览器级会话**（无 `Runtime.evaluate`）→ 报 `-32601 'Runtime.evaluate' wasn't found`，所有命令全失败。
 - 命令响应为两层嵌套：`r.result.result.value`（Runtime.evaluate + returnByValue）。
 
 **启动 360Chromex 的端口与路径陷阱**
 
-- **PowerShell `Start-Process` + 单引号字面量**启动（避开 Git Bash 双引号吞反斜杠：`\T`→`T`、`\C`→`C`，路径反斜杠被吃光 → 命令行参数损坏 → 9222 无监听、扩展未加载）。
-- 端口就绪判定：浏览器启动后 `curl http://127.0.0.1:9222/json/version` 返回含 `Browser` 字段的 JSON 即成功。
+- **PowerShell `Start-Process` + 单引号字面量**启动（避开 Git Bash 双引号吞反斜杠：`\T`→`T`、`\C`→`C`，路径反斜杠被吃光 → 命令行参数损坏 → 9223 无监听、扩展未加载）。
+- 端口就绪判定：浏览器启动后 `curl http://127.0.0.1:9223/json/version` 返回含 `Browser` 字段的 JSON 即成功。
 - **多个 CDP 客户端不要并行驱动同一浏览器**（并发争用 → `send timeout` 伪失败），须串行。
 
 **360Chromex headless 特殊行为（完善第 10.2 节扩展降级）**
