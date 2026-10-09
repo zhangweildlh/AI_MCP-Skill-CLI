@@ -140,7 +140,7 @@ sh('node "' + path.join(__dirname, 'apply_localize.cjs') + '"'); // F9: 与步�
 console.log('=== 6) 生成 MCP 配置并输出指引 ===');
 const cfgFile = path.join(REPO, 'local-config.json');
 const cfg = fs.existsSync(cfgFile) ? JSON.parse(fs.readFileSync(cfgFile, 'utf8')) : {};
-const port = cfg.debugPort || 9222;
+const port = cfg.debugPort || 9223;
 const mcp = {
   mcpServers: {
     'chrome-devtools': {

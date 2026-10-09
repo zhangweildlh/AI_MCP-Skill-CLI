@@ -37,7 +37,7 @@ if (!fs.existsSync(bin)) {
 const cfg = fs.existsSync(path.join(REPO, 'local-config.json'))
   ? JSON.parse(fs.readFileSync(path.join(REPO, 'local-config.json'), 'utf8'))
   : {};
-const port = cfg.debugPort || 9222;
+const port = cfg.debugPort || 9223;
 const userArgs = process.argv.slice(2);
 
 // 第一段：启动常驻服务并连接已运行的浏览器（仅 start 子命令接受 --browserUrl）

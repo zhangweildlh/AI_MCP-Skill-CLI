@@ -19,7 +19,7 @@ function probePort(p) {
 }
 
 // 检测 user-data-dir 是否已被某个浏览器实例占用（Chrome 在 profile 目录写入 SingletonLock / SingletonCookie）。
-// 该锁与调试端口无关：即使 9222 无响应，只要锁存在就说明有实例占用同一 profile。
+// 该锁与调试端口无关：即使 9223 无响应，只要锁存在就说明有实例占用同一 profile。
 function profileLocked(userDataDir) {
   try {
     return fs.existsSync(path.join(userDataDir, 'SingletonLock')) ||
@@ -65,4 +65,23 @@ function isBrowserRunning(browserPath) {
   return { running: false, pid: null };
 }
 
-module.exports = { probePort, profileLocked, isBrowserRunning };
+// R4：取某端口 DevTools 端点的 User-Agent，用于判定端口占用者是否为目标 360 浏览器
+function browserUA(p) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port: p, path: '/json/version', timeout: 1000 }, (res) => {
+      let body = '';
+      res.on('data', (c) => (body += c));
+      res.on('end', () => { try { resolve(JSON.parse(body)['User-Agent'] || ''); } catch (e) { resolve(''); } });
+    });
+    req.on('error', () => resolve(''));
+    req.on('timeout', () => { req.destroy(); resolve(''); });
+  });
+}
+
+// R4：端口上是否已是 360Chromex（UA 含 360 / QIHU）
+async function isTargetBrowserOnPort(p) {
+  const ua = await browserUA(p);
+  return /360|qihu/i.test(ua);
+}
+
+module.exports = { probePort, profileLocked, isBrowserRunning, browserUA, isTargetBrowserOnPort };

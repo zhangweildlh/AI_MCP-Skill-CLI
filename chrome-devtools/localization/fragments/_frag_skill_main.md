@@ -8,17 +8,18 @@
 
 **加载规范（强制）**：本技能**部署副本的根级 `SKILL.md`** 是唯一主 Skill 定义文件，任何 Agent **必须且只能**加载它；`upstream/skills/` 下所有子 Skill（含上游官方 skill）已被注入 frontmatter 门禁（`disable-model-invocation: true` + `user-invocable: false`），**只能由本主 Skill 内部引用，禁止 Agent 直接加载、直接调用或手动触发**。
 
-激活本技能后、调用任何浏览器能力之前，请**先判断当前接入形态**。不同机器、不同 Agent 上形态不同，**三选一、互斥，不是并存**；不要默认 CLI，也不要默认某一种 MCP 形态：
+接入本技能后、调用任何浏览器能力之前，必须先做**有序的连接器检查**（判定随平台而异，严禁硬编码平台命名；**必须实测一次成功才认定可用，不可仅凭配置**）：
 
-1. **通用前置（所有形态共用）**：确认全局 bin 存在（`node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js"`，不存在则先部署安装）；确认浏览器已以远程调试端口运行（见步骤 1）。
-2. **形态一：MCP 直连（最高优先）**：当前 Agent 平台已把 chrome-devtools 的 MCP 工具暴露为可直接调用的工具时使用。判定与调用方式**随平台而异，严禁硬编码任何平台命名**：
-   - WorkBuddy：`~/.workbuddy/mcp.json` 含 `chrome-devtools` 条目（command 指向全局 bin、`--browserUrl=http://127.0.0.1:9222`）且连接器已信任；工具名形如 `mcp__<server>__<tool>`（如 `mcp__chrome-devtools__list_pages`），若为延迟工具（deferred tools）须先加载工具 schema 再调用，**不得因加载步骤繁琐而降级 CLI**。
-   - DeepSeek++（DeepSeek-pp 扩展）：侧边栏「能力 > MCP」新增服务（传输选 Streamable HTTP 或 Native）；工具名由平台生成，形如 `mcp_<server>_<tool>` 或 `mcp_t_<uuid>_<tool>`，经 `mcp_discover`/`mcp_describe`/`mcp_invoke` 间接调用，不能直接传工具名。
+1. **形态一：直连 `chrome-devtools` MCP 服务（最高优先）**：宿主（如 WorkBuddy）已把 chrome-devtools 的 MCP 工具暴露为可直接调用的工具（如 `mcp__chrome-devtools__list_pages`）。**实测**调用一次页面列表类工具成功返回 → 形态一可用，**全程使用 MCP，禁止降级 CLI / 中转**。
+   - WorkBuddy：`~/.workbuddy/mcp.json` 含 `chrome-devtools` 条目（command 指向全局 bin、`--browserUrl=http://127.0.0.1:9223`）且连接器已信任；工具名形如 `mcp__<server>__<tool>`，若为延迟工具（deferred tools）须先加载工具 schema 再调用。
+   - DeepSeek++（DeepSeek-pp 扩展）：侧边栏「能力 > MCP」新增服务（传输选 Streamable HTTP 或 Native）；工具名由平台生成，形如 `mcp_<server>_<tool>` 或 `mcp_t_<uuid>_<tool>`，经 `mcp_discover`/`mcp_describe`/`mcp_invoke` 间接调用。
    - 其他 Agent：按其平台暴露的 MCP 工具命名与调用方式使用。
-   **判定标准（必须实测，不可仅凭配置）**：**先按步骤 1 确保浏览器调试端口就绪**，再实际调用一次页面列表类工具成功返回（如取页面列表）→ 形态一可用，**全程使用 MCP，禁止降级 CLI**。
-3. **形态二：MCP 中转（经 HTTP 桥接，次选）**：本机存在把本地 stdio MCP 暴露为 HTTP 端点的聚合/桥接服务（如 dynamic-mcp 门面 `http://127.0.0.1:8082/dynamic-mcp`，或 DeepSeek++「新增 MCP 服务」填写的「桥接端点 URL」），且**该端点已聚合 chrome-devtools 后端**时使用（端点未聚合该后端则形态二不可用，如 dynamic-mcp.json 无 chrome-devtools 条目时不得强行使用）。调用方式按平台暴露的工具名（形如 `mcp_<server>_<tool>`/`mcp_t_<uuid>_<tool>` 或平台变体），**同样先实测验证可用**。
-4. **形态三：CLI 兜底（仅当形态一、二均不可用时）**：MCP 通道完全不可用，才走 CLI 常驻服务两段式（见步骤 3）。
-5. 任何形态下，浏览器调试端口是硬前置。**360 极速浏览器（360Chromex）注意**：若已有实例占用 `User Data` profile，新起带调试端口实例会被单实例机制静默吞掉（端口无响应），**切勿关闭用户日常浏览器**，改用独立临时 profile（`--user-data-dir=<新空目录>`）启动调试实例。
+2. **形态二：经 `dynamic-mcp` MCP 中转（次选）**：若形态一无，检查是否存在 `dynamic-mcp` 连接器且其聚合后端含 `chrome-devtools`（如 `http://127.0.0.1:8082/dynamic-mcp`）。**实测**经 `mcp__dynamic-mcp__*` 能否列出 / 调用 chrome-devtools 后端工具 → 可用则经 dynamic-mcp 调用（工具名随平台变体）。注意：**端点未聚合该后端则形态二不可用**（如 `dynamic-mcp.json` 无 chrome-devtools 条目时不得强行使用）。
+3. **形态三：CLI 兜底（仅当形态一、二均不可用时）**：MCP 通道完全不可用，才走 CLI 常驻服务两段式（见步骤 3）。
+
+> **R1 红线（禁止依赖外部启动脚本）**：本技能**禁止依赖、调用 `启动360chromex+MCP_Bridge桥接+chrome-devtools.bat`（或任何外部启动脚本 / MCP_Bridge 桥接）**。本技能**自行**经 `verify_browser.cjs` + `start.cjs` 检测并启动本地浏览器、经 `--browserUrl` 直连；`dynamic-mcp` 中转仅为可选连接器检查，未配置即跳过，**不依赖外部桥接脚本拉起**。
+
+**通用前置（所有形态共用）**：确认全局 bin 存在（`node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js"`，不存在则先部署安装）；确认浏览器已以远程调试端口运行（见步骤 1）。任何形态下，浏览器调试端口都是硬前置。**360 极速浏览器（360Chromex）注意**：若已有实例占用 `User Data` profile，新起带调试端口实例会被单实例机制静默吞掉（端口无响应），**切勿关闭用户日常浏览器**，改用独立临时 profile（`--user-data-dir=<新空目录>`）启动调试实例。
 
 > 严禁使用 `npx -y chrome-devtools-mcp`。MCP 直连/中转用 `node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js"`；CLI 兜底（见步骤 3）用 `node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js"`（Windows 见下方 `for /f` 形式）。
 
@@ -27,12 +28,12 @@
 浏览器必须以远程调试端口运行，MCP/CLI 才能连接。本机已预置 360Chromex（含登录态）。**调用任何浏览器能力之前**，请按以下顺序由你自己（Agent）执行，不要要求用户手动敲命令：
 
 1. **先检测端口是否已在监听**（避免重复启动导致 `user-data-dir` 锁冲突）：
-   - Windows：`curl -s http://127.0.0.1:9222/json/version`
+   - Windows：`curl -s http://127.0.0.1:9223/json/version`
    - 若返回包含 `Browser` 字段的 JSON，说明浏览器已启动，**直接跳到步骤 2/3**。
 2. **若端口无响应，自动检测并启动浏览器**（这两个脚本位于技能目录的 `localization/` 下；调用时**务必在技能目录内**——先 `cd` 到技能根目录，或使用脚本绝对路径如 `node "<技能根目录>/localization/verify_browser.cjs"`，**不要在非技能目录用相对路径 `node localization/...`**，否则会因找不到文件而误报"脚本缺失"）：
    - 运行 `node localization/verify_browser.cjs`（自动搜索 360Chromex.exe / Chrome.exe：优先已注册安装，规避便携版；结果写入技能目录的 `local-config.json`）。
    - 再运行 `node localization/start.cjs`（以 `--user-data-dir` 指向本机 User Data 启动，复用登录态；脚本依赖 `local-config.json` 中的浏览器路径）。
-3. **确认就绪**：访问 `http://127.0.0.1:9222/json`，出现版本信息即成功。
+3. **确认就绪**：访问 `http://127.0.0.1:9223/json`，出现版本信息即成功。
 
 > 浏览器路径与用户数据目录由 `verify_browser.cjs` 写入 `local-config.json`。注意：必须用 `--user-data-dir` 指向本机 User Data（或 `--browserUrl` 连接已运行的登录实例）以保留登录态；**切勿用 `--isolated`**（会生成临时 profile 丢登录态）。每次激活本技能都应先检测端口、仅在无响应时才启动，避免重复启动冲突。
 
@@ -45,7 +46,7 @@ MCP 服务器（stdio）配置示例（全局路径，仓库根指本主副本�
   "mcpServers": {
     "chrome-devtools": {
       "command": "node",
-      "args": ["<全局 bin 路径>", "--browserUrl=http://127.0.0.1:9222", "--no-usage-statistics"],
+      "args": ["<全局 bin 路径>", "--browserUrl=http://127.0.0.1:9223", "--no-usage-statistics"],
       "env": { "CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS": "1" }
     }
   }
@@ -66,15 +67,15 @@ CLI 采用「常驻服务（daemon）+ 工具命令」两段式。首参数必�
 
 - macOS / Linux / Git Bash：
   ```bash
-  node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" start --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
+  node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" start --browserUrl=http://127.0.0.1:9223 --no-usage-statistics
   ```
 - Windows (cmd.exe)：
   ```bat
-  for /f "delims=" %i in ('npm root -g') do node "%i\chrome-devtools-mcp\build\src\bin\chrome-devtools.js" start --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
+  for /f "delims=" %i in ('npm root -g') do node "%i\chrome-devtools-mcp\build\src\bin\chrome-devtools.js" start --browserUrl=http://127.0.0.1:9223 --no-usage-statistics
   ```
 - Windows (PowerShell)：
   ```powershell
-  $g = npm root -g; node "$g/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" start --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
+  $g = npm root -g; node "$g/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" start --browserUrl=http://127.0.0.1:9223 --no-usage-statistics
   ```
 
 > 启动后可用 `chrome-devtools status`（即上面的 bin 加 `status`）核验，输出含 `pid` / `version` / `args`。前提是浏览器已以远程调试端口运行（见步骤 1）。
@@ -96,7 +97,7 @@ CLI 采用「常驻服务（daemon）+ 工具命令」两段式。首参数必�
 
 例如（先 `start` 连接，再调用）：
 ```bash
-node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" start --browserUrl=http://127.0.0.1:9222 --no-usage-statistics
+node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" start --browserUrl=http://127.0.0.1:9223 --no-usage-statistics
 node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" take_snapshot
 ```
 
@@ -105,6 +106,22 @@ node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js" take_
 > **更新提示与遥测说明**：
 > - **更新检查**：手动在终端直接运行 CLI 命令时，若未设置环境变量 `CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1`，程序会联网检查更新并可能打印 `Update available` 提示（属正常行为，不影响功能）。不想看到提示，运行前先导出该变量：Linux/macOS/Git Bash 用 `export CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1`；Windows PowerShell 用 `$env:CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS='1'`；Windows cmd 用 `set CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1`。通过 WorkBuddy 的 MCP 服务模式（步骤 2 配置已含该 env）调用时不会显示。若此前显示过且想立即消除，删除缓存文件 `~/.cache/chrome-devtools-mcp/latest.json` 即可。
 > - **使用统计遥测**：`--no-usage-statistics` 是 `start` 子命令（及 MCP server）的选项，用于关闭 Google 使用统计收集；对应环境变量为 `CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS=1`。它与上面的 `NO_UPDATE_CHECKS`（更新检查）是**两个独立开关**，变量名不可混淆（不要写 `NO_UPDATE_CHECKS`）。
+
+### 步骤 4：任务收尾闭环清理（R5 自动闭环，每次技能使用完毕 / 任务结束执行）
+
+任务执行完毕（或本次会话不再需要浏览器驱动）时，**必须**运行一次闭环清理，把本技能在本机产生的「过程 / 状态 / 临时 / 日志」文件清掉，还原到技能使用前状态。运行（调用约定同步骤 1：务必在技能目录内，或用绝对路径 `node "<技能根目录>/localization/cleanup.cjs"`）：
+
+```bash
+node localization/cleanup.cjs
+```
+
+`cleanup.cjs` 的清理范围（白名单，**仅这些**）：
+- 技能目录根级的 `local-config.json`、`mcp-local-config.json`（由 `verify_browser.cjs` / `apply_localize.cjs` / `deploy.cjs` 生成的机相关状态文件）；
+- 经 CLI 形态（形态三）拉起的本地常驻 daemon（`chrome-devtools.js stop`，仅停本技能启动的服务，不影响宿主 MCP stdio 服务与用户正在使用的浏览器）；
+- 系统临时目录下 `chrome-devtools-mcp-*` 临时目录（daemon / 工具落盘的临时文件）；
+- 技能目录顶层直接散落的 `*.log`（仅顶层、不递归，避免误删 `upstream/` 等子目录）。
+
+**R5 红线（清理绝不动）**：`User Data`（浏览器登录态 / profile）、浏览器原始程序（`360chromex.exe` 等）及其部署目录下非本技能生成的文件、`upstream/`（上游 vendored 快照）、`node_modules/`、`build/`、`localization/` 源码、`SKILL.md` / `README.md` / `fragments/` / `*.example.json`（技能定义），以及用户个人文件（Desktop / Documents / Downloads 等）。清理仅移除技能生成物，**浏览器实例与登录态均保留**，用户日常浏览器不被关闭。
 
 ### 核心操作速查（MCP 工具名保持英文）
 
