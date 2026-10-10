@@ -7,7 +7,7 @@
 
 ## 1 仓库结构总览
 - 1.1 单 git 仓库、多独立 Skill：本仓库是一个 git 仓库，每个一级子目录是一个独立 Skill 包（或共享基础设施），根级 Skill-*.md 为单文件 Skill；业务上相互独立，但基础设施（scripts/ 统一调度、github-personal-manager/scripts/ 复用）可共享，不视为关联。
-- 1.2 单元分类：目录型 Skill（13）/ 根级 Skill 文件（8）/ 共享基础设施（scripts、.github 等）/ 其他根级文件（@*.md、mimo_mcp.py，归 meta，见 §2.3）。
+- 1.2 单元分类：目录型 Skill（13）/ 根级 Skill 文件（9）/ 共享基础设施（scripts、.github 等）/ 其他根级文件（@*.md、mimo_mcp.py，归 meta，见 §2.3）。
 - 1.3 三类管理路径：**目录型 Skill 与单文件型 Skill 文件（不论是否位于仓库根级）→ 一律开 worktree（第 4 章）**；其他根级文件（非 Skill）→ 标准分支+PR（第 5 章）；meta 变更 → 触发全量 CI。本条中「单文件型 Skill 文件」指以 Skill 定义文件形态存在的单元，含仓库根级 `Skill-*.md` 与任意子目录下的单文件 Skill；worktree 的核心目的是隔离多个相互独立的 Agent 对同一文件的并发修改，避免冲突。
 
 ## 2 Scope 清单
