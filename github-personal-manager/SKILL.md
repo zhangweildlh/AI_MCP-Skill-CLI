@@ -360,7 +360,23 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
   - PR 正文用 `--body-file`：先写正文到文件再 `gh pr create --body-file <file>`，避免中文括号被 bash 解析失败；严格套用上游 PR 模板段落，显式声明契约边界（覆盖到哪、不覆盖到哪）。
   - 文档同步门禁：提交前 Tier 1（README/CHANGELOG）必须同步（运行 `bash scripts/sop_docs_sync_check.sh <仓库路径>`），未同步不得直接提交/开 PR。
   - 触发并轮询 CI：`bash scripts/sop_pr_checks.sh <仓库路径>`，`gh pr checks` / `gh run list` 必须全绿。
+  - **CI 覆盖边界（2026-10-13 实证）：「全绿」只证明 CI 覆盖到的维度合规，不等于变更整体无缺陷**。合并前须自问「本次变更触及的领域，CI 是否真的校验了」，CI 未覆盖的领域必须本地补验收，典型未覆盖项：
+    | 未覆盖维度 | 本地补验收手段 |
+    |---|---|
+    | 领域专属验收工具（如记忆体系的五项验收） | 直接跑该领域的验收命令，确认退出码为 0 |
+    | 状态文件 / 派生索引与正文失配 | 跑该领域的 `sync` 类命令后再验|
+    | 跨文件引用 / 锚点可达性 | 跑领域自带的链接级检测脚本 |
+    | 文档类变更的既有手工维护区 | 人工比对，确认与工具生成区无冲突 |
+    **硬纪律**：CI 全绿 + 本地补验收全过，**二者缺一不可交付**。实证案例：某 PR 合并后领域验收 FAIL（新增章节未同步状态文件，磁盘 22 章 / 状态 21 章），而该维度 CI 完全未覆盖、PR 与 main 的 CI 皆绿。
 - **阶段 5 — PR 审查意见回应（含多轮）**：① 拉取评审 `gh pr view <编号> --comments` / `gh pr diff <编号>` / `gh api .../pulls/<编号>/reviews`；② 先对齐分支（当前分支须等于 PR 源分支 `feat/<topic>`，`gh pr view <编号> --json headRefName` 核对）；③ 以**真实代码**为唯一基准（用 `gh pr diff`/`Read` 实际文件当前行），逐条对照避免悬空/错误回应；④ **代码修改标准**：先完整执行「代码编写、修改和BUG修复通用纪律」专章——定统一优先级裁决器、画全局契约面（含变更波及半径）、根因修复；同 diff 一次性收口所有 A 类（真问题）+ 联动项，绝不叠补丁、绝不只改被点名项（细则以该专章为准）；⑤ 文案回答逐条引用裁决/契约结论（A 改了哪如何验证 / B 文档澄清 / C 误判有理有据驳回）；⑥ user-facing 改动在 Evidence 段附截图（Web UI 直接粘贴，或 CLI 兜底放 `assets/pr-evidence/` 后引用公开 URL）；⑦ 推送更新 `git push origin feat/<topic>`，重跑 CI 至绿；⑧ 多轮迭代回到阶段 5 开头整体重画方案，不叠补丁。
+  - **审查/统计一律走 git 原生命令，不用 `gh pr view --json`（2026-10-13 实证）**：`gh --json` 的**可用字段集是外部 CLI 的不稳定契约**——实测同一命令在不同版本间字段有增删（如 `merged` 字段已不存在，须用 `mergedAt` + `state` 组合），且 `--jq` 对数组字段的写法易踩坑。**凡需求为「PR 含哪些提交 / 改了哪些文件 / 与 base 差多少」，一律改用 git 原生命令**，其输出跨版本稳定：
+    ```bash
+    git fetch origin --prune
+    git log origin/main..origin/<分支> --oneline        # 该 PR 实际包含的提交
+    git diff origin/main...origin/<分支> --stat          # 变更文件与规模（三点= merge-base 相对差异）
+    git diff origin/main..origin/<分支> --stat           # 两点= 端点差异，含 base 侧独有变更
+    ```
+    用途对照：三点（`...`）判定「本 PR 引入了什么」，两点（`..`）判定「两端最终差异总量」；审查 PR 内容用三点，排除 base 侧已变更项。
 - **阶段 6 — PR 合并**：贡献 upstream 由维护者合并，你仅监控；自有仓库/自测 PR 用 `gh pr merge`；fork 内部 PR 用 `gh pr merge --squash`。合并前冲突/分支保护见工作流三冲突决策树或工作流五多工作树。
   - **规则集跳过检查绕过（GitHub ruleset 场景）**：若仓库启用 ruleset 且其 required checks 含「因 PR 变更范围(scope)而 skipping」的检查（如 `smoke-scoped` 对 meta 变更跳过），默认 `gh pr merge` 会因「该 required check 虽 skipping 仍视为未满足」被拒（提示 `the base branch policy prohibits the merge`）。
     - 前置：PR 的 CI **实际已通过**（smoke / scope-map pass，skipping 属正常）；`--admin` **仅绕过「跳过的 check」**，若 smoke / scope-map **真红须先修 CI 再合并**。
@@ -391,6 +407,15 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 4. 强门禁：只删已确认合并或用户明确废弃的分支；删除前先列待删清单及**合并状态 + PR open 状态两维**，暂停确认；`main` 永不删；当前所在分支不删。
    **open PR 人工核对（重要）**：删除分支（尤其已合并但上游仍有 open PR 的分支）前，须先在 GitHub 确认该分支无未关闭的 open PR——否则对应 PR 会被 GitHub 自动关闭。可手动跑 `gh pr list --repo <upstream> --author <你> --state open` 与 `gh pr list --repo <fork> --author <你> --state open` 两条查询核对。
 5. 工区内部对象回收（可选）：分支删除后若有悬空对象，按两步回收——先 `git reflog expire --expire=now --all`（清除本地所有 reflog 恢复点，仅影响本地恢复能力、不丢可达代码）→ 再 `git gc --prune=now`。**根因**：`git gc` 默认遵守 reflog 保留期，reflog 仍引用的对象不会被回收——凡 gc 后悬空对象仍在，先怀疑 reflog 挡路，补 expire 一步即可彻底回收。复验 `git fsck --no-reflogs --unreachable` 应为空。
+6. **合并后清理的顺序三步序列（2026-10-13 实证，硬顺序）**：`gh pr merge` 只改远端，**不动本地 main**。故「合并远端 PR → 清理本地工作树」之间存在**隐式顺序依赖**，顺序颠倒必被脚本拦截：
+   ```bash
+   gh pr merge <PR> --merge --delete-branch          # ① 合并并删远端分支
+   cd <主工作树> && git pull --ff-only origin main   # ② 同步本地 main（必须，禁用 merge 提交）
+   bash scripts/sop_worktree_cleanup.sh <仓库> --branch <分支> --confirm   # ③ 清理工作树+本地分支
+   ```
+   - **拦截现象（正确行为，非故障）**：第③ 步报 `⛔ 合并校验失败：Tip(<sha>) 尚未并入主线 HEAD（merge-base --is-ancestor≠0）`。**根因**：本地 main 停在合并前的提交，分支 Tip 不是本地 HEAD 祖先。**处置**：执行第 ② 步后重跑第 ③ 步即可，**不要**改脚本、**不要** `--force` 绕过——该拦截正是防丢提交的设计。
+   - **worktree 检出致本地分支残留**：`gh pr merge --delete-branch` 在分支被某工作树检出时，会输出 `! Branch ... is checked out in the current worktree; skipping local delete` 并跳过本地删除（**远端已删、本地仍在**）。此为正常指引非报错，本地分支须由第 ③ 步脚本或 `git worktree remove` + `git branch -d` 清理。
+   - **删后必核（不可省）**：脚本自带删后校验时以脚本输出为准；无脚本时手动验`git merge-base --is-ancestor <分支Tip> main` 仍为真，确保提交未丢失。
 
 ### 工作流十：清理工区维护
 （适用：用户明确要求「清理工区」。本流程只处理"工区文件"清理，不触碰远程仓库/CI/发版。前提：已完成路径核验。）
