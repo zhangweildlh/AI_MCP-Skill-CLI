@@ -315,17 +315,26 @@ code-review-combo/
 ├── open-code-review-delegate/       【上游纯镜像】alibaba/open-code-review @ v1.9.5，仅 SKILL.md
 │   └── SKILL.md                     （顶部 6 行中文头部注释声明镜像；跟进即覆盖此文件）
 ├── tests/                           【combo 本地·离线回归与卫生】
-│   ├── test_merge_reports.sh        【combo 增强】Stage3 合并确定性回归（11/11）
+│   ├── test_merge_reports.sh        【combo 增强】Stage3 合并确定性回归（16/16，含三源delegate 交叉）
 │   ├── verify_combo.sh              【combo 增强】Phase5 验收（含 guard.sh 离线门禁）
-│   └── guard.sh                     【融合·仓库一致性守卫】引用存在性/版本一致/JSON合法/py_compile（MIT 署名，来源 validate.sh @ ca48847）
+│   ├── guard.sh                     【融合·仓库一致性守卫】引用存在性/版本一致/JSON合法/py_compile/Schema双向一致（MIT 署名，来源 validate.sh @ ca48847）
+│   ├── schema_parity.js             【combo 增强·2026-10-13】guard 的 (e) 项实现：merge_reports 输出 ↔ SKILL.md Schema 双向一致性比对（独立成文件以避开 bash -c '...' 与 JS 反引号的嵌套冲突）
+│   └── fixtures/                    【combo 增强】回归输入样本
+│       ├── ocr_report.json          （OCR 原生审查报告样本，含 comments[]与 8 类 category）
+│       ├── delegate_report.json     （ocr delegate 宿主主审报告样本，含 delegate:true 标记）
+│       └── reviewspd_report.md      （review-spd 报告样本，含 ```json findings[] 块）
 └── review-spd/                      【fork 覆盖层】zhangweildlh/spec_driven_develop @ 35cc1e8（领先真上游 d5d3477）
     ├── SKILL.md                     （非纯镜像：含 Dual output 指令层 + combo 自加 --path 特性）
     ├── references/
     │   ├── output-format.md         （非纯镜像：含 "Structured JSON" 一节）
     │   └── reviewer-template.md
-    └── scripts/
-        └── review-context.py        （含 combo 自加 --path 子目录收敛补丁 C-1，非逐字节相同；其余 git 上下文收集逻辑与上游一致）
+    ├── scripts/
+    │   └── review-context.py        （含 combo 自加 --path 子目录收敛补丁 C-1，非逐字节相同；其余 git 上下文收集逻辑与上游一致）
+    └── tests/
+        └── test_review_context.py   （review-context.py 的唯一测试资产，19 用例：非 Git 返回 rc1 / 空仓库不崩 / 未跟踪二进制与超限文件省略 / --path 子目录与嵌套子目录收敛 / 越界未跟踪文件排除 / branch 与 commit-range 各分支）
 ```
+
+> **运行时产物（不入库，`.gitignore` 已排除）**：`config/providers.json`（本地凭证，含占位符模板 `providers.example.json`）、`.ocr-provider-cache.json`（provider 两级 TTL 缓存，落盘于本技能目录）、`__pycache__/`。
 
 **设计哲学（一句话）**：子技能目录尽量保持「纯上游」（delegate 已做到），combo 的所有增强集中在 `local/`、`scripts/`、`config/`、`SKILL.md`；这样跟进上游时，纯镜像目录可直接覆盖、零 3-way 合并成本，本地增强零丢失。
 

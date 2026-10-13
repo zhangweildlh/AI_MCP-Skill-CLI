@@ -119,7 +119,9 @@ bash ./scripts/select-provider probe [-c <config>]   # 默认读本技能目录 
   bash ./scripts/select-provider clear [<provider>]      # 解除拉黑（调试/恢复）
   ```
 
-> **Key 配置（方案 β · 外置于技能目录，相对路径加载）**：provider 凭证统一存放于本技能目录 `config/providers.json`（模板 `config/providers.example.json`，含占位符，已被 `.gitignore` 忽略，**绝不进 git**）。`select-provider` 启动时经相对路径读取该文件并自动合并同步到 ocr 运行时配置（`~/.opencodereview/config.json`，备份后仅合并、不覆盖 `provider` / `llm` 等其它键），后续 `ocr review`/`ocr scan` 即可直接使用。结构示例：
+> **Key 配置（方案 β · 外置于技能目录，相对路径加载）**：provider 凭证统一存放于本技能目录 `config/providers.json`（模板 `config/providers.example.json`，含占位符，已被 `.gitignore` 忽略，**绝不进 git**）。`select-provider` 启动时经相对路径读取该文件并自动合并同步到 ocr 运行时配置（`~/.opencodereview/config.json`，备份后仅合并、不覆盖 `provider` / `llm` 等其它键），后续 `ocr review`/`ocr scan` 即可直接使用。
+>
+> ⚠️ **写盘副作用（2026-10-13 自审补记）**：上述同步发生在 `run_node` 的**公共加载路径**上，因此**全部子命令（含名义只读的 `list`）都会写盘 ocr 全局配置**——`list` 的首行输出即为「已将本地 custom_providers 同步至 ocr 配置」提示。**不可凭命令名推断副作用**：以只读心态跑 `list` 做现状盘点，同样会改动用户全局配置。同步本身是功能的一部分（保证 `ocr review` 可直接鉴权），故保留；此处显式披露，供调用前告知用户。结构示例：
 > ```json
 > { "custom_providers": { "<NAME>": { "api_key": "<PROVIDER_API_KEY>", "url": "https://...", "protocol": "openai", "model": "<MODEL>" } } }
 > ```
@@ -341,7 +343,7 @@ combo 的编排遵循「单一写者」模型（writer model），与上游执�
 - `cross_check`：交叉验证结论（确认 confirmed / 新发现 new / 有争议 disputed）。下游可据此判断置信度。
 - `summary.ocr_only` / `summary.delegate_only` / `summary.review_spd_only`：仅由单一引擎发现、经 Stage3 核实后保留的项数，用于量化交叉覆盖效果。
 - `mode`：`dual-cross-validation`（两源）或 `tri-cross-validation`（含 delegate 标记的三源）；`sources` 为实际参与合并的引擎标签数组（按输入动态计算，非固定值）；delegate 引擎标签固定为 `open-code-review-delegate (host delegate)` 以便与 `ocr` 原生审查（`open-code-review-delegate`）区分。
-- `summary.severity_dist`：按 `critical / high / medium / low` 嵌套的 severity 分布（**权威字段**）；为兼容旧消费方，`summary` 顶层**同时**存在扁平的 `critical / high / medium / low` 别名（由 `merge_reports` 同值回填），下游应优先读取 `severity_dist`。
+- `summary.severity_dist`：按 `critical / high / medium / low` 嵌套的 severity 分布（**唯一权威字段**）。`summary` 顶层**不含**扁平的 `critical / high / medium / low` 别名——历史上曾计划回填，但该回填从未实现（`merge_reports` 的 severity 唯一写入点即本字段），下游**必须**读取 `severity_dist`，读顶层 `critical` 等键会得到 `undefined`。
 - `summary.by_source` / `verified_by` / `confirmed` / `disputed` / `new` / `category_dist` / `dropped_style` / `total_findings` / `files_reviewed`：交叉覆盖与分类统计，详见 `merge_reports` 实现。
 - `content` 与 `comment` 双字段兼容：ocr/delegate 报告用 `content`，review-spd 报告用 `comment`，`merge_reports` 归一后**两者都保留**在输出中（下游任选其一即可）。
 
