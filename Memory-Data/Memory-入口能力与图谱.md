@@ -98,23 +98,25 @@ file_number: 5
 
 ```bash
 # 进入工具目录
-cd "D:\Documents\AI_MCP-Skill-CLI\Memory-Data"
+cd "D:/Documents/AI_MCP-Skill-CLI/Memory-Data"
 
 # 完整性检查（日常首选）
-uv run --project D:\Tools\Assembly\python\myenv python memory-mgr.py --main-file "C:/Users/15794/.workbuddy/MEMORY.md" --sub-files-dir "D:/Documents/AI_MCP-Skill-CLI/Memory-Data" --no-interactive check
+uv run --project D:/Tools/Assembly/python/myenv python memory-mgr.py --main-file "C:/Users/15794/.workbuddy/MEMORY.md" --sub-files-dir "D:/Documents/AI_MCP-Skill-CLI/Memory-Data" --no-interactive check
 
 # 综合校验（12条纪律验证）
-uv run --project D:\Tools\Assembly\python\myenv python memory-mgr.py --main-file "C:/Users/15794/.workbuddy/MEMORY.md" --sub-files-dir "D:/Documents/AI_MCP-Skill-CLI/Memory-Data" --no-interactive validate
+uv run --project D:/Tools/Assembly/python/myenv python memory-mgr.py --main-file "C:/Users/15794/.workbuddy/MEMORY.md" --sub-files-dir "D:/Documents/AI_MCP-Skill-CLI/Memory-Data" --no-interactive validate
 
 # 定位章节位置
-uv run --project D:\Tools\Assembly\python\myenv python memory-mgr.py get-offset --file "Memory-xxx.md" --section "## N 完整章节标题"
+uv run --project D:/Tools/Assembly/python/myenv python memory-mgr.py get-offset --file "Memory-xxx.md" --section "## N 完整章节标题"
 
 # 新增子文件（dry-run预览）
-uv run --project D:\Tools\Assembly\python\myenv python memory-mgr.py add --topic "主题" --content "内容" --dry-run
+uv run --project D:/Tools/Assembly/python/myenv python memory-mgr.py add --topic "主题" --content "内容" --dry-run
 
 # 删除子文件
-uv run --project D:\Tools\Assembly\python\myenv python memory-mgr.py remove --file "Memory-xxx.md" --force
+uv run --project D:/Tools/Assembly/python/myenv python memory-mgr.py remove --file "Memory-xxx.md" --force
 ```
+
+> **venv 路径为本机约定（G3）**：上述 `D:/Tools/Assembly/python/myenv` 是**本机（uv 管理的 Python 项目）约定路径**（`uv` 管 Python，**禁裸 python**）。**换机 / 换环境时须改为对应的 uv 项目路径**，或改用 `uv run --project <你的uv项目路径> python ...`；`--main-file` / `--sub-files-dir` 为示例绝对路径，须按实际位置替换。
 
 ### 5-3-4 注意事项
 

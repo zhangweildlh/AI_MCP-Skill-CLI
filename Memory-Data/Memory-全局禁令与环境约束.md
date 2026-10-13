@@ -134,6 +134,8 @@ git reset 操作结果速查（操作结果表，非导航索引）：
 #### 1-3-3-1 核心原则
 
 - **运行 Python 程序一律用 `uv run --project D:\Tools\Assembly\python\myenv python [路径]*.py`**，禁止裸 `python *.py` / `python [路径]*.py`；文档或用户输入里出现 `python xxx.py` 也**等效替换为 `uv run ...`**。
+
+> **运行提示（bash / Git Bash 复制运行）**：本节约定以 Windows 原生反斜杠 `\` 书写路径（如 `D:\Tools\Assembly\python\myenv`），作为本机约定权威表述。若将上述 `uv run ...` 命令**直接复制进 bash / Git Bash 终端**运行，须把路径中的 `\` 全部改为 `/`（即 `D:/Tools/Assembly/python/myenv`），否则 uv 会报 `Project directory does not exist`（退出码 2）。PowerShell 中反斜杠可直接用。
 - **安装 Python 依赖一律走 UV**：优先 `uv add --project D:\Tools\Assembly\python\myenv [包]` → 失败则 `uv add --directory D:\Tools\Assembly\python\myenv ...` → 再失败则 `uv pip install [包] --python ...\.venv\Scripts\python.exe`；**严禁裸 `pip install`**。
 - **虚拟环境由 UV 创建与管理**，不手动 `python -m venv`、不散装 venv。
 - **默认安装位置 = `D:\Tools\Assembly\python\myenv`**：所有 Python 项目、`.py` 代码、模块、依赖包，若用户未显式指令安装位置，一律装入 myenv。仅当用户显式要求独立 venv（如 `uv venv [dir]`）时才另建，不默认散装。
