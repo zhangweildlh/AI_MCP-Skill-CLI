@@ -317,7 +317,8 @@ code-review-combo/
 ├── tests/                           【combo 本地·离线回归与卫生】
 │   ├── test_merge_reports.sh        【combo 增强】Stage3 合并确定性回归（16/16，含三源delegate 交叉）
 │   ├── verify_combo.sh              【combo 增强】Phase5 验收（含 guard.sh 离线门禁）
-│   ├── guard.sh                     【融合·仓库一致性守卫】引用存在性/版本一致/JSON合法/py_compile（MIT 署名，来源 validate.sh @ ca48847）
+│   ├── guard.sh                     【融合·仓库一致性守卫】引用存在性/版本一致/JSON合法/py_compile/Schema双向一致（MIT 署名，来源 validate.sh @ ca48847）
+│   ├── schema_parity.js             【combo 增强·2026-10-13】guard 的 (e) 项实现：merge_reports 输出 ↔ SKILL.md Schema 双向一致性比对（独立成文件以避开 bash -c '...' 与 JS 反引号的嵌套冲突）
 │   └── fixtures/                    【combo 增强】回归输入样本
 │       ├── ocr_report.json          （OCR 原生审查报告样本，含 comments[]与 8 类 category）
 │       ├── delegate_report.json     （ocr delegate 宿主主审报告样本，含 delegate:true 标记）

@@ -9,9 +9,10 @@
 #   (a) 引用存在性  — .md 中 `./...` / 已知根相对路径须可解析（多基准：仓库根 + 引用文件目录向上级 + 各子技能根）
 #   (c) 版本一致性  — SKILL.md frontmatter version 须与 README 引用版本一致
 #   (d) JSON 合法性 — 仓库内全部 .json（排除 gitignored providers.json）须可解析
+#   (e) Schema 一致性 — merge_reports 真实输出字段 须与 SKILL.md Schema 双向一致（2026-10-13 新增）
 #   (f) py_compile  — 仓库内 .py（review-spd/scripts/review-context.py）语法编译（可选：无 python 则跳过）
 # 退出码：0 = 全部检查通过；非 0 = 任一检查失败。
-# 依赖：bash + node（(a)(c)(d)）；python/uv（(f)，缺失则跳过而非失败）。
+# 依赖：bash + node（(a)(c)(d)(e)）；python/uv（(f)，缺失则跳过而非失败）。
 # ==========================================================================
 
 set -uo pipefail
@@ -126,6 +127,49 @@ if (bad === 0) console.log("  (d) json-validity: OK (" + jsonChecked.length + " 
 else fails += bad;
 
 process.exit(fails === 0 ? 0 : 1);
+'
+
+# ---------------------------------------------------------------------------
+# (e) Schema 一致性：merge_reports 真实输出 须与 SKILL.md Schema 双向一致（2026-10-13 新增）
+# 背景（自审 finding #1）：SKILL.md 曾声明summary 顶层存在扁平 critical/high/medium/low 别名，
+#     但实现从未回填、Schema 代码块也未列——三项证据全依赖人工实跑才暴露，(a)(c)(d) 均不覆盖
+#     「字段级不一致」。本项据此补齐该盲区。
+# 判据：实跑 merge_reports 读真实产出的键（实现产出集）↔ SKILL.md Schema 块声明的键（文档声明集），
+#     要求**双向相等**——实现有而文档无 = 文档漏写；文档有而实现无 = 文档声称存在但实际不存在。
+#     另校验 verified_by/cross_check/category/severity 的枚举取值一致。
+# 依赖：node + bash；缺 node / merge_reports / fixtures 时判 SKIP（不因环境缺失而失败）。
+# 比对逻辑独立成 tests/schema_parity.js：内联会让 JS 反引号与 bash -c '...' 嵌套冲突。
+# ---------------------------------------------------------------------------
+SCHEMA_JS="$SCRIPT_DIR/schema_parity.js"
+run_check e "schema-parity (merge_reports 输出 ⊆ SKILL.md Schema 声明，双向)" bash -c '
+set -uo pipefail
+G_ROOT="'"$ROOT"'"
+MERGE="$G_ROOT/scripts/merge_reports"
+SCHEMA_JS="'"$SCHEMA_JS"'"
+FIXTURE="$G_ROOT/tests/fixtures"
+
+command -v node >/dev/null 2>&1 || { echo "  (e) SKIP - 未找到 node"; exit 0; }
+[ -f "$MERGE" ] || { echo "  (e) SKIP - 未找到 scripts/merge_reports"; exit 0; }
+[ -f "$SCHEMA_JS" ] || { echo "  (e) SKIP - 未找到 tests/schema_parity.js"; exit 0; }
+
+IN=""
+for f in ocr_report.json delegate_report.json reviewspd_report.md; do
+  [ -f "$FIXTURE/$f" ] && IN="$IN $FIXTURE/$f"
+done
+[ -n "$IN" ] || { echo "  (e) SKIP - tests/fixtures 无可用输入样本"; exit 0; }
+
+OUT_DIR="$(mktemp -d 2>/dev/null)" || { echo "  (e) SKIP - mktemp 失败"; exit 0; }
+trap '"'"'rm -rf "$OUT_DIR"'"'"' EXIT
+
+# 用 Windows 原生路径（merge_reports 内部以 pwd -W 取路径，POSIX 路径会落错位置）
+OUT_DIR_W="$(cd "$OUT_DIR" && pwd -W 2>/dev/null || echo "$OUT_DIR")"
+if ! ( cd "$G_ROOT" && bash "$MERGE" $IN "$OUT_DIR/probe.json" ) >/dev/null 2>&1; then
+  echo "  (e) merge_reports 实跑失败，无法校验 Schema 一致性"; exit 1
+fi
+[ -s "$OUT_DIR/probe.json" ] || { echo "  (e) merge_reports 未产出 JSON"; exit 1; }
+
+SKILL_W="$(cd "$G_ROOT" && pwd -W)/SKILL.md"
+node "$SCHEMA_JS" "$SKILL_W" "$OUT_DIR_W/probe.json"
 '
 
 # ---------------------------------------------------------------------------
