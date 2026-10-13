@@ -226,6 +226,7 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 10. 仓库管理（clone/fork/create/rename/archive）——详见 references/gh-capability.md
 11. Issue/PR 管理（建/列/查/评/合/关）——详见 references/gh-capability.md 与 工作流九
 12. Release/制品/密钥/标签/规则集管理——详见 references/gh-capability.md 与 references/fork-ci-pitfalls.md
+13. **推送失败判诊（网络层 vs 认证层）、Bash 管道退出码陷阱、`gh search` 词法与同名镜像识别、无 `.git` 副本的版本锁定（`hash-object` vs blob sha）、文档命令跨 shell 可跑性** —— 详见 `references/push-diagnosis-and-cli-pitfalls.md`
 
 ## 核心工作流
 
@@ -310,6 +311,8 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
   `bash scripts/sop_worktree_add.sh <仓库路径> --branch feat/<topic>`
   `bash scripts/sop_worktree_add.sh <仓库路径> --branch feat/<topic> --confirm`
   可选参数：`--topic <名>`（工作树子目录名，缺省取分支末段）、`--worktree-root <dir>`（工作树父目录，缺省仓库内 `.worktrees`）。
+  ⚠️ **`--branch` 只写「除单元名前缀外的剩余主题词」，禁重复写单元名（2026-10-01 实证）**：脚本内部会用 `--scope` 的单元名再做一次分支前缀拼装，把 `--branch` 写成完整单元名必然拼出重复。实测反例：`--scope self-improvement --branch feat/self-improvement-remove` → 实际生成 `feat/self-improvement-self-improvement-remove-<TS>`，污染分支列表且后续回收需额外甄别。**正解**：`--branch feat/remove-dir`，产出 `feat/self-improvement-remove-dir-<TS>`。
+  ⚠️ **建树前必须干跑（不带 `--confirm`）**：先确认生成的分支名与目录名是否符合预期（时间戳一致、命名合规），再正式建。命名不合规会污染 worktrees 列表。
   脚本四道守卫：主仓库须在 main 且工作区干净；分支名不与现有冲突；工作树路径未占用；遵循一分支一工作树。每任务重复本步即可并行开多棵。
   ⚠️ **Windows 环境约束**：`sop_worktree_add.sh` 会把工作树路径统一归一化为 Windows 形态（`D:/...`）。请在 **Git for Windows + Git Bash** 环境下运行；若路径呈 POSIX 形态（`/d/...`），Git 会误判为相对路径、把工作树错建到 `D:/d/...` 而导致后续无法进入（P-GPM-4 已修复，但归一化依赖 Git Bash 环境的 `cygpath`）。纯 CMD / 非 Git Bash 终端可能异常。
 - **阶段二：工作树内开发 + 测试（在各自工作树目录内）**
@@ -360,7 +363,34 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
   - PR 正文用 `--body-file`：先写正文到文件再 `gh pr create --body-file <file>`，避免中文括号被 bash 解析失败；严格套用上游 PR 模板段落，显式声明契约边界（覆盖到哪、不覆盖到哪）。
   - 文档同步门禁：提交前 Tier 1（README/CHANGELOG）必须同步（运行 `bash scripts/sop_docs_sync_check.sh <仓库路径>`），未同步不得直接提交/开 PR。
   - 触发并轮询 CI：`bash scripts/sop_pr_checks.sh <仓库路径>`，`gh pr checks` / `gh run list` 必须全绿。
+  - **CI 覆盖边界（2026-10-13 实证）：「全绿」只证明 CI 覆盖到的维度合规，不等于变更整体无缺陷**。合并前须自问「本次变更触及的领域，CI 是否真的校验了」，CI 未覆盖的领域必须本地补验收，典型未覆盖项：
+    | 未覆盖维度 | 本地补验收手段 |
+    |---|---|
+    | 领域专属验收工具（如记忆体系的五项验收） | 直接跑该领域的验收命令，确认退出码为 0 |
+    | 状态文件 / 派生索引与正文失配 | 跑该领域的 `sync` 类命令后再验|
+    | 跨文件引用 / 锚点可达性 | 跑领域自带的链接级检测脚本 |
+    | 文档类变更的既有手工维护区 | 人工比对，确认与工具生成区无冲突 |
+    **硬纪律**：CI 全绿 + 本地补验收全过，**二者缺一不可交付**。实证案例：某 PR 合并后领域验收 FAIL（新增章节未同步状态文件，磁盘 22 章 / 状态 21 章），而该维度 CI 完全未覆盖、PR 与 main 的 CI 皆绿。
+- **阶段 4·甲 · 「删除已登记单元」的双向校验 × scope 校验死锁（2026-10-01 实证 · 适用前提严格）**
+  > **适用前提（四条须同时满足，否则不适用本条）**：① 仓库有一份「目录型单元清单」需人工登记；② 校验对清单做**双向**检查（既判「已登记但目录缺失」也判「目录存在但未登记」，两侧均致命）；③ pre-commit 按分支 scope 白名单放行暂存文件；④ 需求是**删除**某已登记目录（非新增/改名）。
+  - **死局形态**：先删目录 → CI 红「已登记但目录缺失」；先摘登记 → CI 红「未登记」。**拆成两条 PR 也解不开**（先合一条，中间态仍违反另一条）。这不是配置失误，是**结构性死局**。
+  - **病灶常在 hook 源码而非编排**：仓库往往预留了「meta 分支可承载已登记目录增删」的特例，但其 `case` glob 可能写成 `*/\*` —— shell 里反斜杠把 `*` 转义成字面星号，该特例**自引入起从未生效**。排查：`grep -n '\*/\\\*' .githooks/pre-commit`，命中即确认。
+  - **破除顺序（先修门禁，再谈编排）**：① 单独提交「修 hook glob 为 `*/*)`」——此时目录还在、改动纯 meta，scope 校验放行；② 造最小实证（在 meta 分支 `git rm -r <dir>` 提交），确认从「❌ 混入非本 scope」变为「✅ 校验通过」，此步不可跳过；③ 把「删目录」与「摘登记」放**同一条 meta PR、按序两提交**（先 `git rm` 此时清单仍含该 dir 故放行 → 再摘登记此时目录已消失冲突消解）→ 一次合并直达终态。
+  - **禁忌**：① **禁止**用跳过钩子的参数绕过（会把真缺陷永久埋掉）；② **禁止**把纪律文件改动塞进目录型分支（作用域错配必被拒）；③ **禁止**为让 CI 绿而「先摘登记再补空目录占位」（那是把死局伪装成绿）；④ 诊断受阻时**先判「报错来源是 gate 还是 scope 校验」**——gate 属预期行为（合并后补齐），scope 校验属作用域错配（`git restore --staged` 撤销越界暂存）。
 - **阶段 5 — PR 审查意见回应（含多轮）**：① 拉取评审 `gh pr view <编号> --comments` / `gh pr diff <编号>` / `gh api .../pulls/<编号>/reviews`；② 先对齐分支（当前分支须等于 PR 源分支 `feat/<topic>`，`gh pr view <编号> --json headRefName` 核对）；③ 以**真实代码**为唯一基准（用 `gh pr diff`/`Read` 实际文件当前行），逐条对照避免悬空/错误回应；④ **代码修改标准**：先完整执行「代码编写、修改和BUG修复通用纪律」专章——定统一优先级裁决器、画全局契约面（含变更波及半径）、根因修复；同 diff 一次性收口所有 A 类（真问题）+ 联动项，绝不叠补丁、绝不只改被点名项（细则以该专章为准）；⑤ 文案回答逐条引用裁决/契约结论（A 改了哪如何验证 / B 文档澄清 / C 误判有理有据驳回）；⑥ user-facing 改动在 Evidence 段附截图（Web UI 直接粘贴，或 CLI 兜底放 `assets/pr-evidence/` 后引用公开 URL）；⑦ 推送更新 `git push origin feat/<topic>`，重跑 CI 至绿；⑧ 多轮迭代回到阶段 5 开头整体重画方案，不叠补丁。
+  - **审查/统计一律走 git 原生命令，不用 `gh pr view --json`（2026-10-13 实证）**：`gh --json` 的**可用字段集是外部 CLI 的不稳定契约**——实测同一命令在不同版本间字段有增删（如 `merged` 字段已不存在，须用 `mergedAt` + `state` 组合），且 `--jq` 对数组字段的写法易踩坑。**凡需求为「PR 含哪些提交 / 改了哪些文件 / 与 base 差多少」，一律改用 git 原生命令**，其输出跨版本稳定：
+    ```bash
+    git fetch origin --prune
+    git log origin/main..origin/<分支> --oneline        # 该 PR 实际包含的提交
+    git diff origin/main...origin/<分支> --stat          # 变更文件与规模（三点= merge-base 相对差异）
+    git diff origin/main..origin/<分支> --stat           # 两点= 端点差异，含 base 侧独有变更
+    ```
+    用途对照：三点（`...`）判定「本 PR 引入了什么」，两点（`..`）判定「两端最终差异总量」；审查 PR 内容用三点，排除 base 侧已变更项。
+- **阶段 5·甲 · CI 黏性红结果不可重跑（2026-10-01 实证）**：**CI 结果绑定在 PR 对象上而非提交上** —— 已open 的 PR 在 base 分支更新后**不会自动重跑** CI，重跑接口通常也拉不起来。处置口径：
+  1. 先判定该 PR 内容是否已被**另一条有效 PR 承载**（`git log origin/main..origin/<分支>` 比对提交集）；
+  2. **已被承载 → 直接 `gh pr close <编号>`**，不试图重跑、不补提交（重跑通道不通，投入产出比为负）；
+  3. 未被承载 → 该PR 的改动确属未落地，须走「把改动搬到新 PR」而非「等旧 PR 变绿」。
+- **阶段 5 · 合并参数冲突（2026-10-01 实证）**：`gh pr merge <N> --merge` **单参数即可**，再叠 `--merge-method merge` 属重复指定，**直接退出 1**。若需指定方法用 `--merge-method` 替代 `--merge`，二者不并存。
 - **阶段 6 — PR 合并**：贡献 upstream 由维护者合并，你仅监控；自有仓库/自测 PR 用 `gh pr merge`；fork 内部 PR 用 `gh pr merge --squash`。合并前冲突/分支保护见工作流三冲突决策树或工作流五多工作树。
   - **规则集跳过检查绕过（GitHub ruleset 场景）**：若仓库启用 ruleset 且其 required checks 含「因 PR 变更范围(scope)而 skipping」的检查（如 `smoke-scoped` 对 meta 变更跳过），默认 `gh pr merge` 会因「该 required check 虽 skipping 仍视为未满足」被拒（提示 `the base branch policy prohibits the merge`）。
     - 前置：PR 的 CI **实际已通过**（smoke / scope-map pass，skipping 属正常）；`--admin` **仅绕过「跳过的 check」**，若 smoke / scope-map **真红须先修 CI 再合并**。
@@ -391,6 +421,31 @@ compatibility: 需要本机具备 git 与 gh（GitHub 命令行工具）两个�
 4. 强门禁：只删已确认合并或用户明确废弃的分支；删除前先列待删清单及**合并状态 + PR open 状态两维**，暂停确认；`main` 永不删；当前所在分支不删。
    **open PR 人工核对（重要）**：删除分支（尤其已合并但上游仍有 open PR 的分支）前，须先在 GitHub 确认该分支无未关闭的 open PR——否则对应 PR 会被 GitHub 自动关闭。可手动跑 `gh pr list --repo <upstream> --author <你> --state open` 与 `gh pr list --repo <fork> --author <你> --state open` 两条查询核对。
 5. 工区内部对象回收（可选）：分支删除后若有悬空对象，按两步回收——先 `git reflog expire --expire=now --all`（清除本地所有 reflog 恢复点，仅影响本地恢复能力、不丢可达代码）→ 再 `git gc --prune=now`。**根因**：`git gc` 默认遵守 reflog 保留期，reflog 仍引用的对象不会被回收——凡 gc 后悬空对象仍在，先怀疑 reflog 挡路，补 expire 一步即可彻底回收。复验 `git fsck --no-reflogs --unreachable` 应为空。
+6. **合并后清理的顺序三步序列（2026-10-13 实证，硬顺序）**：`gh pr merge` 只改远端，**不动本地 main**。故「合并远端 PR → 清理本地工作树」之间存在**隐式顺序依赖**，顺序颠倒必被脚本拦截：
+   ```bash
+   gh pr merge <PR> --merge --delete-branch          # ① 合并并删远端分支
+   cd <主工作树> && git pull --ff-only origin main   # ② 同步本地 main（必须，禁用 merge 提交）
+   bash scripts/sop_worktree_cleanup.sh <仓库> --branch <分支> --confirm   # ③ 清理工作树+本地分支
+   ```
+   - **拦截现象（正确行为，非故障）**：第③ 步报 `⛔ 合并校验失败：Tip(<sha>) 尚未并入主线 HEAD（merge-base --is-ancestor≠0）`。**根因**：本地 main 停在合并前的提交，分支 Tip 不是本地 HEAD 祖先。**处置**：执行第 ② 步后重跑第 ③ 步即可，**不要**改脚本、**不要** `--force` 绕过——该拦截正是防丢提交的设计。
+   - **worktree 检出致本地分支残留**：`gh pr merge --delete-branch` 在分支被某工作树检出时，会输出 `! Branch ... is checked out in the current worktree; skipping local delete` 并跳过本地删除（**远端已删、本地仍在**）。此为正常指引非报错，本地分支须由第 ③ 步脚本或 `git worktree remove` + `git branch -d` 清理。
+   - **删后必核（不可省）**：脚本自带删后校验时以脚本输出为准；无脚本时手动验`git merge-base --is-ancestor <分支Tip> main` 仍为真，确保提交未丢失。
+7. **脚本拒清时的手工回收路径（2026-10-01 实证）**：清理脚本以「分支 Tip 是否在 main 祖先链」为唯一判据拒清，分两种情形处置：
+   | 拒清原因 | 判定动作 | 回收命令 |
+   |---|---|---|
+   | 分支确未合并（判得对） | 先合并或确认内容废弃 | 合并后重跑脚本；确废弃需用户授权 |
+   | 内容已被**别的** PR 承载（判据不成立但无需再合） | 三层核验（是否 main 祖先 / 有无 PR / 标签-worktree-stash）确认承载方| `git worktree remove worktrees/<dir> --force` → `git branch -d <已合并>`（未合并用 `-D`，须先确认内容已被承载）→ `git push --delete origin <分支>`（远端删除属公开动作，须独立授权） |
+8. **终态七项复核清单（所有收尾的唯一关门动作，不可省）**：「打印了成功」不等于完成，须逐项复核：
+   ```bash
+   git status -sb                                              # ① 工作区干净
+   git worktree list                                           # ② 仅主工作树（或明确说明的无关树）
+   git branch; git branch -r                                   # ③ 仅主线，无残留本地/远端分支
+   gh pr list --state open                                     # ④ 无未关闭 PR
+   <目标路径 ls 确认不存在>                                    # ⑤ 目标确已消失
+   grep -n "<登记关键词>" <纪律文件># ⑥ 仅剩引用/历史说明，非登记项
+   uv run --project <工程> python "<仓库根冒烟入口>" --tier 0,1 --staged  # ⑦ 冒烟全绿（冒烟入口在仓库根的 smoke 目录，不在本技能内；按 §5.4 的门禁命令执行）
+   ```
+   **判据纪律**：所有检查一律以**退出码 / 实际输出**判定，禁止以「打印了成功」或关键词子串代替；退出码 0 才是通过。
 
 ### 工作流十：清理工区维护
 （适用：用户明确要求「清理工区」。本流程只处理"工区文件"清理，不触碰远程仓库/CI/发版。前提：已完成路径核验。）
