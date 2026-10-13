@@ -1,6 +1,23 @@
 ---
 
-## [2026-10-03]
+## [2026-10-13]
+
+### Added
+- **dir/code-review-combo：guard.sh 新增 (e) Schema 双向一致性守卫**：实跑 `merge_reports` 读真实产出的键 ↔ SKILL.md「输出：唯一审计报告格式」小节 Schema 块声明的键，要求**双向相等**（实现有而文档无 = 文档漏写；文档有而实现无 = 文档声称存在但实际不存在）；另校验 `verified_by`/`cross_check`/`category`/`severity` 四字段枚举取值一致。比对逻辑独立成 `tests/schema_parity.js`（内联进 `bash -c '...'` 会因 JS 反引号与 bash 单引号嵌套冲突而报 `unexpected EOF`）。依赖 node + bash，缺 node / merge_reports / fixtures 时判 SKIP 而非失败。
+  - **动机**：既有守卫 (a) 引用存在 / (c) 版本一致 / (d) JSON 合法**均不覆盖字段级不一致**——同日修复的 SKILL.md「扁平别名字段」问题正是靠人工实跑读产出才暴露，grep 源码无法发现。
+  - **实现要点**：枚举字典（`by_source`/`severity_dist`/`verified_by`/`category_dist`）的键是**取值**而非字段名，须白名单排除否则产生 14 项假阳性；CRLF 仓库的围栏正则须用 `\r?\n`（`new RegExp("...\\n")` 的 `\\n` 会被解析成字面反斜杠+n）。
+  - **注入式验证**：注入 `critical_phantom`（复刻真实 finding 形态）→ 检出 RC=1；注入 `zzz_extra` → 检出；未注入 → PASS（双向 24 键一致）。
+- **dir/github-personal-manager：新增 `references/push-diagnosis-and-cli-pitfalls.md`（167 行）**：承载推送通道分层判诊（网络层 / 认证层 / 本地错误三类判据 + 双通路独立探测 + `Test-NetConnection` 端口级判据 + 持续阻断 vs 间歇抖动修正）、Bash 管道退出码陷阱（`${PIPESTATUS[0]}`）与**假绿家族三种形态**、`gh search` 词法与同名镜像仓库还原血缘四步法、无 `.git` 副本的 `hash-object` vs blob sha 版本锁定法、跨 shell 正斜杠纪律、调度入口凭证输出审查。
+
+### Changed
+- **dir/github-personal-manager：SKILL.md 沉淀 13 条 git/GitHub 纪律（+55 行）**：工作流八新增第 6 步「合并后清理的顺序三步序列」（`gh pr merge` → `git pull --ff-only origin main` → `sop_worktree_cleanup.sh`，并显式标注「合并校验失败」是正确行为非故障、禁改脚本禁 `--force` 绕过）、第 7 步「脚本拒清时的手工回收路径」、第 8 步「终态七项复核清单」；工作流五补「`--branch` 禁重复写单元名 + 建树前必须干跑」；工作流九补「审查走 git 原生命令而非 `gh --json`」、「CI 黏性红结果不可重跑」、「合并参数冲突」、「CI 覆盖边界须本地补验收」、「双向校验 × scope 校验死锁（带四条适用前提）」。
+  - **去重纪律**：沉淀前与既有工作流八/九逐条比对，3 条已覆盖（open PR 核对 / ruleset 绕过 / `--no-ff`）不重复写入。
+- **dir/code-review-combo：修正 3 处文档-实现不一致（自审发现）**：
+  - **SKILL.md 声称不存在的扁平别名字段**——原称「summary 顶层同时存在扁平 `critical/high/medium/low`（由 `merge_reports` 同值回填）」，但 Schema 代码块未列、脚本回填语句 grep 计数 0、实跑 summary 实际 13 键不含该别名，三项证据表明从不存在。改为显式告知「顶层不含扁平别名、下游必须读 `severity_dist`」；**不改 `merge_reports`**——实现侧本就自洽，补别名会引入双源字段违反单一事源。
+  - **`select-provider list` 写盘副作用未披露**——配置同步写在 `run_node` 公共加载路径，名义只读的 `list` 亦写 ocr 全局配置。补写盘副作用警示块 + 「不可凭命令名推断副作用」纪律。
+  - **README §7.1 目录树漏列 4 个实际文件**——补 `tests/fixtures/` 三个 fixture 与 `review-spd/tests/test_review_context.py`；顺带修正 `test_merge_reports.sh` 标注「11/11」失真（实跑为 16/16）。
+
+---
 
 ### Added
 - **file/wechat-article-to-ima：新增根级单文件 Skill `Skill-微信公众号文章抓取入iam库.md`（v1.1.0）**：按关键词检索微信公众号文章、抓取正文、批量入库腾讯 ima 知识库指定子目录并复验完整性；含参数配置区（全部带默认值、零输入可执行）、任务卡 A/B/C 轮转（主词簇/变体词簇跨轮覆盖）、前置依赖检查四项（wechat-article-search / ima-skills / web-search / firecrawl）、完整性闸门（≥800 字且 ≥5 句号）、判重（带 `.md` 后缀）、四类过滤词族、三级抓取降级链、限流退避与断点续跑。部署态为「无，WorkBuddy 直接调用开发态副本」。
