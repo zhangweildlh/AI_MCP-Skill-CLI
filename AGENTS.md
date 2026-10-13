@@ -104,7 +104,7 @@
   |---|---|---|---|---|---|---|
   | `chrome-devtools` | `chrome-devtools/` | `chrome-devtools/` | 目录型 | 目录型 | 16924 B × 16914 B；diff 仅 2 hunk，均属空行与行尾 | 实质一致（详见 §7.1） |
   | `skill-forge` | `Skill-元技能，Skill创建校验器.md` | `skill-forge/SKILL.md` | 根级单文件 | 目录（仅 SKILL.md） | 44029 B × 43220 B，809 行；去 CR 后同 `59e67db6…`，diff 0 行 | **实质一致**（仅 CRLF/LF 差异） |
-  | `memory-consolidate` | `Workbuddy专属/Skill-memory-consolidate.md` | `memory-consolidate/SKILL.md` | 合集目录内单文件 | 目录（仅 SKILL.md） | 30060 B × 29823 B，237 行；去 CR 后同 `29c0f524…`，diff 0 行 | **实质一致**（仅 CRLF/LF 差异） |
+  | `memory-consolidate` | `Workbuddy专属/Skill-memory-consolidate.md` | `memory-consolidate/SKILL.md` | 合集目录内单文件 | 目录（仅 SKILL.md） | 51036 B × 51036 B，379 行；原始 md5 同 `b5f62e02…`，diff 0 行（**字节完全一致**） | **实质一致**（2026-10-13 v2.3.0 整改后复采；原 2026-10-01 采集值为 30060×29823 B / 237 行 / 去 CR 后同 `29c0f524…`） |
   | `workflow-distill` | `Workbuddy专属/Skill-workflow-distill.md` | `workflow-distill/SKILL.md` | 合集目录内单文件 | 目录（仅 SKILL.md） | 17990 B × 17805 B，185 行；去 CR 后同 `46b490b7…`，diff 0 行 | **实质一致**（仅 CRLF/LF 差异） |
   | `task-methodology-consolidation` | `Skill-对当前对话会话做经验沉淀和方法论固化.md` | `task-methodology-consolidation/SKILL.md` | 根级单文件 | 目录（仅 SKILL.md） | 双侧 26255 B，同 `c1fb5928…` | 实质一致（单文件→目录形态转换） |
   | `workbuddy-workspace-migration` | `Workbuddy专属/workbuddy-workspace-migration/` | `workbuddy-workspace-migration/` | 合集目录内子 Skill | 目录 | 双侧 25522 B，同 `296e1f3b…` | 实质一致（仅所在目录不同） |
