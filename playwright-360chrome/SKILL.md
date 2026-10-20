@@ -3,7 +3,7 @@ name: playwright-360chrome
 slug: playwright-360chrome
 version: 2.0.0
 homepage: local://skills/playwright-360chrome
-description: "通过 Playwright（含 MCP 浏览器工具）实现浏览器自动化：导航网页、点击元素、填写表单、截图、提取数据、调试真实浏览器工作流。适用场景：(1) 需要真实浏览器而非静态抓取时；(2) 任务涉及 Playwright MCP、浏览器工具、Playwright 测试/脚本或 JS 渲染页面时；(3) 用户希望将导航、表单、截图、PDF、下载或浏览器驱动的提取转化为可靠结果时。"
+description: "通过 Playwright（含 MCP 浏览器工具）实现浏览器自动化：导航网页、点击元素、填写表单、截图、提取数据、调试真实浏览器工作流。激活关键词：Playwright、浏览器自动化、Playwright MCP、网页截图、表单填写、页面数据提取。适用场景：(1) 需要真实浏览器而非静态抓取时；(2) 任务涉及 Playwright MCP、浏览器工具、Playwright 测试/脚本或 JS 渲染页面时；(3) 当用户希望将导航、表单、截图、PDF、下载或浏览器驱动的提取转化为可靠结果时。不适用场景：纯静态页面抓取（用普通 HTTP 请求即可）、无需浏览器的后端或 CLI 任务、无 Node.js 环境的场景。"
 metadata: {"clawdbot":{"emoji":"P","requires":{"bins":["node","npx"]},"os":["linux","darwin","win32"],"install":[{"id":"npm-playwright","kind":"npm","package":"playwright","bins":["playwright"],"global":true,"label":"Install Playwright (global → node_global)"},{"id":"npm-playwright-mcp","kind":"npm","package":"@playwright/mcp","bins":["playwright-mcp"],"global":true,"label":"Install Playwright MCP (global, optional)"}]}}
 ---
 
