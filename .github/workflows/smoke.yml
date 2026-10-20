@@ -90,7 +90,12 @@ jobs:
                 # 根级单文件 Skill：提取 frontmatter name → file/<name>
                 name=$(head -25 "$f" | grep -E '^name:' | head -1 \
                        | sed 's/^name:[[:space:]]*//; s/[",`]//g')
-                if echo "$name" | grep -qE '^[a-z0-9一-龥_-]+$'; then
+                # name 合法性校验用 python3 而非 grep -E：CI 环境为 C locale，
+                # grep 的字符范围表达式「一-龥」会报 "Invalid collation character"
+                # 并返回非零，使合法 name 被误判 → 落入 else 置 meta=1（2026-10-20
+                # 实测：PR #131 的 CHANGED 完全正确却仍判 meta，根即在此）。
+                # Python re 的 Unicode 范围不受 locale 影响，行为确定。
+                if printf '%s' "$name" | python3 -c "import sys,re; s=sys.stdin.read().strip(); sys.exit(0 if s and re.fullmatch('[a-z0-9_\u4e00-\u9fa5-]+', s) else 1)"; then
                   scopes="$scopes file/$name"
                 else
                   meta=1                                    # 无法判定 name → 保守全量
