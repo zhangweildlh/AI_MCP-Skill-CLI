@@ -54,7 +54,11 @@ jobs:
             BASE_OK=0
           fi
           if [ "$BASE_OK" = "1" ]; then
-            CHANGED=$(git diff --name-only "${BASE_SHA}"...HEAD || true)
+            # -c core.quotePath=false：中文路径须原样输出。Git 默认(quotePath=true)会把非 ASCII
+            # 路径转成双引号+八进制转义（如 "Skill-\345\244\226..."），导致下方 case 的
+            # Skill-*.md 模式失配、落入 *) 分支误判为 meta。2026-10-20 实测：PR #131（中文
+            # 根级 Skill 文件）即触发此缺陷，smoke-scoped 被跳过、该 scope 的 tier1/2 未验证。
+            CHANGED=$(git -c core.quotePath=false diff --name-only "${BASE_SHA}"...HEAD || true)
           else
             CHANGED=""
             meta=1
