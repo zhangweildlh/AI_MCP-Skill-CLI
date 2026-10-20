@@ -64,14 +64,14 @@
 - 5.2 PR 纪律：目录型 Skill 改动从对应 worktree 分支发 PR；根级 Skill 文件与其他根级文件走标准分支+PR；PR 描述须列明影响范围与验证方式。
 - 5.3 CI 约定（矩阵）：
 
-  | 变更类型 | `smoke`（required，恒运行） | `smoke-scoped`（按 scope） | `run_all`（全量） |
-  |---|---|---|---|
-  | meta scope | 运行（tier0-3+5 密钥/忽略/结构/目录存在性） | 跳过 | 运行（required） |
-  | 目录型 Skill | 运行（tier0 密钥/忽略） | 运行（tier1/2/5，按 `--scope`） | 不运行 |
-  | 根级 Skill 文件 | 运行（tier0 密钥/忽略） | 运行（tier1/2/5，按 `--scope`） | 不运行 |
-  | 无法判定 scope | 运行（tier0 密钥/忽略） | 不运行/降级 | 运行（required） |
+  | 变更类型 | `smoke`（required，恒运行） | `smoke-scoped`（按 scope，非 required） |
+  |---|---|---|
+  | meta scope | 全量 tier0-3+5+6（`smoke` 在 meta 时自动升级） | 跳过 |
+  | 目录型 Skill | tier0 密钥/忽略（快速门禁） | 运行（tier1/2/5，按 `--scope`） |
+  | 根级 Skill 文件 | tier0 密钥/忽略 | 运行（tier1/2/5，按 `--scope`） |
+  | 无法判定 scope | 全量 tier0-3+5+6（保守） | 不运行 |
 
-  `main` 分支保护（classic protected branch）required checks 含 `smoke` 与 meta 全量 `run_all`（二者失败均阻断合并）；`smoke-scoped` 对 meta 变更 skipping，不列入 required。
+  `main` 分支保护（classic protected branch）required check **仅 `smoke`**（失败即阻断合并）：meta 变更时该 job 自动升级为全量 tier0-3+5+6，scope 变更时仅跑 tier0 基础门禁；`smoke-scoped` 在 scope 变更时按 scope 运行对应 tier1/2/5（校验 `file/<name>` 或 `dir/<scope>` 的专项检查），对 meta 变更 skipping，故不列入 required（若列入则 meta PR 因 skipping 永远无法合并）。注：`run_all.py` 是本地/CI 共用的**唯一调度脚本**，非独立 GitHub check；「全量」由 `smoke` job 在 meta 模式下调用 `run_all.py --tier 0,1,2,3,5,6` 实现。
 - 5.4 测试约定：本仓库自动化冒烟集中在 `scripts/smoke/`（tier0-6，`run_all.py` 支持 `--scope` 按 scope 过滤；其中 `tier6` 为版本锁一致性门禁，仅对含 `version-lock.md` 的技能生效，主干锁与 main HEAD 不一致且未标注历史快照时致命阻断）；提交前可本地运行 `uv run --with requests python scripts/smoke/run_all.py --tier 0,1 --staged`（本机禁裸 python，一律经 uv 调用，工程路径为本机环境事实，其他机器按各自环境调整）；CI 按变更 scope 触发对应检查，meta 变更触发全量；各 Skill 自带测试（如 `github-personal-manager/smoke`、`web-search/tests` 等）保留在各自 Skill 目录内自包含，调度统一收拢到 `scripts/smoke` 入口（唯一测试源与四类测试入口、扫描优先/复用优先、收尾打扫、资产管理详见第 9 章 测试资产纪律）。
 - 5.5 **docs-sync gate 与目录型提交的交互（操作指引）**：
   - `sop_docs_sync_check.sh`（docs-sync gate）依据改动类型分层检查。当变更无法被归类为 command/config/feature/behavior/dependency/rename/copy/example/docs 中的任何一种时（如**文件删除**、图片/数据资源变更），脚本将其标为 `UNKNOWN`，**保守触发全部 Tier 1/2/3 检查**，包括 Tier 1 的 README/CHANGELOG/AGENTS.md 同步要求。
