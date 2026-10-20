@@ -53,6 +53,18 @@ jobs:
           else
             BASE_OK=0
           fi
+          # 回退（2026-10-20 实现，原仅注释承诺未落地）：PR 的 base.sha 可能未被 checkout
+          # fetch 到（pull_request 事件只 fetch PR 相关 refs；且 base 分支在 PR 创建后又前进时，
+          # 该 sha 需显式 fetch 才有）。此时回退用 origin/main 作基准——rebase 型 PR 分支的
+          # diff(origin/main...HEAD) 恰为「本 PR 自身变更」，语义正确。
+          if [ "$BASE_OK" != "1" ]; then
+            if git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
+              BASE_SHA=$(git rev-parse origin/main)
+              BASE_OK=1
+              echo "scope-map: base.sha 不可用，回退 origin/main=$BASE_SHA"
+            fi
+          fi
+          echo "scope-map: BASE_SHA=$BASE_SHA BASE_OK=$BASE_OK"
           if [ "$BASE_OK" = "1" ]; then
             # -c core.quotePath=false：中文路径须原样输出。Git 默认(quotePath=true)会把非 ASCII
             # 路径转成双引号+八进制转义（如 "Skill-\345\244\226..."），导致下方 case 的
@@ -63,6 +75,7 @@ jobs:
             CHANGED=""
             meta=1
           fi
+          echo "scope-map: CHANGED=[$CHANGED]"
 
           # ---- 逐个变更路径判定 scope ----
           scopes=""
