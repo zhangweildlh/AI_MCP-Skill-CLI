@@ -1,6 +1,6 @@
 ---
 name: find-skill-to-xml
-description: 扫描指定工作目录及其一级子目录，发现所有合规的 AI 技能定义文件（SKILL.md 或以 Skill- 开头的 MD 文件），验证其 YAML 前置元数据完整性，提取 name 和 description 信息，生成标准 XML 技能片段并展示在对话中。适用于 Skill 目录索引、批量发现、向外部系统提供 Skill 清单等场景。不适用于 Skill 内容审阅、代码审查等场景。
+description: 扫描指定工作目录及其一级子目录，发现所有合规的 AI 技能定义文件（SKILL.md 或以 Skill- 开头的 MD 文件），验证其 YAML 前置元数据完整性，提取 name 和 description 信息，生成标准 XML 技能片段并展示在对话中。当用户需要为 Skill 目录建立索引、批量发现仓库内所有技能、或向外部系统导出技能清单时使用；激活关键词：扫描 Skill、技能发现、XML 技能片段、SKILL.md 索引、批量导出。不适用于 Skill 内容审阅、代码审查、技能功能修改等任务。
 version: 1.1.0
 tools:
   - shell_status
