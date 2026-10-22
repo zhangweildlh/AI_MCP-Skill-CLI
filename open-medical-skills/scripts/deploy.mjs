@@ -4,7 +4,7 @@
  *
  * 作用：
  *   1. （可选）--sync：先运行 scripts/sync_openmedical.py 刷新顶层 vendored 副本（联网）。
- *   2. 把顶层 vendored 子技能目录 <name>/（连同 .upstream_version）复制（连同 .upstream_version）到各目标 Agent 的 skills 目录。
+ *   2. 把顶层 vendored 子技能目录 <name>/（连同 .upstream_version）随父技能包整体复制，内嵌进 <目标>/open-medical-skills/ 之内（保持与运行时 {SKILL_ROOT}/<子技能>/SKILL.md 一致）。
  *   3. 把「父技能」的定制文件（SKILL.md / README.md / VENDORING.md / config.json / scripts / .gitignore）
  *      复制到 <目标>/open-medical-skills/。注意：绝不复制 upstream/ 子目录（保持父子解耦）。
  *
@@ -83,19 +83,23 @@ function deploy(cfg, opts) {
     log(`部署到 ${t.agent} -> ${dir}`);
     if (!opts.dryRun) fs.mkdirSync(dir, { recursive: true });
 
+    // 父技能目标目录（vendored 子技能内嵌于此目录内，保持与开发态/运行时一致）
+    const parentDest = path.join(dir, parentName);
+    if (!opts.dryRun) fs.mkdirSync(parentDest, { recursive: true });
+
     // 1) 入库 vendored 子技能（来自顶层 <name>/，离线可用；连同 .upstream_version）
+    //    内嵌进 parentDest/<name>/，而非作为 skills/ 下的兄弟目录——父技能按
+    //    {SKILL_ROOT}/<子技能>/SKILL.md 相对路径读取它们（见 SKILL.md / README 模块三·三）。
     for (const skill of native) {
       const src = path.join(PKG_DIR, skill);
       if (!fs.existsSync(path.join(src, 'SKILL.md'))) {
         warn(`vendored 子技能缺失：${src}（请先运行 sync_openmedical.py 或加 --sync）`);
         continue;
       }
-      cpDir(src, path.join(dir, skill), opts.dryRun);
+      cpDir(src, path.join(parentDest, skill), opts.dryRun);
     }
 
     // 2) 父技能（仅复制本包定制文件；刻意排除 upstream/，保持解耦）
-    const parentDest = path.join(dir, parentName);
-    if (!opts.dryRun) fs.mkdirSync(parentDest, { recursive: true });
     for (const f of ['SKILL.md', 'README.md', 'VENDORING.md', 'config.json', '.gitignore']) {
       const s = path.join(PKG_DIR, f);
       if (fs.existsSync(s)) cpDir(s, path.join(parentDest, f), opts.dryRun);
@@ -103,7 +107,7 @@ function deploy(cfg, opts) {
     cpDir(path.join(PKG_DIR, 'scripts'), path.join(parentDest, 'scripts'), opts.dryRun, (s) => s.includes('__pycache__'));
   }
 
-  log('部署完成。父技能已安装为「open-medical-skills」，vendored 子技能已并行安装（离线可用）。');
+  log('部署完成。父技能包已安装为「open-medical-skills」，vendored 子技能内嵌于父技能目录内（离线可用）。');
   if (!opts.sync) log('如需先跟进上游最新，可加 --sync 再部署；或单独运行：python scripts/sync_openmedical.py');
 }
 
