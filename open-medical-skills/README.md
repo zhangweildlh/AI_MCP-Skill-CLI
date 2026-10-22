@@ -72,7 +72,7 @@ open-medical-skills/                ← 父技能包根目录（本仓维护，�
 
 1. **父侧可改**：`SKILL.md`、`README.md`、`VENDORING.md`、`config.json`、`scripts/`、`.gitignore` —— 由本仓（AI_MCP-Skill-CLI）定制维护。
 2. **子侧只读**：四个子技能目录内的 `SKILL.md` 是 Open-Medica 上游的**逐字副本、零本地补丁**；仅由 `sync_openmedical.py` 产生与刷新，父侧任何脚本、文档、人工都不得改写其中内容。
-3. **部署产物形态**：部署时，vendored 子技能以独立目录（如 `clinical-differential-diagnosis/`）并行安装于目标 Agent 的 `skills/` 下；父技能以 `open-medical-skills/` 目录安装。二者并列、互不嵌套，父通过「读取子目录 SKILL.md 执行」使用子，从而保持解耦。
+3. **部署产物形态**：四个 vendored 子技能**内嵌于父技能目录 `open-medical-skills/` 之内**（与上方目录树、以及 `SKILL.md` 的 `{SKILL_ROOT}/<子技能>/SKILL.md` 相对路径一致），随父技能包整体部署到目标 Agent 的 `skills/open-medical-skills/`；父通过「读取子目录 SKILL.md 执行」使用子。父子解耦**不靠目录并列实现**，而是靠第 2 条的硬规则：子技能是 Open-Medica 上游的逐字副本、零本地补丁，父侧任何脚本/文档/人工都不得改写子技能内容；子技能也不单独作为顶层技能被 Agent 激活。
 
 ---
 
@@ -125,12 +125,20 @@ node scripts/deploy.mjs --dry-run
 
 ```
 skills/
-├── open-medical-skills/        ← 父技能（本包定制）
-├── clinical-differential-diagnosis/
-├── lab-result-interpreter/
-├── clinical-treatment-plan-generator/
-└── drug-interaction-checker/
+└── open-medical-skills/        ← 父技能包（本包定制，含内嵌 vendored 子技能）
+    ├── SKILL.md
+    ├── README.md
+    ├── VENDORING.md
+    ├── config.json
+    ├── .gitignore
+    ├── scripts/
+    ├── clinical-differential-diagnosis/   ← 【内嵌·vendored 副本】
+    ├── lab-result-interpreter/
+    ├── clinical-treatment-plan-generator/
+    └── drug-interaction-checker/
 ```
+
+> **部署形态（与上方目录树、模块三一致）**：四个 vendored 子技能**内嵌于**父技能包目录 `open-medical-skills/` 之内，随父包整体复制到目标 `skills/open-medical-skills/`；子技能**不**作为 `skills/` 下的独立兄弟目录，也**不**单独被 Agent 激活——父技能按 `SKILL.md` 的 `{SKILL_ROOT}/<子技能>/SKILL.md` 相对路径读取它们。
 
 > 备选原生安装方式（无需本包也可，但缺少中文适配与默沙东注入）：
 > `npx skills add Open-Medica/open-medical-skills --skill <技能名> -a <agent>`
