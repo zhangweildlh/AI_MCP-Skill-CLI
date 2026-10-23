@@ -25,7 +25,7 @@
   - `dir/tender-review-kit`
   - `dir/web-search`
   - `dir/Workbuddy专属`（无 SKILL.md，按目录 scope 处理；合集目录，内含子 Skill，统一按目录 scope 管理）
-- 2.2 根级 Skill 文件（8 个，scope 标识 `file/<name 字段>`）：
+- 2.2 根级 Skill 文件（9 个，scope 标识 `file/<name 字段>`）：
 
   | 文件名 | name 字段 |
   |---|---|
@@ -34,10 +34,10 @@
   | Skill-多文件分析+知识图谱构建.md | `multi-file-analysis` |
   | Skill-多源代码审查整合收敛.md | `code-audit-consolidation` |
   | Skill-对当前对话会话做经验沉淀和方法论固化.md | `task-methodology-consolidation` |
+  | Skill-微信公众号文章抓取入iam库.md | `wechat-article-to-ima` |
   | Skill-扫描Skill技能生成xml技能标签.md | `find-skill-to-xml` |
   | Skill-推广文章撰写.md | `promotion-writer` |
   | Skill-滴答清单智能任务解析创建器.md | `ticktick` |
-  | Skill-微信公众号文章抓取入iam库.md | `wechat-article-to-ima` |
 - 2.3 共享/元 scope（`meta`）：`scripts/`、`.github/`、`README.md`、`CHANGELOG.md`、`AGENTS.md`、`Memory-Data/`、`.githooks/`、`.gitignore`、`@*.md`、`mimo_mcp.py`。其中 `.githooks/`、`.gitignore` 为仓库纪律与门禁配置；`@*.md`、`mimo_mcp.py` 为其他根级文件，与本文件同走 meta 管理路径（标准分支+PR）。
 - 2.4 排除与忽略：`.workbuddy/`、`worktrees/`、`_gsdata_/`（GoodSync 本地同步状态目录，仅本机工具使用，忽略规则见仓库级 `.gitignore`）、`reports/`（本地巡检报告目录，不随仓库分发，忽略规则见仓库级 `.gitignore`）、密钥文件（`ref-material-writing/.env` 等，详见 §3.3）。
 - 2.5 清单维护规则：§2.1–§2.4 为机器可重写数据段，由 `scripts/sync-scope-manifest.py --update` 自动生成；人工修改须与脚本输出一致（数量、目录名、name 字段须与脚本扫描结果对齐）。除数据段外，本文件其余纪律章节为人工维护，遵循 §6.1「先更新本文件、再更新引用方」原则；新增/删除目录或根级 Skill 文件必须同步本节（docs-sync-checklist Tier 1 强制）。
@@ -72,7 +72,7 @@
   | 无法判定 scope | 全量 tier0-3+5+6（保守） | 不运行 |
 
   `main` 分支保护（classic protected branch）required check **仅 `smoke`**（失败即阻断合并）：meta 变更时该 job 自动升级为全量 tier0-3+5+6，scope 变更时仅跑 tier0 基础门禁；`smoke-scoped` 在 scope 变更时按 scope 运行对应 tier1/2/5（校验 `file/<name>` 或 `dir/<scope>` 的专项检查），对 meta 变更 skipping，故不列入 required（若列入则 meta PR 因 skipping 永远无法合并）。注：`run_all.py` 是本地/CI 共用的**唯一调度脚本**，非独立 GitHub check；「全量」由 `smoke` job 在 meta 模式下调用 `run_all.py --tier 0,1,2,3,5,6` 实现。
-- 5.4 测试约定：本仓库自动化冒烟集中在 `scripts/smoke/`（tier0-6，`run_all.py` 支持 `--scope` 按 scope 过滤；其中 `tier6` 为版本锁一致性门禁，仅对含 `version-lock.md` 的技能生效，主干锁与 main HEAD 不一致且未标注历史快照时致命阻断）；提交前可本地运行 `uv run --with requests python scripts/smoke/run_all.py --tier 0,1 --staged`（本机禁裸 python，一律经 uv 调用，工程路径为本机环境事实，其他机器按各自环境调整）；CI 按变更 scope 触发对应检查，meta 变更触发全量；各 Skill 自带测试（如 `github-personal-manager/smoke`、`web-search/tests` 等）保留在各自 Skill 目录内自包含，调度统一收拢到 `scripts/smoke` 入口（唯一测试源与四类测试入口、扫描优先/复用优先、收尾打扫、资产管理详见第 9 章 测试资产纪律）。
+- 5.4 测试约定：本仓库自动化冒烟集中在 `scripts/smoke/`（tier0-6，`run_all.py` 支持 `--scope` 按 scope 过滤；其中 `tier6` 为版本锁一致性门禁，仅对含 `version-lock.md` 的技能生效，主干锁与 main HEAD 不一致且未标注历史快照时致命阻断，且对 `version-lock.md` 显式声明为「运行时探测依赖（非版本锁定）」的模块豁免首行版本标记要求（此类模块非 git 上游模块，无固定 commit 可锁）；`tier5` 另校验 §2.1/§2.2 标题声明的计数与该节实际登记条目数一致（计数漂移即致命阻断）；提交前可本地运行 `uv run --with requests python scripts/smoke/run_all.py --tier 0,1 --staged`（本机禁裸 python，一律经 uv 调用，工程路径为本机环境事实，其他机器按各自环境调整）；CI 按变更 scope 触发对应检查，meta 变更触发全量；各 Skill 自带测试（如 `github-personal-manager/smoke`、`web-search/tests` 等）保留在各自 Skill 目录内自包含，调度统一收拢到 `scripts/smoke` 入口（唯一测试源与四类测试入口、扫描优先/复用优先、收尾打扫、资产管理详见第 9 章 测试资产纪律）。
 - 5.5 **docs-sync gate 与目录型提交的交互（操作指引）**：
   - `sop_docs_sync_check.sh`（docs-sync gate）依据改动类型分层检查。当变更无法被归类为 command/config/feature/behavior/dependency/rename/copy/example/docs 中的任何一种时（如**文件删除**、图片/数据资源变更），脚本将其标为 `UNKNOWN`，**保守触发全部 Tier 1/2/3 检查**，包括 Tier 1 的 README/CHANGELOG/AGENTS.md 同步要求。
   - **目录型 commit 与 docs(meta) commit 的成对模式**：目录型 Skill 的 worktree 分支提交时，pre-commit hook 的 scope 校验仅允许 `<scope_dir>/*` 下的文件（见 §3.2），CHANGELOG.md 等 meta 文件无法随目录型提交一起暂存。因此，当目录型 Skill 内发生文件删除或内容修改时：

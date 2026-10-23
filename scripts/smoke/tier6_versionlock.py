@@ -17,6 +17,11 @@
             若均不满足但已显式标注为历史快照
             （含"快照"/"snapshot"/"随 main 演进"字样）→ WARN（非阻断，提醒刷新），
             否则 → FATAL（疑似版本锁过期或主干锁悬空）。
+  检查项 ④ 非版本锁定模块豁免：version-lock.md 中**显式声明**为「运行时探测
+            依赖（非版本锁定）」的模块（自有适配层，非 git 上游模块，无固定
+            commit 可锁）不要求首行版本标记 → INFO 而非 WARN，避免对非上游
+            模块误报（假阳性污染门禁输出）。豁免以 version-lock.md 的显式声明
+            为**唯一依据**（单一事实源），不在该段声明的模块仍按原规则校验。
 
 scope 过滤（方案 Y）：dir/<目录名> 仅校验该技能；file/<name> 仅校验该单文件技能；
 meta/None/all 全量校验所有含 version-lock.md 的技能。无 version-lock.md 的技能自动跳过。
@@ -45,6 +50,30 @@ PLACEHOLDER_RE = re.compile(
 SNAPSHOT_MARKERS = ("快照", "snapshot", "随 main 演进", "历史快照", "snapshot-locked")
 
 MODULE_DIR = "references/enhancements"
+
+# version-lock.md 中声明「非版本锁定 / 运行时探测依赖」的章节标题
+_NONLOCKED_HEADING_RE = re.compile(r"非版本锁定|运行时探测依赖")
+# 该类章节内以相对路径声明的模块文件（仅取 MODULE_DIR 下的，避免误豁免同名文件）
+_MODULE_PATH_RE = re.compile(re.escape(MODULE_DIR) + r"/([\w.-]+\.md)")
+
+
+def _nonlocked_modules(lock_text: str) -> set:
+    """解析 version-lock.md 中「运行时探测依赖（非版本锁定）」段声明的模块文件名。
+
+    这些模块不是 git 上游模块（运行时按能力特征动态探测接入，无固定 commit
+    可锁），不适用首行版本标记要求。**以 version-lock.md 的显式声明为唯一依据**：
+    不在该段声明的模块仍按原规则校验，避免豁免被泛化。
+    """
+    names = set()
+    in_section = False
+    for ln in lock_text.splitlines():
+        if ln.lstrip().startswith("#"):
+            in_section = bool(_NONLOCKED_HEADING_RE.search(ln))
+            continue
+        if in_section:
+            for m in _MODULE_PATH_RE.finditer(ln):
+                names.add(m.group(1))
+    return names
 
 
 def _first_commit(path: Path) -> str:
@@ -92,12 +121,18 @@ def check_skill(sk, rep: Report, main_short: str) -> None:
     if not modules:
         rep.info(skill_label, "versionlock",
                  "version-lock.md 存在但无缓存模块目录，跳过 ①②")
+    exempt = _nonlocked_modules(lock_text)
     for m in modules:
         commit = _first_commit(m)
         if not commit:
-            rep.warn(skill_label, "versionlock-firstline",
-                     f"模块 {m.name} 首行缺少版本标记 "
-                     f"`<!-- 版本锁定: commit:... -->`")
+            if m.name in exempt:
+                rep.info(skill_label, "versionlock-nonlocked",
+                         f"模块 {m.name} 在 version-lock.md 中声明为运行时探测"
+                         f"依赖（非版本锁定），跳过首行版本标记校验")
+            else:
+                rep.warn(skill_label, "versionlock-firstline",
+                         f"模块 {m.name} 首行缺少版本标记 "
+                         f"`<!-- 版本锁定: commit:... -->`")
             continue
         # ① 首行↔锁表
         if commit not in lock_text:

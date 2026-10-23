@@ -10,6 +10,14 @@
   - **未跟随项复核**：review-spd 真上游 `zhu1090093659/spec_driven_develop` 仍冻结 `d5d3477`、combo 副本（fork `zhangweildlh/spec_driven_develop` @ `35cc1e8`）仍领先上游；S.U.P.E.R / 裁决契约 / 守卫三项融合范式 blob SHA（`3eb0550` / `37e2c6c` / `ca48847`）复核一致，均无需变更。
   - **回归与部署**：`tests/guard.sh` PASS、`tests/test_merge_reports.sh`（两报告向后兼容 + 三报告 delegate 第三源）PASS、`tests/verify_combo.sh` guard PASS；部署态两份副本经 `cp -f` 同步后 md5 三方（开发态 / 部署态）一致，部署态实跑回归全绿。
 
+### Fixed
+- **meta（AGENTS.md + scripts/smoke）：修 scope 清单计数漂移与 tier6 版本锁假阳性，并补两处门禁缺口**（巡检发现，PR 待建）：
+  - **AGENTS.md §2.2 计数漂移（真实缺陷，静默存活至今）**——标题写「根级 Skill 文件（8 个）」而表格实为 **9 行**，与同文件 §1.2 的「9」自相矛盾。根因：提交 `1642e93`（背靠背审计整改）把标题由「9 个」**误改**为「8 个」，此后表格未变故一直无人察觉。修法：按 §2.5/§6.2 用 `scripts/sync-scope-manifest.py --update` **机器重写** §2.1/§2.2（标题纠正为 9、表格行按文件名规范化排序），**不手改机器可重写数据段**。
+  - **tier6 版本锁假阳性（检查器与技能自身契约冲突）**——`deep-discuss/references/enhancements/sequential-thinking-adapter.md` 被报「首行缺少版本标记」WARN，但 `version-lock.md`「运行时探测依赖（非版本锁定）」段与 SKILL.md「版本锁定与模块依赖」节均**显式声明**该适配层是运行时按能力特征动态探测接入的自有适配层、非 git 上游模块、**无固定 commit 可锁**。修法：tier6 以 `version-lock.md` 的**显式声明为唯一依据**豁免首行标记要求（INFO 而非 WARN）；**不给该文件硬塞伪版本锁**（那会与 version-lock.md 声明冲突并违反单一事实源）。豁免仅对「声明在非版本锁定段内、且以 `references/enhancements/` 路径登记」的模块生效，不在段内声明的模块仍按原规则校验，豁免不被泛化。
+  - **两处门禁缺口（缺陷得以长期存活的成因）**——① tier5 只比对第 2 章**表格条目**与实际结构，**从不读取标题里的数字**，故「标题计数与表格脱节」这一类漂移无任何门禁可检出；② `scripts/sync-scope-manifest.py --check` 本身具备该检出能力却**未被任何门禁调用**（`sop_docs_sync_check.sh` 不涉及 scope 清单，tier5 不调该脚本）。修法：tier5 新增**检查项 E「§2.1/§2.2 标题声明计数 ↔ 该节实际登记条目数」**（漂移 → FATAL，附 `sync-scope-manifest.py --update` 修复指令），且该检查**始终执行**（§2 标题计数属仓库级口径，不随 scope 过滤收窄）；AGENTS.md §5.4 同步补记两项检查语义。
+  - **反向测试（证明检查有效而非恰好通过）**——① 注入 §2.2 标题「8 个」→ tier5 如期 FATAL；② 撤销 `version-lock.md` 的非版本锁定段声明 → tier6 如期恢复 WARN（证明豁免由声明驱动而非硬编码）；③ 在 `--scope dir/code-review-combo` 过滤下注入 §2.1 计数漂移 → tier5 仍如期 FATAL。三项均「备份 → 注入 → 验证 → 逐字节还原」。
+  - 回归：本地全量 `run_all.py --tier 0,1,2,3,5,6` 通过（**78 OK / 0 FATAL / 2 WARN**，较修复前 76/0/3 减少 1 条假阳性；余 2 条为本机环境事实——`python3` 未在 PATH、`pytest` 未安装）。
+
 ---
 
 ## [2026-10-13]
