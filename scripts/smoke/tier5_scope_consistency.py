@@ -11,11 +11,17 @@
             附修复指令「请运行 python scripts/sync-scope-manifest.py --update」。
   检查项 D：纪律必须文件存在性（.githooks/pre-commit、scripts/install-hooks.sh、
             scripts/sync-scope-manifest.py 等 → 缺失 FATAL）。
+  检查项 E：第 2 章 §2.1/§2.2 **标题声明的计数** ↔ 该节实际登记条目数一致
+            （漂移 → FATAL）。补检查项 C 的口径盲区：C 只比对表格条目与
+            实际结构、不看标题里的数字，故标题计数可与表格脱节而长期无人
+            察觉（2026-10-23 实测：§2.2 标题写 8 个、表格实为 9 行，自
+            1642e93 误改后一直静默存活至本次巡检）。
 
 scope 过滤：
   - scope 为 None / "all" / "meta"：全量执行 A/B/C/D；
   - scope 为 dir/<目录名> 或 file/<name>：执行 A，C 仅校验对应条目；
-    仅与该 skill 无关的 B（章节齐全性）/ D（meta 基础设施）跳过。
+    仅与该 skill 无关的 B（章节齐全性）/ D（meta 基础设施）跳过；
+    E（§2 标题计数）**始终执行**——该计数是仓库级口径，与具体 skill 无关。
 """
 from __future__ import annotations
 
@@ -48,6 +54,11 @@ _FILE_TABLE_RE = re.compile(
     r"^\s*\|\s*(Skill-[^|\n]+?\.md)\s*\|\s*`([^`]+)`\s*\|", re.M)
 # 章节标题：## 0 … ## 6（后必须跟空白，避免误吞 ## 10 等）
 _HEADING_RE = re.compile(r"^## ([0-6])\s", re.M)
+# §2.1/§2.2 标题中声明的计数：`- 2.1 目录型 Skill（13 个，…` / `- 2.2 根级 Skill 文件（8 个，…`
+_COUNT_TITLE_RE = {
+    "2.1": re.compile(r"^\s*[-*]\s*2\.1\s+目录型\s*Skill\s*[（(]\s*(\d+)\s*个", re.M),
+    "2.2": re.compile(r"^\s*[-*]\s*2\.2\s+根级\s*Skill\s*文件\s*[（(]\s*(\d+)\s*个", re.M),
+}
 
 
 def _extract_chapter(text: str, num: str) -> str:
@@ -156,6 +167,34 @@ def _check_file_entry(rep: Report, filename: str, expected_name: str,
         rep.ok(f"file/{expected_name}", "scope-file", "根级文件 scope 一致 ✓")
 
 
+def _check_manifest_counts(rep: Report, ch2: str,
+                           n_dirs: int, n_files: int) -> None:
+    """检查项 E：§2.1/§2.2 标题声明的计数 ↔ 该节实际登记条目数。
+
+    补检查项 C 的口径盲区：C 只比对**表格条目**与实际结构，从不读取标题里的
+    数字，故「标题计数与表格脱节」这一类漂移可长期无人察觉（2026-10-23 实测
+    §2.2 标题写「8 个」而表格实为 9 行）。此处只比**计数**，不比条目本身。
+    """
+    for num, unit, decl_re, actual in (
+        ("2.1", "目录型", _COUNT_TITLE_RE["2.1"], n_dirs),
+        ("2.2", "根级 Skill 文件", _COUNT_TITLE_RE["2.2"], n_files),
+    ):
+        m = decl_re.search(ch2)
+        if not m:
+            rep.warn(AGENTS_FILE, "scope-count",
+                     f"§{num} 标题未声明「{unit}」计数（无法校验计数漂移）")
+            continue
+        declared = int(m.group(1))
+        if declared != actual:
+            rep.fatal(AGENTS_FILE, "scope-count",
+                      f"§{num} 标题声明「{unit}（{declared} 个）」，"
+                      f"但该节实际登记 {actual} 个（计数漂移）。"
+                      f"修复指令：请运行 {FIX_CMD}")
+        else:
+            rep.ok(AGENTS_FILE, "scope-count",
+                   f"§{num} 标题计数 {declared} == 实际登记 {actual} ✓")
+
+
 def check_scope_consistency(rep: Report, text: str, scope: str) -> None:
     """检查项 C：第 2 章 scope 清单 与 实际结构 一致性。"""
     ch2 = _extract_chapter(text, "2")
@@ -177,6 +216,9 @@ def check_scope_consistency(rep: Report, text: str, scope: str) -> None:
     rep.info("__repo__", "scope-discovery",
              f"清单登记：目录 {len(manifest_dirs)} / 文件 {len(manifest_files)}；"
              f"实际发现：目录 {len(actual_by_dir)} / 文件 {len(actual_files)}")
+
+    # E 标题计数 ↔ 表格实际登记条目数（始终执行：属仓库级口径，与 scope 无关）
+    _check_manifest_counts(rep, ch2, len(manifest_dirs), len(manifest_files))
 
     if scope and scope.startswith("dir/"):
         # scope 过滤：仅校验该目录条目
