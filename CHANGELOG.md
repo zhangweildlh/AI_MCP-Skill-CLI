@@ -1,5 +1,17 @@
 ---
 
+## [2026-10-23]
+
+### Changed
+- **dir/code-review-combo：同步 `open-code-review-delegate` 至上游 `alibaba/open-code-review` v1.13.3 纯镜像**（PR #139，合并提交 `373b710`）：上游自 v1.12.11 演进至 v1.13.3（含 2026-10-20 提交 `375f64c`；本地 `ocr --version` 实测亦为 v1.13.3），按 combo README 7.5-A 整文件覆盖流程跟随。
+  - **上游实质变更**：delegate `SKILL.md` Step 3 取 diff 命令全面硬化为 `git --no-pager diff --no-ext-diff --no-textconv --no-color`（禁用外部 diff 程序 / textconv / 颜色，输出纯补丁）且路径统一加引号；新增「读上下文」指引（`git log --oneline` / `git blame` / `git show "<ref>:<path>"`）；新增大 diff 落盘机制（`--output="<absolute-diff-file>"` + 分块读全文 + 读后删除 + 失败或超时记 `skipped` + 空输出须回查 preview）。JSON Schema（8 类 `category` / 4 类 `severity`）与 `ocr delegate preview/rule --format json` 命令参数均未变化，对 combo Stage1（ocr 调用）/ Stage3（裁决）与 delegate 第三源改造**无破坏影响**。
+  - **本地增强保全**：覆盖上游正文后补回顶部 HTML 镜像声明、frontmatter `disable-model-invocation: true`、`version` 注释中的 CLI 实测值；经 `diff` 确认与上游 v1.13.3 逐字一致，仅 2 处本地增强偏离。文件换行符保持 CRLF（与 combo 内其余 `SKILL.md` 一致，避免整文件行尾抖动）。
+  - **文档版本引用同步**：README 6.6 新增 2026-10-23 同步记录；6.7 ①、6.4 取基线、6.1 CLI 实测版本、7.1 目录树、7.x 解耦说明、7.5-A 样例，以及 `SKILL.md` 一句话地图、`local/setup.md` 头注释同步更新为 v1.13.3；6.6 历史行与经验性结论（v1.9.5 背景注入等）保留原样不改写。
+  - **未跟随项复核**：review-spd 真上游 `zhu1090093659/spec_driven_develop` 仍冻结 `d5d3477`、combo 副本（fork `zhangweildlh/spec_driven_develop` @ `35cc1e8`）仍领先上游；S.U.P.E.R / 裁决契约 / 守卫三项融合范式 blob SHA（`3eb0550` / `37e2c6c` / `ca48847`）复核一致，均无需变更。
+  - **回归与部署**：`tests/guard.sh` PASS、`tests/test_merge_reports.sh`（两报告向后兼容 + 三报告 delegate 第三源）PASS、`tests/verify_combo.sh` guard PASS；部署态两份副本经 `cp -f` 同步后 md5 三方（开发态 / 部署态）一致，部署态实跑回归全绿。
+
+---
+
 ## [2026-10-13]
 
 ### Added
