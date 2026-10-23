@@ -1,5 +1,5 @@
 <!--
-本文件为上游 alibaba/open-code-review @ v1.12.11 的纯镜像（仅 SKILL.md 一个文件）。
+本文件为上游 alibaba/open-code-review @ v1.13.3 的纯镜像（仅 SKILL.md 一个文件）。
 code-review-combo 的本地化增强（自动安装、Win11 路径、功能覆盖表、委托宿主 JSON Schema 包装、人类报告 prompt）已抽到 ./local/ 目录。
 跟进上游：用 `gh api repos/alibaba/open-code-review/contents/skills/open-code-review-delegate/SKILL.md?ref=<新tag> -H 'Accept: application/vnd.github.raw'` 取最新内容覆盖本文件即可，combo 增强不受影响。
 -->
@@ -22,7 +22,7 @@ compatibility: >
 metadata:
   author: alibaba
   homepage: https://github.com/alibaba/open-code-review
-  version: "1.0.0"   # 此 version 为 SKILL 文档「元数据版本」，与 ocr CLI 版本（实测 v1.12.11，以本地 `ocr --version` 为准）无关，请勿混淆
+  version: "1.0.0"   # 此 version 为 SKILL 文档「元数据版本」，与 ocr CLI 版本（实测 v1.13.3，以本地 `ocr --version` 为准）无关，请勿混淆
 ---
 
 # Open Code Review — Delegation Mode
@@ -61,25 +61,43 @@ Pass the reviewable file paths from Step 1. Output is grouped by rule content �
 
 ### Step 3: Get Diffs
 
-Use git directly based on the mode/ref info from Step 1:
+Choose the diff command using the mode and refs from Step 1. Use `git --no-pager` for every Git call during the review.
+
+The diff commands disable external diff programs, text conversion, and color to produce plain patches.
 
 **Range mode** (merge_base provided in preview output):
 ```bash
-git diff <merge_base>..<to> -- <path>
+git --no-pager diff --no-ext-diff --no-textconv --no-color <merge_base>..<to> -- "<path>"
 ```
 
 **Commit mode**:
 ```bash
-git show <commit> -- <path>
+git --no-pager show --no-ext-diff --no-textconv --no-color <commit> -- "<path>"
 ```
 
 **Workspace mode**:
 ```bash
 # Tracked files
-git diff HEAD -- <path>
+git --no-pager diff --no-ext-diff --no-textconv --no-color HEAD -- "<path>"
 # New untracked files — read directly (entire file is new code)
-cat <path>
+cat "<path>"
 ```
+
+To read context:
+
+```bash
+git --no-pager log --no-color --oneline -- "<path>"
+git --no-pager blame --no-textconv -- "<path>"
+git --no-pager show --no-ext-diff --no-textconv --no-color "<ref>:<path>"
+```
+
+For large diffs, add `--output="<absolute-diff-file>"` to the command for the selected mode. Choose a unique absolute path outside the repository and create its parent directory. Use the same path in file-reading tool calls:
+
+```bash
+git --no-pager diff --no-ext-diff --no-textconv --no-color --output="<absolute-diff-file>" <merge_base>..<to> -- "<path>"
+```
+
+After Git exits with code 0, read and review the entire file in chunks, then remove it. If Git fails or times out, retry or record `skipped` with the error. Check unexpectedly empty output against a fresh preview.
 
 ### Step 4: Review Each File
 

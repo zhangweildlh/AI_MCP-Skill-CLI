@@ -16,7 +16,7 @@ metadata:
 
 > **调用约定**：本技能不通过 Skill 工具单独激活任一子技能，而是**直接读取子目录的 SKILL.md 并按其指令执行**（子技能未单独安装）。请勿在本技能运行时再单独触发 open-code-review-delegate 或 review-spd，避免重复与结论冲突。
 
-> **一句话地图（本地化与定制）**：本技能的本地化增强（自动安装、功能覆盖表、委托宿主 JSON Schema 包装、人类报告 prompt）统一集中在 `./local/` 目录；内嵌的两个子技能中，`./open-code-review-delegate/` 是上游 alibaba/open-code-review @ v1.9.5 的**纯镜像**，`./review-spd/` 是其 fork `zhangweildlh/spec_driven_develop` @ `35cc1e8` 的 **JSON 输出覆盖层**（非纯镜像，原因见该文件头部注释）。本地化与定制全貌详见 README「本地化与定制地图」章节。
+> **一句话地图（本地化与定制）**：本技能的本地化增强（自动安装、功能覆盖表、委托宿主 JSON Schema 包装、人类报告 prompt）统一集中在 `./local/` 目录；内嵌的两个子技能中，`./open-code-review-delegate/` 是上游 alibaba/open-code-review @ v1.13.3 的**纯镜像**，`./review-spd/` 是其 fork `zhangweildlh/spec_driven_develop` @ `35cc1e8` 的 **JSON 输出覆盖层**（非纯镜像，原因见该文件头部注释）。本地化与定制全貌详见 README「本地化与定制地图」章节。
 
 ## 自动激活关键词
 
