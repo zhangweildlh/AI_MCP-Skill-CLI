@@ -1,6 +1,6 @@
 # 本地增强：自动安装 ocr CLI 与 Win11 PATH 处理
 
-> 本文件属于 `code-review-combo` 的本地化增强，已从上游镜像 `open-code-review-delegate/SKILL.md`（上游 v1.9.5 纯镜像）中抽离至此。
+> 本文件属于 `code-review-combo` 的本地化增强，已从上游镜像 `open-code-review-delegate/SKILL.md`（上游 v1.13.3 纯镜像）中抽离至此。
 > 仅在使用 `open-code-review-delegate` 技能时作为补充指引，不修改上游内容。
 
 ## 1. 前置检查

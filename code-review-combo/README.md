@@ -102,7 +102,7 @@
 > 注意：
 > - **open-code-review-delegate 上游** = `alibaba/open-code-review`（combo 内仅含 `open-code-review-delegate/SKILL.md` 文档副本，ocr CLI 由 SKILL.md 内置逻辑自安装，不内嵌 CLI 本体）。
 > - review-spd 的真上游路径在 `spec_driven_develop` 仓库的 `plugins/spec-driven-develop/skills/review-spd` 子目录下，不是独立仓库；且自 `d5d3477` (2026-07-26) 起**冻结无任何更新**。combo 内嵌的 review-spd 是**有益分叉**——来自 fork `zhangweildlh/spec_driven_develop` @ `35cc1e8`，已含 JSON 输出改造，功能领先真上游，**不应以"跟随真上游"之名覆盖式回退**。
-> - **OCR CLI 能力同步**：`ocr`（open-code-review）CLI 本体由你本地自装，随上游独立更新（当前实测 `v1.9.5`）；combo 目录内**仅维护 `open-code-review-delegate/SKILL.md` 文档副本**，既不分叉也不内嵌 CLI 本体。因此判断 CLI 能力请以本地 `ocr --version` 为准——不要因文档副本滞后而误判"CLI 不能做某件事"。文档副本中的 `ocr` 命令示例若与本地 CLI 行为不一致，以本地 CLI 为准，并将偏差登记到 6.7 保全清单作为待回放项。
+> - **OCR CLI 能力同步**：`ocr`（open-code-review）CLI 本体由你本地自装，随上游独立更新（当前实测 `v1.13.3`）；combo 目录内**仅维护 `open-code-review-delegate/SKILL.md` 文档副本**，既不分叉也不内嵌 CLI 本体。因此判断 CLI 能力请以本地 `ocr --version` 为准——不要因文档副本滞后而误判"CLI 不能做某件事"。文档副本中的 `ocr` 命令示例若与本地 CLI 行为不一致，以本地 CLI 为准，并将偏差登记到 6.7 保全清单作为待回放项。
 > - **LLM Key 本地配置**：provider 凭证统一存放于本技能目录 `config/providers.json`（相对路径加载，模板见 `config/providers.example.json`，已被 `.gitignore` 忽略，绝不入库）。上游跟随**不涉及**此文件；ocr 运行时配置由 `select-provider` 启动时自动合并同步，Agent 无需手动改全局配置。
 
 #### 6.1.2 combo 字段 ↔ 上游 L1/L2/L3 / Pre-flight 映射（可选说明）
@@ -190,7 +190,7 @@
 
 combo 内每个子技能副本均含**本地增强**（委托 `SKILL.md` 中文 1.1.0、review-spd JSON 输出改造、C-1 `--path` 补丁，见 6.7 保全清单）。直接 `gh api ... | base64 -d > file` 会清空这些增强，故一律改用 **3-way 合并（上游 blob + 本地增强 + 基线）** 保留本地偏离：
 
-1. **取基线（base）**：记录于 6.6 的上游 SHA。open-code-review-delegate 基线 = `v1.9.5`（combo doc 副本已随上游 v1.9.5 纯镜像更新，仅顶部 6 行镜像声明为本地）；review-spd 真上游基线 = `d5d3477`，combo 副本基线 = fork `35cc1e8`。用 `gh api .../contents/<路径> --jq .content | base64 -d` 拉取该 SHA 文件存为 `base.md`。
+1. **取基线（base）**：记录于 6.6 的上游 SHA。open-code-review-delegate 基线 = `v1.13.3`（combo doc 副本已随上游 v1.13.3 纯镜像更新，仅顶部 6 行镜像声明为本地）；review-spd 真上游基线 = `d5d3477`，combo 副本基线 = fork `35cc1e8`。用 `gh api .../contents/<路径> --jq .content | base64 -d` 拉取该 SHA 文件存为 `base.md`。
 2. **取本地增强副本（local）**：复制 combo 当前 `open-code-review-delegate/SKILL.md` / `review-spd/SKILL.md`（含全部本地增强）为 `local.md`。
 3. **取上游最新 blob（remote）**：`gh api .../contents/<上游路径> --jq .content | base64 -d > remote.md`。
 4. **三向合并**：`git merge-file -p local.md base.md remote.md > merged.md`（combo 目录本身不在 git 仓库，但可用 `git merge-file` 对单个文件做三向合并；冲突以 `<<<<<<<` / `=======` / `>>>>>>>` 标出）。
@@ -206,7 +206,7 @@ combo 内每个子技能副本均含**本地增强**（委托 `SKILL.md` 中文 
    - 分别列出 `references/`、`scripts/`（及下属子目录）的文件名：`gh api repos/alibaba/open-code-review/contents/<目录> --jq '.[].path'`，得到待逐个拉取的文件清单。
    - 若 `gh` 不可用，退化为 WebFetch 上游根目录页与子目录页，人工确认路径结构。
 2. **3-way 合并到 combo 副本**（路径来自步骤 1 探测结果，禁止 `> file` 直接覆盖）：
-   - 按本小节开头「前置：3-way 合并通用操作」执行。open-code-review-delegate 副本**通常只需合并 `SKILL.md`**（ocr CLI 自安装，无本地 `references/`/`scripts/`）；基线取 combo doc 当前已对齐的上游 `v1.9.5` 镜像，local=当前 combo `open-code-review-delegate/SKILL.md`（纯镜像 + 顶部 6 行本地声明，无中文分叉），remote=上游最新 `SKILL.md`。
+   - 按本小节开头「前置：3-way 合并通用操作」执行。open-code-review-delegate 副本**通常只需合并 `SKILL.md`**（ocr CLI 自安装，无本地 `references/`/`scripts/`）；基线取 combo doc 当前已对齐的上游 `v1.13.3` 镜像，local=当前 combo `open-code-review-delegate/SKILL.md`（纯镜像 + 顶部 6 行本地声明，无中文分叉），remote=上游最新 `SKILL.md`。
    - `references/`、`scripts/` 内文件**仅当步骤 1 探测到上游 SKILL.md 引用了这些资源时才需要**；若需更新，同样对每个文件做 3-way 合并，保留本地偏离。
    - 若 `gh` 不可用，用 WebFetch 读取上游原始文件作为 remote，按同法做 3-way 合并。
 3. **比对变更**，重点看三处：
@@ -256,6 +256,7 @@ gh api repos/zhu1090093659/spec_driven_develop/contents/plugins/spec-driven-deve
 
 | 同步时间 | 子技能 | 上游 SHA / 版本 | 改动摘要 |
 |----------|--------|----------------|----------|
+| 2026-10-23 | open-code-review-delegate doc 同步升级 | 上游 `alibaba/open-code-review` @ **v1.13.3**（纯镜像：顶部 HTML 注释镜像声明 + frontmatter `disable-model-invocation: true` 为本地增强，正文可整文件覆盖） | 上游自 v1.12.11 演进至 v1.13.3（含 2026-10-20 提交 `375f64c`；本地 `ocr --version` 实测亦 v1.13.3）。delegate `SKILL.md` 增量更新：**Step 3 取 diff 命令全面硬化**——改为 `git --no-pager diff --no-ext-diff --no-textconv --no-color`（禁用外部 diff 程序 / textconv / 颜色，输出纯补丁）、路径统一加引号；**新增「读上下文」指引**（`git log --oneline` / `git blame` / `git show "<ref>:<path>"`）；**新增大 diff 落盘机制**（`--output="<absolute-diff-file>"` + 分块读全文 + 读后删除 + 失败/超时记 `skipped` + 空输出须回查 preview）。JSON Schema（8 类 `category` / 4 类 `severity`）与 `ocr delegate preview/rule --format json` 命令参数均未变化，对 combo Stage1（ocr 调用）/ Stage3（裁决）与 delegate 第三源改造**无破坏影响**。按 7.5-A 整文件覆盖上游 v1.13.3 正文并补回本地增强（顶部镜像声明 + `disable-model-invocation: true`），`version` 注释中的 CLI 实测值同步更新为 v1.13.3；经 `diff` 确认与上游 v1.13.3 逐字一致（仅 `disable-model-invocation: true` 与 `version` 注释 2 处本地增强偏离）。回归 `tests/guard.sh`（仓库卫生 OK）、`tests/test_merge_reports.sh`（两报告向后兼容 + 三报告 delegate 第三源全 PASS）、`tests/verify_combo.sh`（guard PASS）均通过。**review-spd 真上游仍冻结 `d5d3477`、combo 副本（fork `35cc1e8`）领先上游，三项融合范式 blob SHA（`3eb0550` / `37e2c6c` / `ca48847`）复核一致，本次均无需跟随。** |
 | 2026-10-01 | open-code-review-delegate doc 同步升级 | 上游 `alibaba/open-code-review` @ **v1.12.11**（纯镜像：顶部 HTML 注释镜像声明 + frontmatter `disable-model-invocation: true` 为本地增强，正文可整文件覆盖） | 上游自 v1.9.5 演进至 v1.12.11（跨 3 大版本）。delegate `SKILL.md` 增量更新：**删除 `Prerequisites` 段**（安装自检已抽离 `local/setup.md`）、**新增 `Recovering Oversized Background Context` 与 `Troubleshooting CLI Version Compatibility` 两段**；JSON Schema（8 类 `category` / 4 类 `severity`）与 `ocr delegate preview/rule --format json` 命令参数均未变化。对 combo Stage1（ocr 调用）/ Stage3（裁决）与 delegate 第三源改造**无破坏影响**。正文经 `diff` 确认与上游 v1.12.11 逐字一致。回归 `tests/test_merge_reports.sh`（两报告向后兼容 + 三报告 delegate 第三源全 PASS）与 `tests/guard.sh`（仓库卫生 OK）均通过。 |
 | 2026-09-30 | **delegate 第三源支持（非上游同步）** | combo 本地提交（见 PR） | `scripts/merge_reports` 支持 ocr / delegate / review-spd 三源识别：delegate 报告须带 `delegate: true`（或 `mode: "delegate"`）标记方识别为独立第三源，与 ocr / review-spd 跨源交叉验证成 `both`；无标记回退 `ocr`（向后兼容）。`verified_by` 新增 `delegate-only`、`summary` 新增 `delegate_only` 与 `by_source.delegate`，`mode` 按实际源数动态取 `dual-cross-validation` / `tri-cross-validation`，`sources` 按输入动态计算。新增 `tests/fixtures/delegate_report.json` 与三源回归断言（保留两报告契约不变）。`SKILL.md` 用法示例 / 输出 Schema / 避坑小节、`delegate-json-schema.md` 标记纪律、`README.md` 术语与字段表同步更新。回归 `tests/test_merge_reports.sh` 两报告 + 三报告全 PASS。 |
 | 2026-08-18 | **低优先级澄清 + 断链/硬编码路径修复（非上游同步）** | combo 本地提交 `04a3d42` | 应用语义审计 5 项低优先级待修项：C1 delegate SKILL `version` 加注"元数据版本"区别于 ocr CLI v1.9.5；C3 SKILL 术语约定补全 `review-spd-only`/`both` 释义（对齐 README「二、术语约定」）；C4 `delegate-json-schema.md` 注明其 `summary` 为 A' 收敛规范、最终以 `merge_reports` 为准；E3 SKILL 前置条件措辞改为"不引入新的 LLM/SDK 依赖"。另修复：README 将假文件名 `Skill-元技能，Skill校验器.md` 改为引用 `skill-creator` 技能（非仓库内文件，消除悬空引用）；`local/setup.md` 机器专属 Node 路径改为 `<NODE_GLOBAL_DIR>`/`<NODE_HOME>` 占位符（消除硬编码路径）。回归 `tests/test_merge_reports.sh` 11/11 PASS、`guard.sh` PASS。 |
@@ -274,7 +275,7 @@ combo 相对上游存在以下**本地偏离点**。每次 6.4 跟进必须据�
 
 | # | 本地偏离点 | 来源 / 基线 | 回放 / 保全命令 | 责任人 |
 |---|-----------|-------------|----------------|--------|
-| ① | 委托 `SKILL.md` 为上游 **v1.12.11 纯镜像**（顶部 HTML 注释镜像声明 + frontmatter `disable-model-invocation: true` 为本地增强，正文可整文件覆盖；**无中文 1.1.0 分叉**，中文编排在父 `SKILL.md`） | 上游 `alibaba/open-code-review` @ `v1.12.11`（纯镜像，无本地增强） | 随上游新发布版整文件覆盖 `open-code-review-delegate/SKILL.md` 并补回顶部镜像声明与 `disable-model-invocation: true`；无需 3-way 合并 | combo 维护者 |
+| ① | 委托 `SKILL.md` 为上游 **v1.13.3 纯镜像**（顶部 HTML 注释镜像声明 + frontmatter `disable-model-invocation: true` 为本地增强，正文可整文件覆盖；**无中文 1.1.0 分叉**，中文编排在父 `SKILL.md`） | 上游 `alibaba/open-code-review` @ `v1.13.3`（纯镜像，无本地增强） | 随上游新发布版整文件覆盖 `open-code-review-delegate/SKILL.md` 并补回顶部镜像声明与 `disable-model-invocation: true`；无需 3-way 合并 | combo 维护者 |
 | ② | review-spd JSON 输出改造（Dual output 文本↔JSON、`references/output-format.md` Structured JSON、统一 severity、branch 模式 `from=base`/`to=head`） | fork `zhangweildlh/spec_driven_develop` @ `35cc1e8`（领先真上游 `d5d3477`） | 保留 fork；定期 `gh api` 比对真上游 `d5d3477` 内容差异，仅吸收有益新增；**绝不**覆盖式回退 JSON 输出 | combo 维护者 |
 | ③ | C-1 `--path` 补丁（`review-context.py` 子目录范围收敛 + 顶层 / 子技能 `SKILL.md` 范围说明与 `--path` 示例） | 本地（combo 前瞻改进） | 合并时 cherry-pick 此增强；若上游未来加同名参数，以本增强为参考合并 | combo 维护者 |
 | ④ | S.U.P.E.R 架构质量镜（`local/super-philosophy.md`，融合自上游 `super-philosophy.md` @ `3eb0550`，含 MIT 署名） | 上游 `zhu1090093659/spec_driven_develop` @ `3eb0550`（随 v1.15.0） | 保留文件头部 MIT 署名与「combo 融合约定」段；上游 blob SHA 变化时按 §6.3 重新比对并据实更新 | combo 维护者 |
@@ -312,7 +313,7 @@ code-review-combo/
 │   ├── delegate-json-schema.md      【本地化】委托模式宿主 JSON Schema 包装（字段统一 content）
 │   ├── super-philosophy.md          【融合·S.U.P.E.R 架构质量镜】10 项评审核查（跨切面维度，MIT 署名，来源 super-philosophy.md @ 3eb0550）
 │   └── report-narrative.md          【本地化】人类报告 prompt 模板（只叙事不裁决；含 Verdict 段）
-├── open-code-review-delegate/       【上游纯镜像】alibaba/open-code-review @ v1.9.5，仅 SKILL.md
+├── open-code-review-delegate/       【上游纯镜像】alibaba/open-code-review @ v1.13.3，仅 SKILL.md
 │   └── SKILL.md                     （顶部 6 行中文头部注释声明镜像；跟进即覆盖此文件）
 ├── tests/                           【combo 本地·离线回归与卫生】
 │   ├── test_merge_reports.sh        【combo 增强】Stage3 合并确定性回归（16/16，含三源delegate 交叉）
@@ -384,7 +385,7 @@ code-review-combo/
 
 > review-spd 不是真上游 `zhu1090093659/spec_driven_develop` 的纯镜像，而是其 fork `zhangweildlh/spec_driven_develop` @ `35cc1e8` 的副本（含 JSON 输出覆盖层）。代码 `review-context.py` 含 combo 自加 `--path` 补丁（C-1，非逐字节相同），其余逻辑与上游一致；JSON 能力纯在指令层（SKILL.md "Dual output" + output-format.md "Structured JSON"），必须保留。本地自加的 `--path` 子目录审查特性与 JSON 镜像无关，单独保留。跟进时只更新正文、绝不丢弃 Dual output 与 Structured JSON 两节。
 
-**对照**：`open-code-review-delegate/` 已完全解耦——它是上游 v1.9.5 的**纯镜像**，全部 combo 增强已抽到 `local/`，可整文件覆盖、零合并成本。
+**对照**：`open-code-review-delegate/` 已完全解耦——它是上游 v1.13.3 的**纯镜像**，全部 combo 增强已抽到 `local/`，可整文件覆盖、零合并成本。
 
 ### 7.5 跟进上游演进 SOP（让陌生 Agent 自动跟进）
 
@@ -403,7 +404,7 @@ gh api repos/alibaba/open-code-review/contents/skills/open-code-review-delegate/
 > 头部注释固定模板（务必补回）：
 > ```markdown
 > <!--
-> 本文件为上游 alibaba/open-code-review @ v1.9.5 的纯镜像（仅 SKILL.md 一个文件）。
+> 本文件为上游 alibaba/open-code-review @ v1.13.3 的纯镜像（仅 SKILL.md 一个文件）。
 > code-review-combo 的本地化增强（自动安装、Win11 路径、功能覆盖表、委托宿主 JSON Schema 包装、人类报告 prompt）已抽到 ./local/ 目录。
 > 跟进上游：用 `gh api repos/alibaba/open-code-review/contents/skills/open-code-review-delegate/SKILL.md?ref=<新tag> -H 'Accept: application/vnd.github.raw'` 取最新内容覆盖本文件即可，combo 增强不受影响。
 > -->
