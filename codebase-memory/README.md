@@ -29,9 +29,9 @@
 
 ### 1.1 这是什么
 
-**DeusData / codebase-memory-mcp** 是一个**纯本地、只读**的代码知识图谱（影响面分析）引擎。当前接入版本 **v0.10.8**。
+**DeusData / codebase-memory-mcp** 是一个**纯本地、只读**的代码知识图谱（影响面分析）引擎。当前接入版本 **v0.12.1**。
 
-- 形态：**纯 C 单二进制**（`codebase-memory-mcp.exe`，约 296MB），**零运行时依赖、无 API key、无外网**。
+- 形态：**纯 C 单二进制**（`codebase-memory-mcp.exe`，约 318MB），**零运行时依赖、无 API key、无外网**。
 - 能力：158 种语言解析；构建调用图/使用图/导入图/继承图；影响面分析、调用链追踪、死代码定位、本地 git 变动爆炸半径映射。
 - 接口：暴露 **15 个 MCP 工具**（stdio / 也可经 HTTP）。
 - 性质：**只读**——不写文件、不执行 git、不连远程。
@@ -59,9 +59,10 @@
 
 ### 2.1 获取引擎二进制
 
-- 上游：DeusData 官方发布页 / GitHub Releases（[v0.10.8](https://github.com/DeusData/codebase-memory-mcp/releases/tag/v0.10.8)），下载 **Windows amd64** 包 `codebase-memory-mcp-windows-amd64.zip`，解压得 `codebase-memory-mcp.exe`。
-- 官方 SHA-256（windows-amd64，v0.10.8）：`b4b403b1d7c4def3785f148b93f345ce8427858f4f5489ce28580c4387a336a6`。下载后务必 `sha256sum` 比对一致再替换。
-- 本机落点：`D:\codebase-memory-mcp\codebase-memory-mcp.exe`（296,140,288 字节，约 296 MB）。
+- 上游：DeusData 官方发布页 / GitHub Releases（[v0.12.1](https://github.com/DeusData/codebase-memory-mcp/releases/tag/v0.12.1)），下载 **Windows amd64** 包 `codebase-memory-mcp-windows-amd64.zip`，解压得 `codebase-memory-mcp.exe`（同 tag 另提供 `.mcpb` 聚合包与 `codebase-memory-mcp-ui-windows-amd64.zip` 独立 UI 包，本机用 exe 包即可）。
+- 官方 SHA-256（windows-amd64，v0.12.1）：`39f6a789cd858d7428561ac5afaefb9a47b018dcba0ad6fa41ae71a45e0ed656`（与 release 说明 *Security Verification* 表、`checksums.txt` 一致；VirusTotal 全量扫描 clean）。下载后务必 `sha256sum` 比对一致再替换。
+- 本机落点：`D:\codebase-memory-mcp\codebase-memory-mcp.exe`（333,716,480 字节，约 318 MB）。
+- ⚠️ **升级破坏性变更（v0.10.8 → v0.12.1）**：v0.11.0 起索引格式迁移（File 限定名保留扩展名），v0.12.0 新增文档层 / 基础设施即代码图谱并改镜像标识，v0.12.1 再改镜像 registry 标识——**每次升级后，每个已索引项目的首次 `index_repository` 都会触发一次全量重建**（预期内、仅一次，之后恢复增量）。另 v0.12.0 起 `search_code` 在 Windows 改为大小写敏感 + ERE 正则；`detect_changes` 默认 base 改为 `origin/HEAD`。详见 `### 11.6 升级破坏性变更速查`。
 - **目录放置铁律**：必须放在"仅以卷根为祖先"的路径（如 `D:\codebase-memory-mcp`）。**切勿放 `D:\Tools\*` 或 `D:\Tools\Assembly\*`**——这些中间祖先目录给 Authenticated Users 授予了变更权，会触发引擎的 `cache-private` 拒绝（根因见 `### 2.3 三层私有锁（ACL）`）。
 
 ### 2.2 Defender 误报与区域标记
@@ -123,7 +124,7 @@ Set-Acl -Path $path -AclObject $acl
 
 #### 2.6.1 全局用户配置文件
 
-**Windows 实测落点（本机 v0.10.8，权威）**：
+**Windows 实测落点（本机 v0.12.1，权威）**：
 
 > `%LOCALAPPDATA%\codebase-memory-mcp\config.json`
 > 即本机：`C:\Users\15794\AppData\Local\codebase-memory-mcp\config.json`
@@ -275,9 +276,9 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 
 **退出码**：`0`=全部成功或无新仓库；`1`=部分成功（有仓库注册失败）；`2`=前置校验失败（无有效扫描根）。
 
-**脚本自身合规性（v2.2.2 实测确认）**：脚本的 `initialized` 通知已正确使用 `"method":"notifications/initialized"`（带斜杠），与 `### 11.3 常见问题对照表` 的 422 处置一致；`initialize` 握手从响应实时解析协议版本，`Post-McpJson` 正确设置 `ContentLength` / `Accept` / `Mcp-Session-Id`。按上述调用方式真实运行一次（`PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory扫描注册脚本.ps1" -Log`），287ms 返回 `status=success`、`total_found=8`、`new_repos=[]`、`total_fail=0`，`watch_git_repos.log` 与 `.last_result.json` 正常写出——**脚本调用说明合格、充分、全面**。
+**脚本自身合规性（v2.2.2 实测确认；v2.4.2 修复隐藏 .git 漏检）**：脚本的 `initialized` 通知已正确使用 `"method":"notifications/initialized"`（带斜杠），与 `### 11.3 常见问题对照表` 的 422 处置一致；`initialize` 握手从响应实时解析协议版本，`Post-McpJson` 正确设置 `ContentLength` / `Accept` / `Mcp-Session-Id`。**`Scan-DirectoryTree` 的 `Get-ChildItem` 已加 `-Force`（v2.4.2 修复）**：scrcpy / WorkDaddy / legadoT 等仓库的 `.git` 为隐藏目录（属性 `d--h--`），不加 `-Force` 会被 `Get-ChildItem -Filter ".git"` 漏检，导致这些仓库从未被注册、其下的 `index_repository` 被判越界拒绝（见 `### 11.6` 与 `### 11.3` 越界行）。按上述调用方式真实运行一次（`PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory扫描注册脚本.ps1" -Log`），应当返回 `status=success`、`total_fail=0`，`watch_git_repos.log` 与 `.last_result.json` 正常写出——**脚本调用说明合格、充分、全面**。
 
-**通道选择与实时探查机制（v0.10.8 校正）**：
+**通道选择与实时探查机制（v0.12.1 校正）**：
 
 1. 批量注册前先做一次分组实时探查（调用 dmcp 的 `list_groups`），确认目标 group 为 `connected`。
 2. 探查通过（dmcp 在线且 group `connected`）→ 走 **dmcp HTTP 通道**；探查不通过（dmcp 离线）→ 可改走**直连 CLI**（同目录 `codebase-memory-mcp.exe`），但 CLI 同样受准入屏障约束：若 `CBM_CACHE_DIR` 与守护进程缓存根不一致，CLI 会立即失败。此时代理不重试、直接报错，**绝不静默假定"CLI 兜底可用"**——MCP 与 CLI 不是平行双通道。
@@ -313,7 +314,7 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 
 ### 5.2 list_projects — 列出已索引项目
 
-- 参数：无（默认精简响应）。可选分页：`offset`(起始偏移)、`limit`(返回数量)、`include_details`(true 时返回完整字段 `name`/`root_path`/`branch`/`nodes`/`edges`/`size_bytes` 等)。v0.10.8 #1181：不传 `include_details` 时仅返回 `name`/`root_path` 等精简字段，脚本或手动对账需完整字段须显式传 `include_details=true`。
+- 参数：无（默认精简响应）。可选分页：`offset`(起始偏移)、`limit`(返回数量)、`include_details`(true 时返回完整字段 `name`/`root_path`/`branch`/`nodes`/`edges`/`size_bytes` 等)。v0.12.1 #1181：不传 `include_details` 时仅返回 `name`/`root_path` 等精简字段，脚本或手动对账需完整字段须显式传 `include_details=true`。
 
 ### 5.3 delete_project — 删除项目
 
@@ -378,15 +379,15 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 
 ### 5.15 ingest_traces — 摄取运行时追踪
 
-- 必需：`project`、`traces`(数组：caller/callee/count)。**接受 traces 输入，当前不产出任何图边**（v0.10.8 实测：返回 `status:"accepted"`，但 `note:"Runtime edge creation from traces not yet implemented"`）。若调用方期望"提交 traces 后图中出现新边"，当前会落空；**不得把 `status=accepted` 误读为"边已建好"**，也不得据此"验证 HTTP_CALLS/ASYNC_CALLS 边"。
+- 必需：`project`、`traces`(数组：caller/callee/count)。**接受 traces 输入，当前不产出任何图边**（v0.12.1 实测：返回 `status:"accepted"`，但 `note:"Runtime edge creation from traces not yet implemented"`）。若调用方期望"提交 traces 后图中出现新边"，当前会落空；**不得把 `status=accepted` 误读为"边已建好"**，也不得据此"验证 HTTP_CALLS/ASYNC_CALLS 边"。
 
 ---
 
 ## 6. openCypher 查询参考
 
 - 子句：`MATCH` `OPTIONAL MATCH` `WHERE` `WITH` `RETURN` `ORDER BY` `SKIP` `LIMIT` `DISTINCT` `UNWIND` `UNION` `CASE`。
-- 节点标签：`Project` `Package` `Folder` `File` `Module` `Class` `Function` `Method` `Interface` `Enum` `Type` `Route` `Resource`。
-- 边类型：`CONTAINS_*` `DEFINES` `IMPORTS` `CALLS` `CALL_REFERENCE` `USAGE` `IMPLEMENTS` `INHERITS` `MEMBER_OF` `TESTS` `USES_TYPE` `HTTP_CALLS` `ASYNC_CALLS` `SIMILAR_TO` `SEMANTICALLY_RELATED` `CROSS_*` `EMITS` `LISTENS_ON` `DATA_FLOWS`（跨服务事件/消息/数据流边，v0.10.8 确认）。
+- 节点标签：`Project` `Package` `Folder` `File` `Module` `Class` `Function` `Method` `Interface` `Enum` `Type` `Route`（含 OpenAPI/Swagger 操作节点）`Resource` `ADR`（架构决策记录，v0.12.0 新增）`Diagram`/`DiagramElement`（v0.12.0 新增）`EnvVar`（容器环境变量，v0.12.0 新增）。
+- 边类型：`CONTAINS_*` `DEFINES` `IMPORTS` `CALLS` `CALL_REFERENCE` `USAGE` `IMPLEMENTS` `INHERITS` `MEMBER_OF` `TESTS` `USES_TYPE` `HTTP_CALLS` `ASYNC_CALLS` `SIMILAR_TO` `SEMANTICALLY_RELATED` `CROSS_*` `EMITS` `LISTENS_ON` `DATA_FLOWS`（跨服务事件/消息/数据流边）`MENTIONS`（文档注释/章节→代码引用，v0.12.0）`SUPERSEDES`（ADR 取代）`DIAGRAM_ARROW`（图元素箭头）`SPAWNS`（进程启动，v0.12.0）`DEPLOYS`（部署链，v0.12.0/0.12.1）`CONFIGURES`（values 文件→Chart）`REFERENCES_FILE`（Markdown 文件互引）。以上 v0.12.0/0.12.1 新增边与节点均经 v0.12.1 确认。
 - 示例：
 
   ```cypher
@@ -417,7 +418,7 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 | 权限修复脚本 | `<仓库>\codebase-memory\codebase-memory-mcp\修复codebase-memory-mcp的目录权限.ps1` | `D:\codebase-memory-mcp\修复codebase-memory-mcp的目录权限.ps1` | 开发态 → 部署态 |
 | 本运维手册 | `<仓库>\codebase-memory\README.md` | `D:\codebase-memory-mcp\Readme.md`（旧版遗留副本，非权威） | 仅存档，不作为权威 |
 | 激活与调用定义 | `<仓库>\codebase-memory\SKILL.md` | 不部署到运行目录 | 开发态 → WorkBuddy 技能目录 |
-| 引擎二进制 | 仅占位说明文件 `codebase-memory-mcp.exe.请自行下载真实文件.txt`（不入库） | `D:\codebase-memory-mcp\codebase-memory-mcp.exe`（约 296MB） | 上游发布 → 部署态 |
+| 引擎二进制 | 仅占位说明文件 `codebase-memory-mcp.exe.请自行下载真实文件.txt`（不入库） | `D:\codebase-memory-mcp\codebase-memory-mcp.exe`（约 318MB） | 上游发布 → 部署态 |
 | 索引缓存 | 无 | `D:\codebase-memory-mcp\data\` | 运行时产物，不入库 |
 | 运行状态文件 | 无 | `.last_result.json`、`.watch_git_repos_state.json`、`watch_git_repos.log` | 运行时产物，不入库 |
 
@@ -425,7 +426,7 @@ PowerShell -ExecutionPolicy Bypass -File "D:\codebase-memory-mcp\codebase-memory
 
 1. **改脚本先改开发态**：脚本的任何修改先落在开发态 worktree 分支，验证通过后再复制到部署态。禁止只在部署态改而不回写开发态。
 2. **目录型 Skill 须走 worktree**：`codebase-memory\` 是目录型 Skill，只能在 worktree 中改动（`worktrees\<name>-<topic>-<时间戳>\` + 分支 `feat\<name>-<topic>-<时间戳>`，二者时间戳一致），禁止在主工作树直接改。
-3. **二进制不入库**：`codebase-memory-mcp.exe` 约 296MB，绝不提交到 git；仓库内只有占位说明文件。
+3. **二进制不入库**：`codebase-memory-mcp.exe` 约 318MB，绝不提交到 git；仓库内只有占位说明文件。
 4. **运行时产物不入库**：`data\`、`.last_result.json`、状态文件、日志文件均不提交。
 5. **推送与合并须用户显式授权**：向远端推送、开 PR、合并属公开动作，未获授权不得执行。
 
@@ -479,8 +480,8 @@ gh release view --repo DeusData/codebase-memory-mcp
 ```
 
 - 取最新 release 的 tag（即上游版本号）。
-- 本机版本见 `### 1.1 这是什么` 记录的当前接入版本（v0.10.8）。
-- **校验官方 SHA-256（升级前必做）**：从 release 说明的 *Security Verification* 表或 `checksums.txt` 取 `windows-amd64` 哈希（v0.10.8 为 `b4b403b1d7c4def3785f148b93f345ce8427858f4f5489ce28580c4387a336a6`），下载后 `sha256sum` 比对一致方可替换；哈希不符一律弃用并报告用户。
+- 本机版本见 `### 1.1 这是什么` 记录的当前接入版本（v0.12.1）。
+- **校验官方 SHA-256（升级前必做）**：从 release 说明的 *Security Verification* 表或 `checksums.txt` 取 `windows-amd64` 哈希（v0.12.1 为 `39f6a789cd858d7428561ac5afaefb9a47b018dcba0ad6fa41ae71a45e0ed656`），下载后 `sha256sum` 比对一致方可替换；哈希不符一律弃用并报告用户。
 - **落后判定阈值**：本机落后上游 ≥1 个版本即应跟进；release 说明含 `breaking` / `schema` / `migration` 关键字或图谱 schema 变更时，必须重建全部索引（见 `### 10.2 步骤一`）。
 
 ### 9.3 检查上游变更内容
@@ -620,3 +621,17 @@ call_dynamic_tool(group="codebase-memory-mcp", name="index_repository", args={"r
 ```
 
 > 参数键是 `args`（不是 `arguments`）；`search_graph`/`detect_changes`/`check_index_coverage` 等以 `project`(list_projects 名称) 为必需，非 `repo_path`。
+
+### 11.6 升级破坏性变更速查（v0.10.8 → v0.12.1）
+
+本机曾长期以 v0.10.8（文档记录）/ v0.11.0（实际运行二进制）运行，2026-10-26 统一升级到 **v0.12.1**。三代跨越（v0.11.0 / v0.12.0 / v0.12.1）均含一次性破坏性变更，升级前必读：
+
+| 版本 | 关键破坏性变更 | 对运维的影响 |
+|---|---|---|
+| v0.11.0 | 索引格式迁移（File 限定名保留扩展名，解决同目录 `auth.py`/`auth.ts` 撞名）；默认精简响应（分页/游标契约定型）；内存预算 `CBM_MEM_BUDGET_MB` 生效；新增 `<db>.stage.*.lock` 侧车 | 升级后首次索引**全量重建一次**；`list_projects` 等默认精简响应，需完整字段须显式 `include_details=true` |
+| v0.12.0 | 新增**文档层图谱**（doc 注释→`MENTIONS`、Markdown/RST/AsciiDoc/PDF→`Section`、ADR/Diagram/OpenAPI `Route` 节点）；新增**基础设施即代码图谱**（K8s/Helm/Flux/Argo/Compose/Dockerfile 链路，`DEPLOYS`/`SPAWNS` 等边）；CBM Lens 浏览器 UI（`--ui=true`）；`detect_changes` 默认 base 改 `origin/HEAD`；`search_code` 在 Windows 改**大小写敏感 + ERE**；镜像标识变更 | 升级后首次索引**全量重建一次**；`full` 模式更慢更大（文档/基础设施边）；`search_code` 正则语义变化，脚本正则须复核；`detect_changes` 不传 `base_branch` 时基准变 |
+| v0.12.1 | 修复 v0.12.0 各包管理器安装（与本机 exe 部署无关）；Helm chart 与所部署对象/镜像关联（`DEPLOYS`/`CONFIGURES`）；**镜像 registry 标识变更**（无 registry 的镜像存 `registry: unknown` + 原名，不再是 `docker.io/library/...`） | 升级后首次索引**再全量重建一次**（镜像身份变） |
+
+**统一运维动作**：无论跨几代，升级到 v0.12.1 后，对 `list_projects` 列出的每个项目，**首个 `index_repository` 触发一次全量重建**（预期内、仅一次，之后恢复增量）；二进制替换后须重跑 `### 2.3 三层私有锁（ACL）` 并重启 dmcp（见 `### 11.2`）。
+
+**叠加本机既有根因（scrcpy / WorkDaddy / legadoT 无法建库）**：除引擎升级外，还需两处修复，详见 `### 11.3` 越界行与 `### 4.7`：① 扫描脚本 `Scan-DirectoryTree` 的 `Get-ChildItem` 加 `-Force`（隐藏 `.git` 漏检，v2.4.2 修复）；② 引擎 `data/allowed_roots` 须恢复含 `D:/Documents`（本机 `D:\Documents\AI_Work_Temp` 之祖先），同时保留 `D:\Tools\DirectoryOpus`。二者缺一都会使上述三个仓库索引被判越界拒绝。
