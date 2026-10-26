@@ -1,7 +1,7 @@
 {
   "package": "open-medical-skills",
   "version": "1.0.0",
-  "description": "中文医学分析助手 · 可移植安装包（父编排 + 子 vendored 副本）。父技能负责中文适配与默沙东诊疗手册参考源注入；四个原生子技能作为与上游逐字一致的 vendored 副本入库（离线可用），由 sync_openmedical.py 跟随上游演进。",
+  "description": "中文医学分析助手 · 可移植安装包（父编排 + 子 vendored 副本）。父技能负责中文适配、循证分析与默沙东诊疗手册参考源注入；四个原生子技能作为与上游逐字一致的 vendored 副本入库（离线可用），由 sync_openmedical.py 跟随上游演进。",
   "license": "MIT（原生技能与父技能均遵循 MIT）",
   "upstream": {
     "repo": "https://github.com/Open-Medica/open-medical-skills.git",

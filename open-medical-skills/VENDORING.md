@@ -15,7 +15,7 @@ Open-Medica/open-medical-skills 逐字一致、零本地补丁」的副本形式
 
 - 离线确定性：部署时无需联网克隆上游，复制即可用。
 - 仓库纪律一致：与 web-search、code-review-combo 的既有目录型 Skill 同构。
-- 父本地化解耦：父 `SKILL.md` 做中文适配与默沙东注入，子副本保持纯上游。
+- 父本地化解耦：父 `SKILL.md` 做中文适配、循证纪律与默沙东注入，子副本保持纯上游。
 
 ## 二、硬规则
 
