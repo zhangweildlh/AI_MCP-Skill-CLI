@@ -222,3 +222,9 @@ gh + github-personal-manager（远程协作：未克隆仓库浏览 / PR / CI / 
 4. 本 Skill 仅定义激活与调用行为。15 个工具的参数细节一律以实时 `get_dynamic_tools` 拉取结果为准——上游演进后按实时结果调用即可，不依赖任何静态文档。
 5. 一键扫描注册脚本是**参数化标准动作执行器**：只负责把仓库路径按规范参数送达 `index_repository`、并对账磁盘与图；它**不做业务翻译 / 裁剪 / 聚合**——返回规模（节点/边数、字段）完全由引擎参数（如 `mode`、`include_details`）控制。
 6. 升级到 v0.12.1 后的调用语义变更（破坏性，属引擎侧，详见 README §11.6）：`search_code` 在 Windows 改为**大小写敏感 + ERE** 正则（脚本/手动正则须复核）；`detect_changes` 默认 `base_branch` 改为 `origin/HEAD`（不传时基准变化）。每次升级后，每个已索引项目的首次 `index_repository` 会触发一次全量重建（预期内、仅一次，之后恢复增量）。
+
+7. **本地部署"覆盖"由两层独立机制共同决定**，新增 D 盘扫描根须**同时**改两层，任一缺位都会漏扫或拒索：
+   - **索引许可层 `data/allowed_roots`**：每行一个**非盘符根**的允许树（如 `D:/Documents`、`D:/Tools`）。盘符根（`D:\`）、文件系统/UNC 根、系统树（`C:\Windows`/`C:\Users`/`C:\ProgramData`/`C:\Program Files` 等）、用户主目录本身、任何深度的凭据目录（`.ssh`/`.aws`/`.gnupg`/`.kube`）**恒被拒**，无论是否设置 `CBM_ALLOWED_ROOT`。要覆盖 `D:\Documents` 全部子目录与 `D:\Tools\DirectoryOpus` 及其同级（`Assembly` 等），须同时把父树 `D:/Documents` 与 `D:/Tools` 写入本文件——**不可写 `D:\`（盘符根恒拒）**，也不可写反斜杠。
+   - **发现层 `$script:ScanRoots`（扫描注册脚本）**：脚本只从这些根递归找 `.git`；脚本不扫的目录，引擎再允许也注册不到。须与 `allowed_roots` 保持**同一组父树**，否则会出现"引擎允许但脚本不扫"的漏注册。
+   - 两层均须用**正斜杠**路径（与引擎缓存目录身份 SHA256 判定一致；反斜杠会哈希对不上、报 `cache-private`）。
+8. 扫描注册脚本 v2.4.3 起默认 `$script:AsyncIndex = $true`：**dmcp 通道对大型仓库（scrcpy / WorkDaddy / legadoT 首次全量重建 >120s）改用 `index_repository(async:true)` 异步启动 + 轮询 `index_status`（终态 `succeeded`/`failed`/`cancelled`）免超时**；引擎 < v0.12.0 不支持 `async` 时自动回退同步调用（保持旧行为）。CLI 回退通道超时已延长至 600s。如需强制同步，把 `$script:AsyncIndex` 改为 `$false`。
