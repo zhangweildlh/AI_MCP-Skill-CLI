@@ -2,7 +2,7 @@
 name: codebase-memory
 description: 纯本地、离线、只读的代码知识图谱（影响面分析）引擎：将本地已索引工作树构建为调用图/使用图/继承图，提供符号搜索、调用链追踪、影响面评估、死代码定位、本地 git 变动爆炸半径映射等 15 个 MCP 工具。关键词：代码知识图谱、调用链追踪、影响面分析、架构检索、本地索引。当用户要求分析/阅读/修改/重构本地代码、定位/修复 BUG、审计/审查代码、回应 PR 审查意见、接手代码/项目，且目标位于本地已索引工作树时触发；当用户说"理解结构/评估影响面/追踪调用链/定位死代码"时触发。适用于本地研发认知任务（理解结构、改前评估影响、改后验证半径）。不适用于纯新增代码（无既有图可查）、Write/Edit 与 git 写动作本体、未克隆的远程 GitHub 仓库浏览（走 gh + github-personal-manager）、运行时调试；经 dmcp 分组 codebase-memory-mcp 或原生 stdio 直连调用。
 metadata:
-  version: "2.2.4"
+  version: "2.2.5"
 ---
 
 # codebase-memory 调用与激活指南
@@ -25,13 +25,13 @@ metadata:
 
    > 路径为**部署态**事实常量（脚本确实位于此路径，见同目录 README §7 开发态/部署态映射）。脚本递归扫描预设根目录（本地文档目录下的 GitHub 仓库根与独立仓库根，深度 3），发现未注册 git 仓库后经 **dmcp HTTP 通道**注册（`call_dynamic_tool(group="codebase-memory-mcp", name="index_repository", …)`）。
 
-   > **通道事实（v0.10.8 实测确立）**：MCP 与 CLI **共享同一 OS 准入屏障**（同版本 / 同可执行构建 / 同协调 ABI / 同 `CBM_CACHE_DIR`），CLI 并非可靠的"兜底"通道——二者任一能用都必须满足全部准入条件。脚本注册前先经 `Test-DmcpGroupConnected` 探查 dmcp 分组连通性：**连不通则跳过 HTTP 注册、直接走本地 exe CLI**；若 dmcp HTTP 业务调用失败，脚本会 best-effort 以本地 exe CLI 作最后一手尝试。因共享屏障，CLI 成功与否不保证；失败时脚本如实回报失败（`status=error` / `partial_success`），**绝不静默成功**。
+   > **通道事实（v0.12.1 实测确立）**：MCP 与 CLI **共享同一 OS 准入屏障**（同版本 / 同可执行构建 / 同协调 ABI / 同 `CBM_CACHE_DIR`），CLI 并非可靠的"兜底"通道——二者任一能用都必须满足全部准入条件。脚本注册前先经 `Test-DmcpGroupConnected` 探查 dmcp 分组连通性：**连不通则跳过 HTTP 注册、直接走本地 exe CLI**；若 dmcp HTTP 业务调用失败，脚本会 best-effort 以本地 exe CLI 作最后一手尝试。因共享屏障，CLI 成功与否不保证；失败时脚本如实回报失败（`status=error` / `partial_success`），**绝不静默成功**。
 
    结果读取：脚本在同目录写出 `.last_result.json`（含 `new_repos` / `registered` / `failed` / `skipped` 清单）与可选 `watch_git_repos.log`；读取该文件即知本次对账结果。
 
    退出码：`0`=全部成功或无新仓库；`1`=部分成功（有仓库注册失败）；`2`=前置校验失败（无有效扫描根）。
 
-   需要精细控制单个仓库、或脚本不可用时，再手动对账：`list_projects` 取已索引集合 → 与磁盘一级子目录比对 → 新增走 `index_repository(repo_path=<路径>, mode="moderate")`；磁盘已删除的列清单请用户确认后 `delete_project`。`list_projects` 默认返回精简响应；需完整字段时传 `include_details=true`，并用 `offset`/`limit` 分页（v0.10.8 #1181）。
+   需要精细控制单个仓库、或脚本不可用时，再手动对账：`list_projects` 取已索引集合 → 与磁盘一级子目录比对 → 新增走 `index_repository(repo_path=<路径>, mode="moderate")`；磁盘已删除的列清单请用户确认后 `delete_project`。`list_projects` 默认返回精简响应；需完整字段时传 `include_details=true`，并用 `offset`/`limit` 分页（v0.12.1 #1181）。
 
 2. 找符号/定义/实现/关系 → `search_graph`（BM25 `query` / `name_pattern` 正则 / `semantic_query` 向量，三模式可组合）。
 3. 评估"改 X 影响哪些 / 谁调了 X" → `trace_path`（别名 `trace_call_path`；`function_name` + `project`，`direction`/`depth`/`mode`）。
@@ -42,16 +42,16 @@ metadata:
 
 调用后端工具时，**直连可用则优先直连** codebase-memory-mcp（原生 stdio MCP：直接 `tools/call` + `name=<后端工具>` + `arguments=<…>`，参数键是 `arguments`）；**直连不可用时降级走 dmcp 中转**——`call_dynamic_tool(group="codebase-memory-mcp", name=<后端工具>, args=<…>)`（注意中转层参数键是 `args`，与直连层的 `arguments` 不同）。若报 `group must be equal to allowed values`，是 dmcp 枚举冻结，重启 dmcp 重连后重试。
 
-**「直连可用」的判定（唯一判据，勿凭猜测）**：直连是否可用，**只能通过实测握手判定，没有静态判据**——引擎二进制 `codebase-memory-mcp.exe` 是否存在、`CBM_CACHE_DIR` 环境变量是否设置、甚至 dmcp 分组是否连通，**都不构成直连可用的证据**（v2.2.4 实测：二进制在、环境变量设了、dmcp 也连得上，直连 stdio 仍可能因 DACL 等 OS 准入屏障不可用）。标准探测流程（**每次会话首次调用前执行一次，结论后续复用，勿每次调用都探测**）：
+**「直连可用」的判定（唯一判据，勿凭猜测）**：直连是否可用，**只能通过实测握手判定，没有静态判据**——引擎二进制 `codebase-memory-mcp.exe` 是否存在、`CBM_CACHE_DIR` 环境变量是否设置、甚至 dmcp 分组是否连通，**都不构成直连可用的证据**（v2.2.5 实测：二进制在、环境变量设了、dmcp 也连得上，直连 stdio 仍可能因 DACL 等 OS 准入屏障不可用）。标准探测流程（**每次会话首次调用前执行一次，结论后续复用，勿每次调用都探测**）：
 
-1. 用原生 stdio 发起 `initialize` 请求：`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codebase-memory-probe","version":"2.2.4"}}}`，读取响应；
+1. 用原生 stdio 发起 `initialize` 请求：`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codebase-memory-probe","version":"2.2.5"}}}`，读取响应；
 2. 紧接着发 `notifications/initialized` 通知（`method` 必须带斜杠，写成 `"initialized"` 无斜杠会被状态机判为 422、当前 session 作废）；
 3. 再发 `tools/list`：**若能取到 15 个后端工具的清单 → 直连可用**，后续一律走直连 `tools/call`；
 4. 若以上任一步超时、报错、或返回的工具清单为空 / 不含后端工具（含 `get_graph_schema` 等）→ **直连不可用，立即降级走 dmcp 中转**，且**不要反复重试直连**——MCP 与 CLI 共享同一 OS 准入屏障，重试不会变通，只会白白增加延迟与失败面。
 
-**图边类型（节选，v0.10.8）**：`CALLS`（调用）、`IMPORTS`（导入）、`INHERITS`/`IMPLEMENTS`/`OVERRIDES`（继承/实现/重写）、`EMITS`/`LISTENS_ON`（事件/消息发布订阅，如 Socket.IO、EventEmitter、通用消息总线）、`DATA_FLOWS`（跨服务数据流，含 HTTP 路由 ↔ 调用点、gRPC/GraphQL/tRPC 匹配）、`SEMANTICALLY_RELATED`/`SIMILAR_TO`（语义/近克隆边）、`CROSS_*`（跨仓库边）。`trace_path` 的 `direction` 可选 `inbound`/`outbound`/`data_flow`，排查数据血缘/异常来源用 `data_flow`。
+**图边类型（节选，v0.12.1）**：`CALLS`（调用）、`IMPORTS`（导入）、`INHERITS`/`IMPLEMENTS`/`OVERRIDES`（继承/实现/重写）、`EMITS`/`LISTENS_ON`（事件/消息发布订阅，如 Socket.IO、EventEmitter、通用消息总线）、`DATA_FLOWS`（跨服务数据流，含 HTTP 路由 ↔ 调用点、gRPC/GraphQL/tRPC 匹配）、`SEMANTICALLY_RELATED`/`SIMILAR_TO`（语义/近克隆边）、`CROSS_*`（跨仓库边）。**v0.12.0/0.12.1 新增**：`MENTIONS`（文档注释/章节→代码引用）、`SUPERSEDES`（ADR 取代）、`DIAGRAM_ARROW`（图元素箭头）、`SPAWNS`（进程启动）、`DEPLOYS`（部署链：K8s/Helm/Flux/Argo/Compose/Dockerfile）、`CONFIGURES`（values 文件→Chart）、`REFERENCES_FILE`（Markdown 文件互引）。`trace_path` 的 `direction` 可选 `inbound`/`outbound`/`data_flow`，排查数据血缘/异常来源用 `data_flow`。
 
-### 2.1 调用事实速查（v0.10.8 实测确立，避免踩坑）
+### 2.1 调用事实速查（v0.12.1 实测确立，避免踩坑）
 
 > 本节是**调用事实速查表**，不重复 §2 的流程编排。以下事实由实时协议探测与引擎 schema 拉取坐实，覆盖"调不通 / 解析失败 / 参数报错"三类高频误用。
 
@@ -82,7 +82,7 @@ metadata:
 | 人类可读文本协议（compact tree，默认，token 经济） | query_graph / get_architecture / search_code / get_code_snippet / check_index_coverage |
 | JSON-native（始终返回 JSON） | list_projects / index_status |
 | 文本协议，但支持可选 `format:"json"`（enum=tree\|json，默认 tree） | search_graph / trace_path / detect_changes |
-| **接受但不建边**（v0.10.8 实测） | `ingest_traces` 返回 `status:"accepted"`，但 `note:"Runtime edge creation from traces not yet implemented"`——**接受 traces 输入，当前不产出任何图边**。若调用方期望"提交 traces 后图中出现新边"，当前会落空；不得把 `status=accepted` 误读为"边已建好" |
+| **接受但不建边**（v0.12.1 实测） | `ingest_traces` 返回 `status:"accepted"`，但 `note:"Runtime edge creation from traces not yet implemented"`——**接受 traces 输入，当前不产出任何图边**。若调用方期望"提交 traces 后图中出现新边"，当前会落空；不得把 `status=accepted` 误读为"边已建好" |
 
 > 文本协议可直接消费（为 LLM token 经济性优化）；仅在需程序化抽取 / 再加工某工具结果时，对 search_graph / trace_path / detect_changes 传 `format:"json"`。
 
@@ -183,7 +183,7 @@ gh + github-personal-manager（远程协作：未克隆仓库浏览 / PR / CI / 
 
 ### 3.6 图覆盖不足时的退化
 
-`check_index_coverage` 报 gap、或文件被标记 `parse_partial`/`skipped` 时，务必再 grep 该范围 / Read 源文件确认精确实现——"absence from graph" 不是完整性保证。v0.10.8 起增量索引**如实报告持久化覆盖**（#1326）：曾记录解析缺口且本次未重访的文件，其 `parse_partial`/`skipped` 状态**不会被谎报为已消失**——因此"上次报 gap、这次没报"不等于已修复，仍以 `check_index_coverage` 实测为准。若目标目录尚未索引，先运行一键扫描注册脚本补索引再用图。
+`check_index_coverage` 报 gap、或文件被标记 `parse_partial`/`skipped` 时，务必再 grep 该范围 / Read 源文件确认精确实现——"absence from graph" 不是完整性保证。v0.12.1 起增量索引**如实报告持久化覆盖**（#1326）：曾记录解析缺口且本次未重访的文件，其 `parse_partial`/`skipped` 状态**不会被谎报为已消失**——因此"上次报 gap、这次没报"不等于已修复，仍以 `check_index_coverage` 实测为准。若目标目录尚未索引，先运行一键扫描注册脚本补索引再用图。
 
 ## 4. 输出格式约束
 
@@ -221,3 +221,10 @@ gh + github-personal-manager（远程协作：未克隆仓库浏览 / PR / CI / 
 3. 信任图前必查覆盖；图覆盖不足必须退化 grep/Read 核实，禁止把图缺失当作"不存在"。
 4. 本 Skill 仅定义激活与调用行为。15 个工具的参数细节一律以实时 `get_dynamic_tools` 拉取结果为准——上游演进后按实时结果调用即可，不依赖任何静态文档。
 5. 一键扫描注册脚本是**参数化标准动作执行器**：只负责把仓库路径按规范参数送达 `index_repository`、并对账磁盘与图；它**不做业务翻译 / 裁剪 / 聚合**——返回规模（节点/边数、字段）完全由引擎参数（如 `mode`、`include_details`）控制。
+6. 升级到 v0.12.0 引入的调用语义变更（v0.12.1 仅改镜像 registry 标识，详见 README §11.6）：`search_code` 在 Windows 改为**大小写敏感 + ERE** 正则（脚本/手动正则须复核）；`detect_changes` 默认 `base_branch` 改为 `origin/HEAD`（不传时基准变化）。每次升级后，每个已索引项目的首次 `index_repository` 会触发一次全量重建（预期内、仅一次，之后恢复增量）。
+
+7. **本地部署"覆盖"由两层独立机制共同决定**，新增 D 盘扫描根须**同时**改两层，任一缺位都会漏扫或拒索：
+   - **索引许可层 `data/allowed_roots`**：每行一个**非盘符根**的允许树（如 `D:/Documents`、`D:/Tools`）。盘符根（`D:\`）、文件系统/UNC 根、系统树（`C:\Windows`/`C:\Users`/`C:\ProgramData`/`C:\Program Files` 等）、用户主目录本身、任何深度的凭据目录（`.ssh`/`.aws`/`.gnupg`/`.kube`）**恒被拒**，无论是否设置 `CBM_ALLOWED_ROOT`。要覆盖 `D:\Documents` 全部子目录与 `D:\Tools\DirectoryOpus` 及其同级（`Assembly` 等），须同时把父树 `D:/Documents` 与 `D:/Tools` 写入本文件——**不可写 `D:\`（盘符根恒拒）**，也不可写反斜杠。
+   - **发现层 `$script:ScanRoots`（扫描注册脚本）**：脚本只从这些根递归找 `.git`；脚本不扫的目录，引擎再允许也注册不到。须与 `allowed_roots` 保持**同一组父树**，否则会出现"引擎允许但脚本不扫"的漏注册。
+   - 两层均须用**正斜杠**路径（与引擎缓存目录身份 SHA256 判定一致；反斜杠会哈希对不上、报 `cache-private`）。
+8. 扫描注册脚本 v2.4.3 起默认 `$script:AsyncIndex = $true`：**dmcp 通道对大型仓库（scrcpy / WorkDaddy / legadoT 首次全量重建 >120s）改用 `index_repository(async:true)` 异步启动 + 轮询 `index_status`（终态 `succeeded`/`failed`/`cancelled`）免超时**；引擎 < v0.12.0 不支持 `async` 时自动回退同步调用（保持旧行为）。CLI 回退通道超时已延长至 600s。如需强制同步，把 `$script:AsyncIndex` 改为 `$false`。
