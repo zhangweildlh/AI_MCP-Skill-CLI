@@ -860,7 +860,13 @@ class MemoryManager:
                 except OSError:
                     pass
                 if _t.monotonic() > deadline:
-                    raise RuntimeError(f"获取状态文件锁超时: {lock_path}")
+                    # F2 修复（v5.3.4 后续）：锁获取超时不再抛 RuntimeError 向上崩溃；
+                    # 优雅返回 False（调用方 `_save_state`/`_save_changelog` 已按 bool 处理），
+                    # 由 ERROR 日志暴露。锁非本进程所有（上方 `O_EXCL` 创建已失败），不在此移除，
+                    # 留待 60s 陈旧锁规则回收，避免误删其它进程合法持有的锁。
+                    print(f"[ERROR] 获取状态文件锁超时（可能其它进程长时间持有或崩溃遗留，"
+                          f"60s 后自动回收）: {lock_path}")
+                    return False
                 _t.sleep(0.05)
         try:
             return self._write_file(path, json.dumps(obj, ensure_ascii=False, indent=2))
