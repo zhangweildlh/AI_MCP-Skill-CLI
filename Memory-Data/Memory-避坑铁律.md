@@ -210,9 +210,9 @@ $p="<路径>.ps1"; $c=Get-Content -Path $p -Raw -Encoding UTF8; Set-Content -Pat
 - **根因**：写操作改变体系结构，必须先有「全绿基线」作护栏；`--dry-run` 预览则把真实影响前置暴露，二者缺一不可。
 - **预防（铁律）**：首次对真实体系执行任一**写子命令**前——
 
-  1. 先确保 `Memory-Data/test_memory_system.py` **29/29 全绿（退出码 0）**；
-  2. 再对该写操作**单独跑 `--dry-run` 预览复核**无误后，方可以 `--force`（如适用）真实执行；
-  3. **严禁跳过 `test_memory_system.py` 全绿或跳过 `--dry-run` 直接写**。
+1. 先确保 `Memory-Data/test_memory_system.py` **全绿（退出码 0）**；
+2. 再对该写操作**单独跑 `--dry-run` 预览复核**无误后，方可以 `--force`（如适用）真实执行；
+3. **严禁跳过 `test_memory_system.py` 全绿或跳过 `--dry-run` 直接写**。
 
 > 各写子命令的安全流程详见 `WorkBuddy记忆文件说明.md` §3.4 / §7。
 

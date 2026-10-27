@@ -128,6 +128,35 @@ def build_broken_system():
     return tmp_main, tmp_sub
 
 
+def _build_isolated_orphan():
+    """构造单个孤立子文件（无任何引用关系）的临时体系，供 D-18 回归：
+    无 --force 的 remove 必须拒绝（rc=1 且不删文件）。"""
+    tmp_sub = tempfile.mkdtemp(prefix="mem_d18_sub_")
+    tmp_main_dir = tempfile.mkdtemp(prefix="mem_d18_main_")
+    tmp_main = os.path.join(tmp_main_dir, "MEMORY.md")
+    open(tmp_main, "w", encoding="utf-8").write("")
+    content = ("---\ntitle: D18Orphan\ntags: [x]\nrelated: []\nscope_in: 测试\n"
+               "scope_out: 其他\n---\n## 1 孤立章\n\n正文\n")
+    open(os.path.join(tmp_sub, "Memory-D18Orphan.md"), "w", encoding="utf-8").write(content)
+    return tmp_main, tmp_sub
+
+
+def _build_two_orphans():
+    """构造两个无交叉引用的孤立子文件，供 D-19 回归：remove --force 删除其一后，
+    另一兄弟子文件正文不得被 rewrite 重编号（md5 不变）。"""
+    tmp_sub = tempfile.mkdtemp(prefix="mem_d19_sub_")
+    tmp_main_dir = tempfile.mkdtemp(prefix="mem_d19_main_")
+    tmp_main = os.path.join(tmp_main_dir, "MEMORY.md")
+    open(tmp_main, "w", encoding="utf-8").write("")
+    keep = ("---\ntitle: D19Keep\ntags: [x]\nrelated: []\nscope_in: 测试\n"
+            "scope_out: 其他\n---\n## 1 保留章\n\n正文\n")
+    victim = ("---\ntitle: D19Victim\ntags: [x]\nrelated: []\nscope_in: 测试\n"
+              "scope_out: 其他\n---\n## 1 牺牲章\n\n正文\n")
+    open(os.path.join(tmp_sub, "Memory-D19Keep.md"), "w", encoding="utf-8").write(keep)
+    open(os.path.join(tmp_sub, "Memory-D19Victim.md"), "w", encoding="utf-8").write(victim)
+    return tmp_main, tmp_sub
+
+
 def teardown_tmp(tmp_main, tmp_sub):
     shutil.rmtree(os.path.dirname(tmp_main), ignore_errors=True)
     shutil.rmtree(tmp_sub, ignore_errors=True)
@@ -410,6 +439,74 @@ def run():
                 record("命令级集成", "restore", "边界:无--force", "临时隔离", False, repr(e))
     finally:
         teardown_tmp(tmp_main, tmp_sub)
+
+    # ===== D-18~D-21 回归（工具侧缺陷源码修复验证，临时隔离副本）=====
+    # D-18：无引用关系的删除，无 --force 必须拒绝（rc=1 且不删文件）
+    try:
+        d_main, d_sub = _build_isolated_orphan()
+        orphan = "Memory-D18Orphan.md"
+        r = run_mgr(d_main, d_sub, "remove", "--file", orphan)
+        still = os.path.exists(os.path.join(d_sub, orphan))
+        ok = (r.returncode == 1) and still
+        record("命令级集成", "remove", "D-18 无--force必拒(无引用,不删)", "临时隔离",
+               ok, f"rc={r.returncode} 仍存在={still}")
+        teardown_tmp(d_main, d_sub)
+    except Exception as e:  # noqa: BLE001
+        record("命令级集成", "remove", "D-18 无--force必拒", "临时隔离", False, repr(e))
+
+    # D-19：remove --force 后兄弟子文件正文不得被 rewrite 重编号（标题编号不变）
+    try:
+        d_main, d_sub = _build_two_orphans()
+        keep = "Memory-D19Keep.md"
+        before = open(os.path.join(d_sub, keep), encoding="utf-8").read()
+        before_headings = [l for l in before.splitlines()
+                           if re.match(r'^#{1,4}\s', l)]
+        victim = "Memory-D19Victim.md"
+        r = run_mgr(d_main, d_sub, "remove", "--file", victim, "--force")
+        keep_path = os.path.join(d_sub, keep)
+        after = open(keep_path, encoding="utf-8").read() if os.path.exists(keep_path) else ""
+        after_headings = [l for l in after.splitlines()
+                          if re.match(r'^#{1,4}\s', l)]
+        ok = (r.returncode == 0) and (before_headings == after_headings) and (
+            not os.path.exists(os.path.join(d_sub, victim)))
+        record("命令级集成", "remove", "D-19 --force不重编号兄弟(标题编号不变)", "临时隔离",
+               ok, f"rc={r.returncode} 标题编号不变={before_headings == after_headings}")
+        teardown_tmp(d_main, d_sub)
+    except Exception as e:  # noqa: BLE001
+        record("命令级集成", "remove", "D-19 --force不重编号", "临时隔离", False, repr(e))
+
+    # D-20：非 git 环境下 verify 第 5 项必须 FAIL（不再静默 SKIP）
+    try:
+        d_main, d_sub = build_tmp_system()
+        r = run_mgr(d_main, d_sub, "verify")
+        out = r.stdout + r.stderr
+        git_lines = [l for l in out.splitlines() if "git status --short" in l]
+        ok = bool(git_lines) and ("FAIL" in git_lines[0]) and ("SKIP" not in git_lines[0])
+        record("命令级集成", "verify", "D-20 非git第5项FAIL(非SKIP)", "临时隔离(非git)",
+               ok, f"rc={r.returncode} git行={'|'.join(git_lines[:1])}")
+        teardown_tmp(d_main, d_sub)
+    except Exception as e:  # noqa: BLE001
+        record("命令级集成", "verify", "D-20 非git第5项FAIL", "临时隔离", False, repr(e))
+
+    # D-21：状态文件原子写（无 .tmp 残留，合法 JSON）
+    try:
+        import json as _json
+        d_main, d_sub = build_tmp_system()
+        r = run_mgr(d_main, d_sub, "sync")
+        state_path = os.path.join(d_sub, "memory-state.json")
+        tmp_path = state_path + ".tmp"
+        ok = (r.returncode == 0 and os.path.exists(state_path)
+              and not os.path.exists(tmp_path))
+        if ok:
+            try:
+                _json.loads(open(state_path, encoding="utf-8").read())
+            except Exception:
+                ok = False
+        record("命令级集成", "sync", "D-21 状态文件原子写(无.tmp,合法JSON)", "临时隔离",
+               ok, f"rc={r.returncode} 残留tmp={'有' if os.path.exists(tmp_path) else '无'}")
+        teardown_tmp(d_main, d_sub)
+    except Exception as e:  # noqa: BLE001
+        record("命令级集成", "sync", "D-21 状态文件原子写", "临时隔离", False, repr(e))
 
     # F-1 diff 时区（需真实 changelog 的 UTC 条目，用真实体系只读）
     try:
