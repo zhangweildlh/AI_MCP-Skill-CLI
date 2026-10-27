@@ -45,6 +45,7 @@ import shutil
 import subprocess
 import tempfile
 import hashlib
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MEMORY_MGR = os.path.join(HERE, "memory-mgr.py")
@@ -507,6 +508,56 @@ def run():
         teardown_tmp(d_main, d_sub)
     except Exception as e:  # noqa: BLE001
         record("命令级集成", "sync", "D-21 状态文件原子写", "临时隔离", False, repr(e))
+
+    # F2（P2）：_atomic_json_write 锁获取超时优雅 return False，不抛 RuntimeError 崩溃
+    # 复现场景：外部持有「非陈旧」锁（mtime 在 60s 内）→ 不触发陈旧回收 → 触及 10s
+    # deadline → 修复前抛 RuntimeError 致 _save_state/_save_changelog 向上崩溃；
+    # 修复后（memory-mgr.py :862-869）优雅 return False。用 mock 加速 deadline 判定，
+    # 避免真实等待 10s，保持回归快速且确定。
+    try:
+        import json as _json
+        import importlib.util as _ilu
+        from unittest.mock import patch as _patch
+        _spec = _ilu.spec_from_file_location("mem_mgr_f2", MEMORY_MGR)
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        tmp_sub = tempfile.mkdtemp(prefix="mem_f2_sub_")
+        tmp_main_dir = tempfile.mkdtemp(prefix="mem_f2_main_")
+        tmp_main = os.path.join(tmp_main_dir, "MEMORY.md")
+        open(tmp_main, "w", encoding="utf-8").write("")
+        mm = _mod.MemoryManager(tmp_main, tmp_sub)
+        sf = os.path.join(tmp_sub, "memory-state.json")
+        mm.state_file = sf
+        lock = sf + ".lock"
+        open(lock, "w", encoding="utf-8").write("held-by-other")
+        os.utime(lock, None)  # mtime=now（非陈旧，不触发 >60s 回收）
+        _mc = {"n": 0}
+        def _fake_mono():
+            _mc["n"] += 1
+            return 0.0 if _mc["n"] == 1 else 1e9  # 首调定 deadline=10，次调即超 deadline
+        with _patch("time.monotonic", side_effect=_fake_mono):
+            res = mm._atomic_json_write(sf, {"k": "v"})
+        ok = (res is False) and (not os.path.exists(sf)) and os.path.exists(lock)
+        record("命令级集成", "_atomic_json_write", "F2 锁超时优雅return False(不崩溃)",
+               "临时隔离", ok, f"res={res} state={'被写' if os.path.exists(sf) else '未写'}")
+        # 复测：移除锁后写入成功，无 .tmp 残留，内容合法 JSON
+        if os.path.exists(lock):
+            os.remove(lock)
+        res2 = mm._atomic_json_write(sf, {"k": "v2"})
+        tmp2 = sf + ".tmp"
+        ok2 = (res2 is True) and os.path.exists(sf) and (not os.path.exists(tmp2))
+        if ok2:
+            try:
+                _json.loads(open(sf, encoding="utf-8").read())
+            except Exception:
+                ok2 = False
+        record("命令级集成", "_atomic_json_write",
+               "F2 复测:移除锁后写入成功(合法JSON,无.tmp)", "临时隔离",
+               ok2, f"res2={res2} 残留tmp={'有' if os.path.exists(tmp2) else '无'}")
+        shutil.rmtree(tmp_main_dir, ignore_errors=True)
+        shutil.rmtree(tmp_sub, ignore_errors=True)
+    except Exception as e:  # noqa: BLE001
+        record("命令级集成", "_atomic_json_write", "F2 锁超时回归", "临时隔离", False, repr(e))
 
     # F-1 diff 时区（需真实 changelog 的 UTC 条目，用真实体系只读）
     try:
