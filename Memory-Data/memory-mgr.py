@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-memory-mgr.py - MEMORY.md 多文件记忆系统维护程序 v5.3.2
+memory-mgr.py - MEMORY.md 多文件记忆系统维护程序 v5.3.4
 
 功能概述：
   本程序用于维护 MEMORY.md 拆分后的多文件记忆系统，包括：
@@ -163,7 +163,7 @@ from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from pathlib import Path
 
-__version__ = "v5.3.2"  # 与手册 §11 版本日志严格一致；改代码须同步此处与文档
+__version__ = "v5.3.4"  # 与手册 §11 版本日志严格一致；改代码须同步此处与文档
 
 # ============================================================================
 # 常量配置
@@ -833,14 +833,52 @@ class MemoryManager:
             }
         }
 
+    def _atomic_json_write(self, path: str, obj) -> bool:
+        """D-21 修复（v5.3.4）：状态/日志文件改原子写 + 轻量文件锁。
+
+        原实现直接 `open(path,'w')` + `json.dump`（非原子，写入中途崩溃/断电会写坏或
+        丢失状态），且无文件锁，并发写会互相覆盖。现复用 `_write_file` 的
+        「落 `.tmp` + `fsync` + `os.replace`」原子换名（与 §0.3 原子写纪律对齐），
+        并加 `.lock` advisory 锁纵深防御并发写（体系契约仍要求串行，见 §6.1 D-21）。
+        锁用 `O_EXCL` 原子创建；若已存在则按 mtime 识别陈旧锁（>60s，进程崩溃遗留）
+        后回收重试，避免永久死锁。
+        """
+        d = os.path.dirname(path) or '.'
+        os.makedirs(d, exist_ok=True)
+        lock_path = path + '.lock'
+        import time as _t
+        fd = None
+        deadline = _t.monotonic() + 10.0
+        while fd is None:
+            try:
+                fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+            except FileExistsError:
+                try:
+                    if (_t.time() - os.path.getmtime(lock_path)) > 60:
+                        os.remove(lock_path)
+                        continue
+                except OSError:
+                    pass
+                if _t.monotonic() > deadline:
+                    raise RuntimeError(f"获取状态文件锁超时: {lock_path}")
+                _t.sleep(0.05)
+        try:
+            return self._write_file(path, json.dumps(obj, ensure_ascii=False, indent=2))
+        finally:
+            try:
+                os.close(fd)
+            finally:
+                try:
+                    os.remove(lock_path)
+                except OSError:
+                    pass
+
     def _save_state(self, state: dict = None):
-        """保存 memory-state.json"""
+        """保存 memory-state.json（D-21：原子写 + 文件锁）"""
         if state is None:
             state = self.state
         state['last_updated'] = datetime.now(timezone.utc).isoformat()
-        os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
-        with open(self.state_file, 'w', encoding='utf-8') as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
+        return self._atomic_json_write(self.state_file, state)
 
     # ------------------------------------------------------------------------
     # 变更日志管理
@@ -857,11 +895,9 @@ class MemoryManager:
         return []
 
     def _save_changelog(self, entries: list):
-        """保存 memory-changelog.json"""
+        """保存 memory-changelog.json（D-21：原子写 + 文件锁）"""
         data = {"version": "2.0.0", "entries": entries}
-        os.makedirs(os.path.dirname(self.changelog_file), exist_ok=True)
-        with open(self.changelog_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        self._atomic_json_write(self.changelog_file, data)
 
     def _add_changelog_entry(self, action: str, target_file: str, initiator: str,
                              summary: str, details: dict = None):
@@ -2438,10 +2474,14 @@ class MemoryManager:
                 if self._has_link_to(other_content, safe_filename):
                     references.append((other_file, other_path))
 
-        if references and not force:
-            print(f"[WARN] 以下文件引用了 {safe_filename}:")
-            for ref_file, _ in references:
-                print(f"  - {ref_file}")
+        # D-18 修复（v5.3.4）：§8 红线「破坏性需 --force」对**任何**删除生效，
+        # 不再仅在「存在引用关系」时才要求 --force。守卫条件由
+        # `if references and not force:` 改为 `if not force:`，消除隐式守卫缺口。
+        if not force:
+            if references:
+                print(f"[WARN] 以下文件引用了 {safe_filename}:")
+                for ref_file, _ in references:
+                    print(f"  - {ref_file}")
             # F-2 修复：非交互环境下 `input()` 在 stdin 关闭时会抛 EOFError（原仅靠
             # `sys.stdin.isatty()` 判定，而 Agent / 管道环境 isatty() 可能为 True 却
             # 无真实输入）。现显式识别 `--no-interactive`：
@@ -2530,8 +2570,11 @@ class MemoryManager:
         self._save_state()
         self._add_changelog_entry('remove', safe_filename, 'agent', f'删除子文件: {safe_filename}')
 
-        # 重新编号 + 更新索引（rewrite 末尾已调用 index，避免重复）
-        self.rewrite()
+        # D-19 修复（v5.3.4）：删除后不再调用 `self.rewrite()`——后者会按 file_number
+        # 重建 N-M-X-Z 编号正文，自动触发 §8「插章禁 rewrite」红线（重编号有碰撞/丢章
+        # 风险）。改为 `index(record=False)`：仅重建索引表与路由卡，不重编号正文，
+        # 删除后体系无须逐章核验重编号风险；record=False 避免重复 changelog 刷屏。
+        self.index(record=False)
 
         # v2.0.0: 删除后自动检查（验证无悬空链接）
         print("[INFO] 删除完成，运行完整性检查...")
@@ -3381,8 +3424,12 @@ class MemoryManager:
         elif not self._git_available():
             # v5.2.3（双审计第二轮 P1-8 补完，成立）：`_git_repo_root()` 在 git 不可用时
             # 返回 sub_files_dir（非空），故 `or` 右侧的回退永远不生效，最终 `git status`
-            # 抛 FileNotFoundError 被标 ERROR。非 git 环境不是故障，应判 SKIP。
-            results.append(('5. git status --short', 'SKIP', '非 git 环境（git 不可用或不在仓库内）'))
+            # 抛 FileNotFoundError 被标 ERROR。非 git 环境不是故障，但第 5 项未实际检查
+            # 不可静默 SKIP（与 D-17 口径一致，验收项静默失效比报错更危险）。
+            # D-20 修复（v5.3.4）：非 git 环境下第 5 项由 SKIP 改为 FAIL，迫使在 git
+            # 仓库内执行 verify 或人工核对变更清单；显式 `--skip-git` 仍按用户意图 SKIP。
+            results.append(('5. git status --short', 'FAIL',
+                            '非 git 环境（git 不可用或不在仓库内）：第 5 项未实际检查，须在 git 仓库内执行或人工核对变更清单'))
         else:
             try:
                 # v5.2.2（P1-8，成立）：原取「子目录的父目录」当仓库根，若仓库根在更上层
