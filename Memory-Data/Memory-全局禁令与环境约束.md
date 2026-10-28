@@ -10,7 +10,7 @@ parent: "MEMORY.md"
 positioning: "本机环境的“不可为与必须为”底线规则集"
 role: "硬约束层（禁令 + 环境 + 会话闸门 + 工具链）"
 theme: "安全红线 / 环境约束 / 会话启动 / 目录与工具链"
-scope_in: "执行 git 破坏性操作时（强推 / 删 main / 删受保护分支）；计划执行破坏性或对外动作时（三段式二次授权）；信息入库前（隐私闸门：密钥 / 密码 / 个人隐私）；git 撤销或回退改动时（reset 三模式 + 硬约束）；提及 Docker / 容器化方案时（本机硬禁用）；需本地编译时（有条件放开，默认远程 CI）；运行或安装 Python 时（一律 uv run，禁裸 python / pip）；全局安装 Node 包时（npm / npx 规范）；交付脚本给他人时（须纯标准库）；会话首条消息（执行 list_groups 探测能力基线）；判定技能是否自动激活时（会话级闸门）；涉及目录根 / 工具安装位置时；多工具可选时的优先规则；执行文件清理 / 删除类自动化任务时（回收站接口被自动化沙箱拦截后的处置路径）"
+scope_in: "执行 git 破坏性操作时（强推 / 删 main / 删受保护分支）；计划执行破坏性或对外动作时（三段式二次授权）；信息入库前（隐私闸门：密钥 / 密码 / 个人隐私）；git 撤销或回退改动时（reset 三模式 + 硬约束）；提及 Docker / 容器化方案时（本机硬禁用）；需本地编译时（有条件放开，默认远程 CI）；运行或安装 Python 时（一律 uv run，禁裸 python / pip）；全局安装 Node 包时（npm / npx 规范）；交付脚本给他人时（须纯标准库）；会话首条消息（执行 list_groups 探测能力基线）；判定技能是否自动激活时（会话级闸门）；涉及目录根 / 工具安装位置时；Word/PPT/Excel（.docx/.xlsx/.pptx）文档的读写、生成、修改（officecli 优先）；音视频 / 多媒体转码、处理、信息分析（ffmpeg/ffprobe 优先）；多工具可选时的优先规则；执行文件清理 / 删除类自动化任务时（回收站接口被自动化沙箱拦截后的处置路径）"
 scope_out: "具体代码写法 → 子文件2；GitHub 操作流程 → 子文件3；坑案例与修复步骤 → 子文件4；能力台账与工具入口 → 子文件5"
 summary: "总则、全局禁令、环境约束、会话启动闸门、目录与工具链约定"
 keywords: ["禁强推", "Docker禁用", "UV管Python", "路径核验", "工具链"]
@@ -269,6 +269,8 @@ git reset 操作结果速查（操作结果表，非导航索引）：
 ### 1-5-2 严格优先规则
 
 - **必须优先使用** `D:\Tools\Assembly` 下的工具：`nodejs`、`uv`、`git`、`gh.exe`、`officecli.exe` 等。
+- **Office 文档（.docx / .xlsx / .pptx）读写、生成、修改一律优先 `officecli.exe`**：凡涉及 Word / Excel / PPT 文档的内容生成、读取、改写、样式调整，必须先调用 `D:\Tools\Assembly\officecli.exe`（已注册于系统 PATH，AI-friendly CLI），**禁止未经路由直接用 `python-docx` / `openpyxl` / `python-pptx` 等库替代**；仅当 `officecli` 经实测确实不支持该项能力时，方可在记录后降级到对应库，并须说明降级理由。
+- **多媒体（音视频）转码 / 处理 / 信息分析一律优先 `ffmpeg` 系列**：凡涉及视频转码、音频提取 / 合并、媒体信息探测（时长 / 编码 / 分辨率）、截图 / 抽帧等，必须先调用 `D:\Tools\Assembly\ffmpeg\ffmpeg.exe` / `ffprobe.exe` / `ffplay.exe`（已注册于系统 PATH），**禁止未经路由直接用其它库、在线 API 或技能替代**；仅当 `ffmpeg` 经实测确实不支持该项能力时，方可在记录后降级，并须说明降级理由。
 - **仅当** `D:\Tools\Assembly` 中工具不可用或使用失败，才回退至内置同用途工具。
 - **PATH 注册结论**：上述工具在 **系统环境变量 PATH** 与 **用户环境变量 PATH** 均已注册，`where.exe` 均可解析。因此 **WorkBuddy 的"内置运行时"（内置 Git Bash / 内置 Python / 内置 Node.js）可安全关闭**，不依赖任何内置运行时即可工作。
 - **关闭内置 Git Bash 的影响**：Git / GitHub CLI 完全无影响（`git`、`gh` 走系统 PATH）；因 `D:\Tools\Assembly\git\bin` 在 PATH，`bash`/`sh` 及 unix 工具（ls/grep/sed/awk 等）仍可从 PATH 解析。bash 风格命令与 `.sh` 脚本在 WorkBuddy 的 Shell 工具从 PATH 探测 `bash` 时可用；若硬编码调用内置 bundled bash，可能回退到 `cmd`/`PowerShell`；如发生，重新开启内置 Git Bash，或确认 `D:\Tools\Assembly\git\bin` 在 PATH 靠前位置。
