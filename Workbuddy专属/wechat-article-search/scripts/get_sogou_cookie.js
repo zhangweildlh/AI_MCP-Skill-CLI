@@ -12,6 +12,8 @@
  *
  * 用法：node get_sogou_cookie.js
  * 输出：stdout 打印 "SNUID=...; SUGGEST=..." 形式的 Cookie 串（供 -c 使用）
+ * 退出码：0=成功且关键键齐全；3=成功但 Cookie 残缺（缺 SNUID/SUID，stderr 给出告警，Cookie 串仍输出）；
+ *        2=未读取到 Cookie；1=读取失败。
  */
 
 const http = require('http');
@@ -314,6 +316,15 @@ async function main() {
               const cookieStr = Array.from(seen.values())
                 .map((c) => `${c.name}=${c.value}`)
                 .join('; ');
+              // 关键键齐全性校验（2026-11-02 实测沉淀）：仅访问搜索结果页直提通常只得访客标识 SUV，
+              // 残缺 Cookie 直接用于检索大概率仍触发反爬——显式告警并以退出码 3 区分（Cookie 串仍输出，保持管道兼容）。
+              const KEY_COOKIE_NAMES = ['SNUID', 'SUID'];
+              const missingKeys = KEY_COOKIE_NAMES.filter((n) => !seen.has(n));
+              if (missingKeys.length > 0) {
+                console.error(`[告警] Cookie 残缺：缺少关键键 ${missingKeys.join('、')}，直接用于检索大概率仍触发反爬。`);
+                console.error(`[建议] 先在浏览器访问 ${TARGET_ORIGIN}/ 首页完成一次正常浏览（种全套会话 Cookie）后重新提取。`);
+                exitCode = 3;
+              }
               console.error(`[成功] 读取到 ${cookies.length} 个 ${TARGET_ORIGIN} Cookie，可直接用于 -c：`);
               console.log(cookieStr);
             }

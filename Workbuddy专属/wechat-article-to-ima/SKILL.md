@@ -7,7 +7,7 @@ license: Proprietary
 compatibility: 依赖技能 wechat-article-search（检索）、技能 ima-skills（入库）、原生网页抓取能力（正文抓取）；可选依赖浏览器自动化能力与网页抓取服务用于兜底。需要可访问互联网，且已配置目标 ima 知识库的接口凭据。
 metadata:
   author: zhangweildlh
-  version: 1.2.2
+  version: 1.2.3
   category: knowledge-management
 allowed-tools: Bash Read Write Edit WebFetch
 ---
@@ -144,6 +144,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 - **优先 `-c` 接口（Cookie 绕过会话维反爬）**：调用检索前，先尝试从 wechat-article-search 的脚本目录取得 `weixin.sogou.com` 的 Cookie：`CK=$(node [search_script_dir]/get_sogou_cookie.js 2>/dev/null)`；取得后以 `-c` 传入：`node [search_script_dir]/search_wechat.js "[关键词]" -n [max_results] -r -c "$CK" -o "[workspace]/[关键词].json"`。Cookie 仅缓解**会话维**反爬（antispider 验证码拦截），是本技能与 wechat-article-search 契约的优先路径。
   - **文件名安全化**：`[关键词]` 用于输出文件名前，须将其中的文件系统非法字符（`\ / : * ? " < > |`）替换为下划线，避免 `[workspace]/[关键词].json` 路径畸形。
   - **凭据安全**：Cookie 为会话级凭据，禁止写入进度文件或日志；以命令行参数传入时避免在标准输出/日志中回显 `$CK` 明文。
+  - **Cookie 齐全性校验（2026-11-02 实测沉淀）**：提取后先核对关键键齐全（至少含 `SNUID` 与 `SUID`）再传 `-c`；仅访问搜索结果页直提通常只得到访客标识 `SUV`，属残缺 Cookie，直接检索大概率仍被反爬拦截。补救：先在浏览器访问 `weixin.sogou.com` 首页完成一次正常浏览（种全套会话 Cookie），再重新提取。`get_sogou_cookie.js` 检出残缺时以退出码 3 告警（Cookie 串仍输出），检索脚本对残缺 `-c` 也会在标准错误给出告警。
 - **回退（免 Cookie）**：若 `get_sogou_cookie.js` 失败（chrome-devtools 不可用 / 浏览器未开调试端口 / 未取得有效 Cookie），则免 Cookie 调用 `node [search_script_dir]/search_wechat.js "[关键词]" -n [max_results] -r -o "[workspace]/[关键词].json"`（不带 `-c`）；此时命中 antispider 的概率上升，属预期降级，不视为本技能故障，按下方「退出码 / `ANTI_SPIDER` 判据表」进入限流退避。
 - 运行检索或抓取脚本时，禁止使用会提前关闭管道的写法（例如把输出管道给只取前若干行的命令）。管道被关闭会中断进程，导致落盘失败、整批结果丢失。应当先重定向到日志文件，再读取日志。
 - **退出码 / `ANTI_SPIDER` 判据表**（wechat-article-search 契约，必须据此分流，禁止一律当限流）：
@@ -170,7 +171,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 抓取降级链
 
-1. 一级：使用原生网页抓取能力直接读取真实文章直链，获取标题、来源公众号、作者、发布时间与正文。检索结果中已包含 `title`、`url`、`summary`、`datetime`、`date_text`、`date_description`、`source` 字段，可直接作为元数据头的输入来源。
+1. 一级：使用原生网页抓取能力直接读取真实文章直链，获取标题、来源公众号、作者、发布时间与正文。检索结果中已包含 `title`、`url`、`summary`、`datetime`、`date_text`、`date_description`、`source` 字段，可直接作为元数据头的输入来源。**中转链接先解析（2026-11-02 实测沉淀）**：若 `url` 为 `weixin.sogou.com/link?url=...` 中转形态（检索未带 `-r` 或直链解析失败时的形态），须先经浏览器自动化导航该中转链接，待其 JS 跳转完成后取最终地址（`location.href`，即 `mp.weixin.qq.com/s?...` 形态）作为真实直链再抓取；解析失败时以原中转链接直接尝试抓取，最终以「完整性闸门」判定。检索命令已带 `-r` 且结果 `url_resolved=true` 时已是真实直链，无需本级解析。
 2. 二级：一级返回空或页面异常时，改用浏览器自动化能力打开该直链提取正文。前置依赖检查记录浏览器能力不可用时，跳过本级直接进入三级。
 3. 三级：前两级均失败时，改用网页抓取服务的抓取接口；该接口返回限流错误时立即回退到二级，禁止连续硬重试。
 4. 连续两篇一级失败后，才整体切换到二级，避免单篇偶发就换道。
@@ -192,17 +193,20 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 **第一步：预检与重名检查**
 
-在创建笔记前，先调用知识库模块的 `check_repeated_names` 接口，检查目标子目录下是否已存在同名条目（避免重复入库）。重名检查必须同时满足以下三条：
+在创建笔记前，先做知识库有效性预检，再重名检查：
 
-1. 接口路径必须带版本前缀，缺少前缀会返回未找到。
-2. 参数结构为重名参数数组，每项含名称与媒体类型，字段名不可替换为其他名称。
-3. 名称必须带 `.md` 扩展名。不带扩展名时接口会误判为未重复。
+1. **知识库有效性预检（2026-11-02 实测沉淀）**：调用 `openapi/wiki/v1/get_knowledge_base` 接口（body 传 `{"ids":["[knowledge_base_id]"]}`）确认目标知识库有效。返回业务码非 0 且提示 `invalid or outdated knowledge_base_id` 时（有效格式为 `ima_kb_` 前缀加 8 位字母数字），改调 `openapi/wiki/v1/get_addable_knowledge_base_list`（body 传 `{"cursor":"","limit":50}`）列出本凭据可添加的知识库，从返回 `addable_knowledge_base_list[].id` 取得新标识替换本轮 `[knowledge_base_id]` 取值（仅本轮生效，禁止改写参数配置区默认值）后继续；列表为空或仍失败则终止入库并报告用户。
+2. 重名检查：调用 `openapi/wiki/v1/check_repeated_names` 接口，检查目标子目录下是否已存在同名条目（避免重复入库）。重名检查必须同时满足以下三条：
+
+   1. 接口路径必须带版本前缀（实测有效完整路径为 `openapi/wiki/v1/check_repeated_names`），缺少前缀会返回未找到。
+   2. 参数结构为重名参数数组，每项含名称与媒体类型，字段名不可替换为其他名称。
+   3. 名称必须带 `.md` 扩展名。不带扩展名时接口会误判为未重复。
 
 若 `is_repeated=true`，说明该文章已入库，本轮跳过（不重复创建），标记为已去重。
 
 **第二步：创建笔记**
 
-调用笔记模块的 `import_doc` 接口，将本地 Markdown 文件内容写入为一篇新笔记：
+调用笔记模块的 `import_doc` 接口（实测有效完整路径为 `openapi/note/v1/import_doc`），将本地 Markdown 文件内容写入为一篇新笔记：
 
 - `content_format` 固定为 `1`（Markdown）。
 - `content` 为本地 `.md` 文件的完整内容（含元数据头与正文）。
@@ -211,13 +215,21 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 **第三步：将笔记关联到知识库子目录**
 
-调用知识库模块的 `add_knowledge` 接口，将上一步创建的笔记链接到目标知识库的指定子目录：
+调用知识库模块的 `add_knowledge` 接口（实测有效完整路径为 `openapi/wiki/v1/add_knowledge`），将上一步创建的笔记链接到目标知识库的指定子目录：
 
 - `media_type` 固定为 `11`（笔记类型）。
 - `note_info.content_id` 传入上一步返回的 `note_id`。
 - `title` 使用文章标题（与 `.md` 文件名一致，含 `.md` 扩展名）。
 - `knowledge_base_id` 传入 `[knowledge_base_id]`。
 - `folder_id` 传入 `[folder_id]`（目标子目录标识）。
+
+**第四步：入库复验（2026-11-02 实测新增）**
+
+关联完成后，调用 `openapi/wiki/v1/get_knowledge_list` 接口（body 传 `knowledge_base_id`、`folder_id`、`cursor` 空串、`limit` 不超过 50）列出目标子目录内容，须命中本次入库条目且其 `media_type` 为 `11`（确为笔记而非 URL 书签）；命中即复验通过。需要进一步核对元数据时，可再调用 `openapi/wiki/v1/get_media_info`（body 传 `{"media_id":"<条目id>"}`）。复验未命中时将该篇标记为失败并计入失败清单，禁止计为成功。
+
+**调用层陷阱警示：`ima_api.cjs` 空响应（2026-11-02 实测沉淀）**
+
+底层执行脚本 `ima_api.cjs` 的 HTTP 封装**不检查状态码**：404（路径错）/ 401（凭据错）等异常也会表现为「进程退出码 0 且标准输出为空」。凡出现退出码 0 但标准输出为空或非 JSON 空串的调用，一律按 HTTP 层异常处理：用 curl 携带 `ima-openapi-clientid` 与 `ima-openapi-apikey` 头对同一接口重放，以真实 `HTTP_CODE` 定位（404 查路径前缀、401 查凭据），禁止当成功处理。另：ima-skills 主文档中的 `openapi/list_docs` 为过时示例（实测 404），禁止使用；本节所列完整路径为 2026-11-02 实测有效口径。
 
 **第四步：入库后清理**
 

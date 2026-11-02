@@ -3,7 +3,7 @@ name: wechat-article-search
 description: "搜索微信公众号文章：通过搜狗微信（weixin.sogou.com）按关键词检索，返回文章标题、摘要、发布时间、来源公众号与可访问链接。关键词：微信公众号文章搜索、搜狗微信、公众号文章检索、反爬 Cookie 绕过。当用户说「搜公众号文章」「查某关键词的微信文章」「整理微信文章参考资料」或输入公众号文章检索需求时触发。适用于按关键词获取公众号文章列表、整理参考资料、快速查证资讯。不适用于批量下载或全文抓取、需要阅读量或点赞等互动指标、获取单一账号完整发文时间线、以及非微信公众号来源的内容检索。"
 allowed-tools: Bash,Read
 metadata:
-  version: "0.1.4"
+  version: "0.1.5"
 ---
 
 # 微信公众号文章搜索
@@ -36,8 +36,8 @@ metadata:
 1. 确认检索要素：与用户确认关键词与返回数量（默认 10，最大 50）；若用户关注时间窗，确认最近 N 天。
 2. 获取 Cookie（优先路径）：通过 chrome-devtools 驱动支持 CDP 远程调试的 Chrome / Chromium 内核浏览器（例如 360Chrome）取得 `weixin.sogou.com` 的 Cookie。
    1. 启动或连接浏览器调试实例，使其监听本机 127.0.0.1:9223（远程调试端口）。
-   2. 用 chrome-devtools 驱动浏览器访问 `weixin.sogou.com` 搜索页；若跳转验证页，提示用户在浏览器窗口中**手动完成人机验证**（自动化无法过码且不合规），验证通过后 Cookie 写入浏览器存储。
-   3. 运行零依赖脚本提取 Cookie：执行 `node scripts/get_sogou_cookie.js`，其向标准输出打印 `SNUID=...; ...` 形式的字符串。
+   2. 用 chrome-devtools 驱动浏览器访问 `weixin.sogou.com` 搜索页；若跳转验证页，提示用户在浏览器窗口中**手动完成人机验证**（自动化无法过码且不合规），验证通过后 Cookie 写入浏览器存储。**先访问 `weixin.sogou.com` 首页完成一次正常浏览再进搜索页**（2026-11-02 实测）：仅跳搜索结果页通常只种访客标识 `SUV`，残缺 Cookie 检索仍会被拦截。
+   3. 运行零依赖脚本提取 Cookie：执行 `node scripts/get_sogou_cookie.js`，其向标准输出打印 `SNUID=...; ...` 形式的字符串。退出码语义：0=成功且关键键（`SNUID`/`SUID`）齐全；3=成功但 Cookie 残缺（标准错误给出告警与首页补救建议，Cookie 串仍输出）；2=未读取到 Cookie；1=读取失败。
 3. 执行检索（携带 Cookie）：运行 `node scripts/search_wechat.js "[关键词]" -n [数量] -c "[Cookie 字符串]"`；若用户要求时间窗或解析直链，追加 `-d [天数]` 或 `-r`。
 4. 处理返回：解析脚本输出的 JSON，提取文章标题、地址、概要、发布时间、来源公众号，以结构化列表呈现给用户。
 
