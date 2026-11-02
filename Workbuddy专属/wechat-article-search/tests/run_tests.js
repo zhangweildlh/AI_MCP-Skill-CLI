@@ -228,6 +228,53 @@ async function main() {
   const g5 = await context.getRealUrl('https://weixin.sogou.com/link?url=z', '', 1);
   check('getRealUrl-200含antispider回退原链接', g5.includes('weixin.sogou.com/link?url=z'), g5);
 
+  console.log('\n[Step4/集成] get_sogou_cookie.js 错误路径退出码（子进程集成）');
+  {
+    const httpMod = require('http');
+    const { spawn } = require('child_process');
+    const COOKIE_SCRIPT = path.join(SKILL, 'scripts', 'get_sogou_cookie.js');
+
+    // 必须用异步 spawn：spawnSync 会阻塞本进程事件循环，
+    // 导致同进程的伪 CDP 服务器无法响应子进程请求（自锁死 → 子进程 http timeout）。
+    const runCookieScript = (env) => new Promise((resolve) => {
+      const child = spawn(process.execPath, [COOKIE_SCRIPT], { env });
+      let out = '', err = '';
+      child.stdout.on('data', (c) => (out += c));
+      child.stderr.on('data', (c) => (err += c));
+      const killer = setTimeout(() => { try { child.kill(); } catch (_) { /* ignore */ } }, 30000);
+      child.on('close', (code) => { clearTimeout(killer); resolve({ status: code, stdout: out, stderr: err }); });
+    });
+
+    // 伪 CDP：/json/list 正常返回，但 WebSocket 端点返回 404（非 101）
+    const srv = httpMod.createServer((req, res) => {
+      if (req.url === '/json/list') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify([{
+          type: 'page',
+          url: 'https://weixin.sogou.com/',
+          webSocketDebuggerUrl: 'ws://127.0.0.1:' + srv.address().port + '/devtools/page/BOGUS',
+        }]));
+      } else {
+        res.writeHead(404);
+        res.end('not a websocket endpoint');
+      }
+    });
+    await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+    const port = srv.address().port;
+
+    const r1 = await runCookieScript(Object.assign({}, process.env, { SOGOU_CDP_PORT: String(port) }));
+    check('G1-非101响应→退出码非0（不得静默成功）', r1.status !== 0, 'status=' + r1.status);
+    check('G2-非101响应→stderr 明确报错', /升级被拒绝/.test(r1.stderr || ''), (r1.stderr || '').trim().slice(0, 140));
+    check('G3-非101响应→stdout 无 Cookie 内容', (r1.stdout || '').trim() === '', JSON.stringify(r1.stdout));
+
+    srv.close();
+
+    // 无 CDP 服务（端口已关闭）
+    const r2 = await runCookieScript(Object.assign({}, process.env, { SOGOU_CDP_PORT: String(port) }));
+    check('G4-无CDP→退出码为1', r2.status === 1, 'status=' + r2.status);
+    check('G5-无CDP→stderr 明确报错', /无法连接/.test(r2.stderr || ''), (r2.stderr || '').trim().slice(0, 140));
+  }
+
   console.log('\n================ 结果 ================');
   console.log('PASS=' + pass + '  FAIL=' + fail);
   if (fail > 0) { console.log('失败项:\n - ' + failures.join('\n - ')); process.exit(1); }

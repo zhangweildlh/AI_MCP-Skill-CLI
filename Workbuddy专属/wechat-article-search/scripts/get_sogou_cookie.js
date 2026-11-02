@@ -18,7 +18,8 @@ const http = require('http');
 const crypto = require('crypto');
 
 const CDP_HOST = '127.0.0.1';
-const CDP_PORT = 9223;
+// 端口可经环境变量覆盖（便于测试与自定义调试实例）；默认 9223
+const CDP_PORT = Number(process.env.SOGOU_CDP_PORT) || 9223;
 const TARGET_ORIGIN = 'https://weixin.sogou.com';
 
 // --- 最小 WebSocket 客户端（RFC 6455，零依赖） ---
@@ -253,14 +254,16 @@ function connectWs(wsUrl, timeoutMs = 8000) {
 async function main() {
   // 单一出口：所有分支只设置 exitCode 与错误信息，finally 统一关闭 WebSocket，
   // 避免在 try 内直接 process.exit 导致 finally 的 ws.close() 被跳过。
+  // 注意：各阶段一律用 if/else 推进，禁止在 try 内 return —— return 会直接跳出
+  // main()，使末尾的 process.exit(exitCode) 被跳过，导致错误路径仍以退出码 0 结束。
   let exitCode = 0;
   let ws = null;
 
   try {
-    // 必须连接「页面级（page）」CDP target，而非浏览器级 target：
+    // ---- 阶段 1：取「页面级（page）」CDP target ----
     // 浏览器级 target（/json/version 的 webSocketDebuggerUrl）不暴露 Network 域，
     // 只有 page 级 target 才能 Network.enable + Network.getCookies（含 HttpOnly）。
-    let targets;
+    let targets = null;
     try {
       targets = await httpGet('/json/list');
     } catch (e) {
@@ -268,52 +271,59 @@ async function main() {
       console.error(`请确保浏览器以 --remote-debugging-port=${CDP_PORT} 运行（Chrome / Chromium 内核浏览器均支持，如 360Chrome、Chrome）：`);
       console.error(`  <浏览器可执行文件> --remote-debugging-port=${CDP_PORT} --user-data-dir="<临时目录>" --no-first-run`);
       exitCode = 1;
-      return;
     }
 
-    const list = Array.isArray(targets) ? targets : [];
-    const pageTargets = list.filter((t) => t.type === 'page' && t.webSocketDebuggerUrl);
+    if (targets !== null) {
+      const list = Array.isArray(targets) ? targets : [];
+      const pageTargets = list.filter((t) => t.type === 'page' && t.webSocketDebuggerUrl);
 
-    // 优先选用已在 weixin.sogou.com 上的标签页（Cookie 必然就绪）；
-    // 回退到任意 page 标签页（Cookie 仍按 origin 过滤从浏览器 Cookie 库读取）。
-    const target =
-      pageTargets.find((t) => (t.url || '').includes(TARGET_ORIGIN)) ||
-      pageTargets[0];
+      // 优先选用已在 weixin.sogou.com 上的标签页（Cookie 必然就绪）；
+      // 回退到任意 page 标签页（Cookie 仍按 origin 过滤从浏览器 Cookie 库读取）。
+      const target =
+        pageTargets.find((t) => (t.url || '').includes(TARGET_ORIGIN)) ||
+        pageTargets[0];
 
-    if (!target) {
-      console.error(`[错误] 未找到可用的 page 级 CDP target。`);
-      console.error(`请在浏览器中至少打开一个标签页，再运行本脚本。`);
-      exitCode = 1;
-      return;
+      if (!target) {
+        console.error(`[错误] 未找到可用的 page 级 CDP target。`);
+        console.error(`请在浏览器中至少打开一个标签页，再运行本脚本。`);
+        exitCode = 1;
+      } else {
+        // ---- 阶段 2：建立 CDP WebSocket ----
+        try {
+          ws = await connectWs(target.webSocketDebuggerUrl);
+        } catch (e) {
+          console.error(`[错误] 无法建立 CDP WebSocket 连接：${e.message}`);
+          console.error(`常见原因：目标标签页在列出后被关闭或跳转（可重新打开页面后重试）。`);
+          exitCode = 1;
+        }
+
+        if (ws) {
+          // ---- 阶段 3：读取目标域 Cookie（含 HttpOnly）----
+          try {
+            await ws.send('Network.enable', {});
+            const result = await ws.send('Network.getCookies', { urls: [TARGET_ORIGIN + '/'] });
+            const cookies = result.cookies || [];
+            if (cookies.length === 0) {
+              console.error(`[提示] 未读取到 ${TARGET_ORIGIN} 的 Cookie。`);
+              console.error(`请先在 chrome-devtools 驱动的浏览器中打开并通过验证 weixin.sogou.com，再运行本脚本。`);
+              exitCode = 2;
+            } else {
+              // 按名称去重（同名不同 path/domain 时保留最后一次出现），避免 Cookie 串出现重复键。
+              const seen = new Map();
+              for (const c of cookies) seen.set(c.name, c);
+              const cookieStr = Array.from(seen.values())
+                .map((c) => `${c.name}=${c.value}`)
+                .join('; ');
+              console.error(`[成功] 读取到 ${cookies.length} 个 ${TARGET_ORIGIN} Cookie，可直接用于 -c：`);
+              console.log(cookieStr);
+            }
+          } catch (e) {
+            console.error(`[错误] 读取 Cookie 失败：${e.message}`);
+            exitCode = 1;
+          }
+        }
+      }
     }
-
-    try {
-      ws = await connectWs(target.webSocketDebuggerUrl);
-    } catch (e) {
-      console.error(`[错误] 无法建立 CDP WebSocket 连接：${e.message}`);
-      console.error(`常见原因：目标标签页在列出后被关闭或跳转（可重新打开页面后重试）。`);
-      exitCode = 1;
-      return;
-    }
-
-    // 启用 Network 域后读取目标域 Cookie（含 HttpOnly）
-    await ws.send('Network.enable', {});
-    const result = await ws.send('Network.getCookies', { urls: [TARGET_ORIGIN + '/'] });
-    const cookies = result.cookies || [];
-    if (cookies.length === 0) {
-      console.error(`[提示] 未读取到 ${TARGET_ORIGIN} 的 Cookie。`);
-      console.error(`请先在 chrome-devtools 驱动的浏览器中打开并通过验证 weixin.sogou.com，再运行本脚本。`);
-      exitCode = 2;
-      return;
-    }
-    // 按名称去重（同名不同 path/domain 时保留最后一次出现），避免 Cookie 串出现重复键。
-    const seen = new Map();
-    for (const c of cookies) seen.set(c.name, c);
-    const cookieStr = Array.from(seen.values())
-      .map((c) => `${c.name}=${c.value}`)
-      .join('; ');
-    console.error(`[成功] 读取到 ${cookies.length} 个 ${TARGET_ORIGIN} Cookie，可直接用于 -c：`);
-    console.log(cookieStr);
   } catch (e) {
     console.error(`[错误] 读取 Cookie 失败：${e.message}`);
     exitCode = 1;
