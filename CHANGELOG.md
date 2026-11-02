@@ -2,6 +2,15 @@
 
 ## [2026-11-02]
 
+### Added
+- **dir/Workbuddy专属：新增 wechat-article-search 开发态副本（主副本）**（PR #156，功能提交 `2c7b08c`；合并提交 hash 待 PR #156 合并后回填）：将「微信公众号文章搜索」技能纳入本仓库作为开发态（主副本），部署态副本位于用户级 skills 目录 `wechat-article-search/`。自此该技能的改动须先在本仓库归因分析并走 worktree + PR 闭环，部署副本由开发态同步生成，禁止直接修改部署副本（§7.1 副本纪律）。
+  - **纳入范围**：`SKILL.md`（技能主文件：角色与目标、能力边界、输入参数表、工作流、chrome-devtools 不可用时的回退方案、输出格式、3 个示例、边界与限制）、`README.md`（非执行必需信息：反爬三维模型、解耦选型理由「弃用 browser-skill」、方案演进与修改历史）、`scripts/search_wechat.js`（检索主脚本 + antispider 护栏 + `-c` Cookie 接口）、`scripts/get_sogou_cookie.js`（零依赖 CDP Cookie 提取一键脚本），以及可复用测试套件 `tests/run_tests.js`、`tests/cross_engine/`、`tests/fixtures/`（搜狗响应样本 3 例）。
+  - **刻意排除**：`tests/audit/`（市场安装时的审计过程产物，含 45KB `ocrA.json`，属 §8.3④ 过程文件 / §8.3⑤ 测试衍生文件）、`_skillhub_meta.json`（市场安装元数据，属部署态产物而非源码）。字节差账目：部署态 131414 B − 开发态 72468 B = 58946 B，恰等于 `tests/audit/` 58471 B + `_skillhub_meta.json` 475 B，无其它遗漏。
+  - **判等核验**（§7.3 口径）：`diff -r` 输出 0 行；去 CR 后 10 文件聚合 md5 双方同为 `09ca046d…`；`od -c` 确认 blob 首行纯 `\n` 无 `\r`——开发态 blob 与部署态**字节完全一致（双侧均 LF）**，属 §7.3 最高一致等级。
+  - **验证**：技能自带测试 `node tests/run_tests.js` → PASS=31 / FAIL=0（覆盖内容完整性、全场景矩阵、全边界矩阵、Cookie 注入集成路径、`getRealUrl` 多分支）；本地门禁 `--tier 0,1 --staged` 32 OK / 0 FATAL / 0 WARN、`--tier 2,5 --staged` 37 OK / 0 FATAL / 0 WARN；tier5 确认新嵌套目录未触发「目录存在但未登记」，符合 §7.5 `MANUAL_KEEP_DIRS` 豁免；pre-commit scope 校验「暂存文件全部属于 dir/Workbuddy专属」；tier0 密钥门禁扫描 10 文件未发现高危密钥（仓库为公开仓库，§3.3）。
+  - **CI 形态说明**：`Workbuddy专属` 无 SKILL.md（§2.1 合集目录），scope-map 判定落入「无法判定 scope → 保守全量」分支，故 CI 实跑 `run_all.py --tier 0,1,2,3,5,6` 全量门禁 → 77 OK / 0 FATAL / 3 WARN（3 条 WARN 均源于 runner 环境：`uv` 不在 PATH、`pytest` 未装、某沙箱无 git，与本变更无关）；`smoke-scoped` 按设计跳过。
+- **meta（AGENTS.md §7.2）：登记 wechat-article-search 副本映射**：新增「开发态 `Workbuddy专属/wechat-article-search/` → 部署态 `wechat-article-search/`」一行（合集目录内子 Skill（目录型）→ 目录），实测值 72468 B × 72468 B / 1751 行 / 去 CR 后聚合 md5 同 `09ca046d…`，判定「实质一致（字节完全一致）」，并留痕部署副本物理为一份（Administrator 路径为 Junction）。本条为 PR #156 的成对 docs(meta) 提交，依 §5.5「目录型 commit 与 docs(meta) commit 的成对模式」独立于功能 PR 走 meta 标准分支 + PR 闭环。
+
 ### Fixed
 - **dir/deep-discuss：修正增强模块相对路径 CWD 漂移误判（PR #154，功能提交 `783b1ea`，合并提交 `840fa55`）**：部署态运行时以相对路径 `references/enhancements/*.md` 搜索增强模块，因执行时工作目录是对话工作区而非技能目录，Glob 解析到错误位置、报「未找到文件」并错误降级 Phase 2/3/5 的 consult/5Why/Premortem 增强；而 `references/enhancements/` 目录真实存在 4 个 md 增强模块（`jasminK11-5why` / `kimasplund-premortem` / `sequential-thinking-adapter` / `silvereWolf-consult`），属误判非真缺失。
   - **根因（四证据坐实）**：技能内部资源以「技能根相对路径」记载，模型执行时 CWD 漂移，相对 Glob 0 命中、绝对路径 4 命中；① 报错文本非 selfcheck 输出（selfcheck 在技能目录内运行全部通过）；② `version-lock.md` 验证脚本原假设 `CWD=技能根`（`for f in references/enhancements/*.md`），同属 CWD 漂移隐患。
