@@ -56,18 +56,20 @@ function check(name, cond, detail) {
 }
 
 console.log('[Step5] 跨引擎交叉验证（Node 解析器 ↔ Python 参考解析器）');
-const fixtures = ['sogou_normal.html', 'sogou_empty.html'];
+// fixture 须覆盖三类页面：正常结果页、合法空结果页、反爬拦截页
+const fixtures = ['sogou_normal.html', 'sogou_empty.html', 'sogou_antispider.html'];
 for (const f of fixtures) {
   const html = read(path.join(FX, f));
   const nodeArts = context.parseArticlesFromSearchHtml(html, 50)
     .map((a) => ({ title: a.title, url: a.url, summary: a.summary, source: a.source }));
-  let pyArts;
+  let py;
   try {
-    pyArts = JSON.parse(runPython(path.join(FX, f)));
+    py = JSON.parse(runPython(path.join(FX, f)));
   } catch (e) {
     check('Python 参考解析器可执行', false, e.message);
     continue;
   }
+  const pyArts = py.articles || [];
   check(`[${f}] 篇数一致`, nodeArts.length === pyArts.length, `node=${nodeArts.length} py=${pyArts.length}`);
   const n = Math.min(nodeArts.length, pyArts.length);
   for (let i = 0; i < n; i++) {
@@ -78,6 +80,10 @@ for (const f of fixtures) {
     check(`${tag} summary 一致`, norm(a.summary) === norm(b.summary), `node=${a.summary} | py=${b.summary}`);
     check(`${tag} source 一致`, norm(a.source) === norm(b.source), `node=${a.source} | py=${b.source}`);
   }
+  // 判定层交叉：反爬判定是本技能风险最高的层，必须由两引擎独立给出一致结论
+  const nodeAnti = context.isAntiSpider(html);
+  const pyAnti = !!py.is_anti_spider;
+  check(`[${f}] isAntiSpider 判定一致`, nodeAnti === pyAnti, `node=${nodeAnti} py=${pyAnti}`);
 }
 
 console.log('\n================ 跨引擎结果 ================');
