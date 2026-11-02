@@ -1,7 +1,7 @@
 # 恢复指南：ima-skills 上游更新后重放全量修复
 
-> **文件定位**：本指南是「WorkBuddy 技能市场更新覆盖本地修复」后的**唯一可靠恢复源**。任何 Agent 完整阅读本文件后，应能在新版技能上**自主闭环**重放全部修复项与凭证鉴权，无需原修复会话上下文。
-> **创建日期**：2026-11-02 ｜ **修复基线版本**：v1.1.10 ｜ **前置审计**：71 条用例全套测试 + 三路交叉静态审计（详档：当时会话工作区 `ima-test/ima-skills测试报告.md`，临时目录可能已被清理，**不可依赖**；本指南自包含）。
+> **文件定位**：本指南是「WorkBuddy 技能市场更新覆盖本地修复」后的**唯一可靠恢复源**。任何 Agent 完整阅读本文件后，应能在新版技能上**自主闭环**重放全部修复项、加固项与凭证鉴权，无需原修复会话上下文。
+> **创建日期**：2026-11-02（同日追加加固批次 H1/H2/D11/D12）｜ **修复基线版本**：v1.1.10 ｜ **前置审计**：71 条用例全套测试 + 三路交叉静态审计（过程详档未随本指南分发，**本指南自包含**）。
 
 ---
 
@@ -9,12 +9,13 @@
 
 1. **被测技能路径**：`C:\Users\<用户名>\.workbuddy\skills\ima-skills`（下文简写 `<SKILL>`）。
 2. **上游真相**（2026-11-02 核实）：上游为 SkillHub 企业源 **`@tencent-adm/ima-skills`（腾讯 IMA 团队发布）**，经 WorkBuddy 市场分发（`_skillhub_meta.json` 中 `source: "marketplace"`）。**不存在可提 PR 的公开 GitHub 仓库**；GitHub 上的 `guohuiyuan/ima-skill`、`Ttungx/ima-skill-sync` 为第三方个人镜像，向其提 PR 无法回流官方，**不要向其提交**。
-3. **覆盖后果**：市场更新会覆盖技能目录全部文件，包括本次 9 项代码修复、10 项文档修复与 `tests/` 回归集；但**凭证不受影响**（存于 `~/.config/ima/` 与系统环境变量，不在技能目录内）。
+3. **覆盖后果**：市场更新会覆盖技能目录全部文件，包括本次 11 项代码修复、12 项文档修复与 `tests/` 回归集；但**凭证不受影响**（存于 `~/.config/ima/` 与系统环境变量，不在技能目录内）。
 4. **如何检测"已被覆盖"**（任一命中即需重放）：
    ```bash
-   # 修复版特征检查：三条任一不命中 = 修复被覆盖
+   # 修复版特征检查：四条任一不命中 = 修复被覆盖
    grep -q "Not a regular file" "<SKILL>/knowledge-base/scripts/preflight-check.cjs" && echo "P2-1 在位" || echo "P2-1 丢失"
    grep -q "ENV_FALLBACK" "<SKILL>/knowledge-base/scripts/cos-upload.cjs" && echo "P1-1 在位" || echo "P1-1 丢失"
+   grep -q "stripWrappingQuotes" "<SKILL>/knowledge-base/scripts/cos-upload.cjs" && echo "H1 在位" || echo "H1 丢失"
    test -f "<SKILL>/tests/run_regression.cjs" && echo "回归集在位" || echo "回归集丢失"
    ```
 
@@ -62,7 +63,7 @@ node "<SKILL>/ima_api.cjs" openapi/wiki/v1/search_knowledge_base "{\"query\":\"\
 
 ---
 
-## 2. 代码修复重放清单（9 项，逐项改完即验证）
+## 2. 代码修复重放清单（11 项，逐项改完即验证）
 
 > 通用验证前置：每项改完跑 `node --check <文件>` 确认语法。所有锚点字符串按"在新版文件中搜索"使用；若新版代码结构已变导致锚点找不到，**按改动意图等价适配**，不要硬套。
 
@@ -177,9 +178,81 @@ node "<SKILL>/ima_api.cjs" openapi/wiki/v1/search_knowledge_base "{\"query\":\"\
   ```
   三个返回路径分别包一层 `sanitizeVersion(...)`。
 
+### H1 shell 传参引号防线（cos-upload.cjs，加固项；依赖 P1-1 先重放）
+
+- **背景**（2026-11-02 实测踩坑）：调用方用变量中转参数（`ARGS="--bucket \"$b\" ..."; cmd $ARGS`）时，bash 分词**不剥离变量展开后的引号**，引号成字面字符，主机名被拼成 `"bucket".cos."region".myqcloud.com` → DNS `ENOTFOUND`。
+- **位置 1**：`const ENV_FALLBACK = {...};` 定义块之后、`const DEFAULT_TIMEOUT_MS` 之前，插入：
+  ```js
+  // --- Shell-quoting hardening ---
+  function stripWrappingQuotes(value) {
+    let s = String(value).trim();
+    if (
+      s.length >= 2 &&
+      ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))
+    ) {
+      s = s.slice(1, -1).trim();
+    }
+    return s;
+  }
+
+  const QUOTED_PARAMS = ['file', 'secret-id', 'secret-key', 'token', 'bucket', 'region', 'cos-key', 'content-type', 'start-time', 'expired-time', 'timeout'];
+
+  function sanitizeArgs(args) {
+    for (const key of QUOTED_PARAMS) {
+      if (args[key] === undefined) continue;
+      const cleaned = stripWrappingQuotes(args[key]);
+      if (cleaned !== args[key]) {
+        console.error(`[warn] --${key}: 包裹引号已剥离（常见根因：调用方用变量中转 shell 参数时引号变字面字符）。`);
+        args[key] = cleaned;
+      }
+    }
+    return args;
+  }
+
+  // bucket/region 是 hostname 构成项（<bucket>.cos.<region>.myqcloud.com），
+  // 白名单校验把 DNS 层的模糊错误（ENOTFOUND）提前为参数层的明确报错。
+  const HOSTNAME_TOKEN_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+  function validateHostnameTokens(args) {
+    for (const key of ['bucket', 'region']) {
+      if (!HOSTNAME_TOKEN_RE.test(args[key])) {
+        console.error(
+          `Invalid --${key}: 含主机名非法字符（合法字符集：小写字母/数字/连字符，且不以连字符开头）。` +
+          `常见根因：调用方用变量中转 shell 参数时引号变字面字符——请单条内联传参，或用 eval "set -- $(...)" 后以 "$@" 传递。`
+        );
+        process.exit(1);
+      }
+    }
+  }
+  ```
+- **位置 2**：`main()` 内 ENV_FALLBACK 回退循环之后、`const missing = REQUIRED.filter(...)` 之前，插入：
+  ```js
+  sanitizeArgs(args);           // 剥离包裹引号（shell 传参陷阱自愈）
+  validateHostnameTokens(args); // bucket/region 主机名白名单兜底
+  ```
+- **验证**：§4.3 场景 A1/A2。
+
+### H2 凭证缺失报错精确化（ima_api.cjs，加固项）
+
+- **背景**：原 msg 让用户按 `~/.config/ima/` 找文件；Git Bash 的 `$HOME` 虚拟化时 `~` 与 Node `os.homedir()` 不同（实测 `~` → 虚拟化目录），误导排障。技能**读取**逻辑本就基于 `os.homedir()`，此项仅修错误提示。
+- **位置**：`loadCredentials` 内 `if (!clientId || !apiKey) {` 块，整体替换为：
+  ```js
+  if (!clientId || !apiKey) {
+    const probedDir = path.join(os.homedir(), '.config/ima');
+    const err = new Error('missing credentials');
+    err.code = ERR_PROGRAMMATIC;
+    err.msg =
+      '未找到 IMA 凭证（clientId / apiKey）。请设置 IMA_CLIENT_ID 和 IMA_API_KEY 环境变量，或将凭证放置在 ' +
+      probedDir +
+      ' 目录下（实际探测路径以本消息为准；注意：Git Bash 的 ~ 可能指向虚拟化目录，与 Node os.homedir() 不同，勿按 ~ 找文件）。';
+    throw err;
+  }
+  ```
+- **验证**：§4.3 场景 D。
+
 ---
 
-## 3. 文档修复重放清单（10 项）
+## 3. 文档修复重放清单（12 项）
 
 | # | 文件 | 改动 |
 |---|---|---|
@@ -193,6 +266,8 @@ node "<SKILL>/ima_api.cjs" openapi/wiki/v1/search_knowledge_base "{\"query\":\"\
 | D8 | 根 `SKILL.md` Credential Check | 「环境变量 → 配置文件」改为「程序化 options 参数 → 环境变量 → 配置文件」 |
 | D9 | `_skillhub_meta.json` | `version` 与 `meta.json` 保持一致（当前 1.1.10） |
 | D10 | `_skillhub_meta.json` | `iconLocalPath` 本地化为当前机器实际路径（`C:\\Users\\<用户名>\\...`） |
+| D11 | 根 `SKILL.md` Credential Check 与配置写入指引（加固项） | 检查桩由 shell `~` 口径改为 node `os.homedir()` 口径（内嵌 `node -e` 判断 `client_id`/`api_key` 存在性，成功/失败均输出实际探测目录）；「方式 A」写入指引改双版本（node 版推荐 + bash 版）并加 Git Bash `$HOME` 虚拟化警示框（实测 `~` → 虚拟化目录，而 Node 侧按 `os.homedir()` 探测，`~` 写入会写错位置） |
+| D12 | `knowledge-base/SKILL.md` Step 5 的「⛔ 非零退出」行之后（加固项） | 新增「bash 传参陷阱（实测踩坑，2026-11-02）」引用块：禁止参数先存变量再 `$VAR` 展开（bash 分词不剥离变量展开后的引号 → 主机名带字面引号 → ENOTFOUND）；给单条内联传参与 `eval "set -- $(...)"` 后 `"$@"` 传递两种正确写法；注明脚本已内置剥离/白名单防线（对应 H1） |
 
 **不修项裁决（防过度修复）**：
 - `application/zip` → media_type 14 的映射**保留**：api.md 明确它是 Xmind 合法 content_type，契约保真优先（审计项 P3-13）。
@@ -225,13 +300,32 @@ node "<SKILL>/ima_api.cjs" openapi/note/v1/list_note "{\"folder_id\":\"\",\"sort
 
 **禁止**在验证中调用任何写入类接口（`import_doc`/`append_doc`/`add_knowledge`/`create_media` 等），避免污染用户数据。
 
+### 4.3 加固防线验证（H1/H2；全程用假凭证，零数据写入）
+
+**H1 三场景**（bucket 用格式合法的任意名如 `verify-bucket-123`；凭证一律假值，本验证不依赖真实桶名、不产生任何 COS 对象）：
+
+```bash
+FAKE='--file <任意本地小文件> --content-type text/markdown --secret-id AKIDfakesid0000 --secret-key fakeskey== --token faketoken --region ap-shanghai --cos-key test/hardening-verify.md'
+# A1：--bucket 传带字面双引号的桶名 → 期望 stderr 先出 [warn] 剥离告警
+node "<SKILL>/knowledge-base/scripts/cos-upload.cjs" $FAKE --bucket '"verify-bucket-123"'
+#    判定：报 ENOTFOUND verify-bucket-123.cos.ap-shanghai.myqcloud.com（主机名**无引号**；桶名真实存在时进一步 HTTP 403）= H1 生效；
+#          报 ENOTFOUND "verify-bucket-123"...（主机名带引号）= H1 未生效，回查位置 1/2 是否按锚点插入
+# A2：--bucket 传含空格值 → 期望立即参数层报错 Invalid --bucket（无任何网络请求）= 白名单兜底生效
+node "<SKILL>/knowledge-base/scripts/cos-upload.cjs" $FAKE --bucket "abc def"
+```
+
+**H2 验证**：将 `USERPROFILE` 重定向到空目录后调用任意接口，stderr JSON 的 `msg` 应包含重定向后的绝对探测路径与 Git Bash 虚拟化警示（而非 `~/.config/ima/` 字样）：
+
+```bash
+USERPROFILE="<任意空目录>" node "<SKILL>/ima_api.cjs" openapi/note/v1/list_notebook '{"cursor":"0","limit":1}'
+```
+
 ---
 
 ## 5. 溯源记录
 
-- 修复实施：2026-11-02（本仓库同日另有 ima 相关凭证部署记录见 git 历史）。
-- 测试报告与原始测试产物：位于当次会话临时工作区（`ima-test/`），不可长期依赖。
-- 修复前备份：`<当次工作区>/ima-test/backup/ima-skills-20261102-185800/`，同样不可依赖——**本指南是唯一可靠恢复源**。
+- 修复实施：2026-11-02（本仓库同日另有 ima 相关凭证部署记录见 git 历史）；同日追加加固批次 H1/H2/D11/D12（COS 传参引号防线、凭证报错精确化、检查桩 node 化、传参陷阱规则）。
+- 修复过程产物（测试详档、原始测试数据、修复前备份）位于当次会话临时工作区，**未随本指南分发、不可依赖**——**本指南是唯一可靠恢复源**。
 
 ---
 
