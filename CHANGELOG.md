@@ -1,5 +1,18 @@
 ---
 
+## [2026-11-02]
+
+### Fixed
+- **dir/deep-discuss：修正增强模块相对路径 CWD 漂移误判（PR #154，功能提交 `783b1ea`，合并提交 `840fa55`）**：部署态运行时以相对路径 `references/enhancements/*.md` 搜索增强模块，因执行时工作目录是对话工作区而非技能目录，Glob 解析到错误位置、报「未找到文件」并错误降级 Phase 2/3/5 的 consult/5Why/Premortem 增强；而 `references/enhancements/` 目录真实存在 4 个 md 增强模块（`jasminK11-5why` / `kimasplund-premortem` / `sequential-thinking-adapter` / `silvereWolf-consult`），属误判非真缺失。
+  - **根因（四证据坐实）**：技能内部资源以「技能根相对路径」记载，模型执行时 CWD 漂移，相对 Glob 0 命中、绝对路径 4 命中；① 报错文本非 selfcheck 输出（selfcheck 在技能目录内运行全部通过）；② `version-lock.md` 验证脚本原假设 `CWD=技能根`（`for f in references/enhancements/*.md`），同属 CWD 漂移隐患。
+  - **修复**：新增 `scripts/discover_resources.py`——以 `Path(__file__).resolve().parent.parent` 锚定技能根，输出全部增强模块（`ENHANCEMENT_LABELS`）与模板（`TEMPLATE_LABELS`）的绝对路径清单，与 CWD 无关；SKILL.md「模块化架构说明」新增「资源路径锚定（防 CWD 漂移，必读）」条目，并令「加载时启动自检」强制第 0 步（定位技能根与资源清单、运行发现器），第 1 项改为按绝对路径核对并严禁相对路径 Glob；`version-lock.md` 验证脚本去除 `CWD=技能根` 假设（改用 `$SKILL_ROOT` 绝对路径 + `git -C`）；README.md 故障排查改为「运行发现器取绝对路径」。
+  - **部署态同步**：从 main 的 git blob 逐字节同步至 `C:\Users\15794\.workbuddy\skills\deep-discuss\`（4 个变更文件 `git hash-object` 与开发态逐一相等，字节一致）；`C:\Users\Administrator\.workbuddy` 系 `C:\Users\15794\.workbuddy` 的 NTFS Junction，同一物理文件透传，无需单独同步。从错误工作目录调用发现器仍正确解析，selfcheck 通过。
+
+### Changed
+- **meta（AGENTS.md §5.5）：补目录型 PR #154 的成对 docs(meta) 提交**：依据 §5.5「目录型 commit 与 docs(meta) commit 的成对模式」，本条目为 `dir/deep-discuss` 资源路径修复（PR #154 / 功能提交 `783b1ea`）合并后补写的仓库级 CHANGELOG 同步；遵循「不得用 PR 描述代替实际 meta commit（PR 合并后描述即丢失）」纪律，独立于功能 PR 走 meta 标准分支 + PR 闭环。
+
+---
+
 ## [2026-10-26]
 
 ### Changed
