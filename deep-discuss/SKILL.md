@@ -22,6 +22,7 @@ version: 2.0.0
 - **按需激活**：仅在满足特定条件时激活对应模块，不一次性全加载。
 - **降级设计**：任何模块不可用时，主干自动切换至基础实现，不影响整体流程。
 - **跨阶段基础设施层（思维审计层）**：除单阶段增强模块外，本技能还可在运行时接入「分步推理 / 思维记录」类 MCP 服务（例如 sequential-thinking），作为贯穿 7 阶段的思维审计基础设施——提供显式推理留痕、分支探索与跨会话持久化。该层**非单阶段模块**，按「能力特征动态探测」接入（详见「思维审计层集成」节），不硬编码任何服务名 / 工具名 / 路径；探测不可用或会话内未接入时，自动降级、完全不参与，deep-discuss 仍可独立运行。
+- **资源路径锚定（防 CWD 漂移，必读）**：本技能所有内部资源路径（`references/enhancements/*.md`、`assets/templates/*.md`）均为**技能根相对路径**，技能根 = **本 SKILL.md 所在目录的绝对路径**。读取这些资源时，必须以该绝对路径为基准拼接子路径，再使用 Read 工具读取；**严禁以对话工作目录为基准直接对相对路径做 Glob/ls**——否则会解析到错误位置，误报"模块未找到"并错误降级 Phase 2/3/5 增强（这正是 P3-04 类错判的根因）。若难以确定技能根，运行 `scripts/discover_resources.py`（脚本以自身位置为锚，与 CWD 无关）获取绝对路径清单。
 
 ## 触发条件
 
@@ -367,11 +368,24 @@ Phase 2 done → Phase 3：深度分析
 
 ### 加载时启动自检（必做）
 
-每次激活本技能时，**先完成「思维审计层集成」节的激活强制探测（运行时枚举 + 真实调用 `process_thought`，见该节），再执行下方自检**，避免"静默降级"导致用户误以为模块已生效。技能根目录附带 `scripts/selfcheck.py`，可运行 `python scripts/selfcheck.py`（或 `uv run python scripts/selfcheck.py`）自动完成下方一致性核对（含第 4 项强制探活机制检查）；手动核对时遵循下方清单：
+每次激活本技能时，**先完成「思维审计层集成」节的激活强制探测（运行时枚举 + 真实调用 `process_thought`，见该节），再执行下方自检**，避免"静默降级"导致用户误以为模块已生效。
+
+> ⚠️ **第 0 步（强制，防 CWD 漂移误判）：定位技能根与资源清单**
+> 本技能内部资源（增强模块方法论文档、配套模板）均以**技能根相对路径**记载（如 `references/enhancements/*.md`、`assets/templates/*.md`）。但**执行本技能时，你的工作目录是对话工作区，未必是技能目录**——若直接对相对路径做 `Glob`/`ls`，会解析到错误位置，导致误报"模块未找到"并错误降级 Phase 2/3/5 增强。
+> **正确做法（二选一）**：
+> 1. 取**本 SKILL.md 所在目录**的绝对路径作为技能根，再拼接子路径用 Read 读取；或
+> 2. 运行技能自带的路径发现器，获取资源的**绝对路径**清单后按清单读取：
+>    ```bash
+>    uv run python scripts/discover_resources.py      # 推荐（优先用 uv 管理的解释器）
+>    # 或： python scripts/discover_resources.py
+>    ```
+> 该脚本以自身位置为锚解析技能根，与工作目录无关，输出每个增强模块 / 模板的绝对路径与用途标签。**严禁直接对相对路径 `references/enhancements/*.md` / `assets/templates/*.md` 做 Glob/ls。**
+
+技能根目录附带 `scripts/selfcheck.py`，可运行 `python scripts/selfcheck.py`（或 `uv run python scripts/selfcheck.py`）自动完成下方一致性核对（含第 4 项强制探活机制检查）；selfcheck 同样以脚本自身位置解析技能根，与 CWD 无关。手动核对时遵循下方清单：
 
 > **前置：思维审计层探测（每会话一次）**：在自检之前或紧邻，先执行「思维审计层集成」节的探测（会话内仅一次，结果缓存复用）。探测不可用时不计入自检失败，仅按降级纪律处理。
 
-1. **模块存在性**：确认 `references/enhancements/` 下三个模块文件（jasminK11-5why.md、kimasplund-premortem.md、silvereWolf-consult.md）均存在且非空。
+1. **模块存在性（按绝对路径核对）**：依据第 0 步 `discover_resources.py` 输出的绝对路径，确认 `references/enhancements/` 下三个模块文件（jasminK11-5why.md、kimasplund-premortem.md、silvereWolf-consult.md）均存在且非空；**禁止用相对路径 `references/enhancements/*.md` 直接 Glob**，因其解析基准未必是技能根。
 2. **版本标记一致性**：逐项核对以下三处 commit 必须互证一致，任一不匹配即视为版本偏离：
    - **模块首行 ↔ 锁表**：读取三个模块文件首行的 `<!-- 版本锁定: commit:... -->`，确认其 commit 出现在 `version-lock.md` 的锁定表中；
    - **更新记录 ↔ 首行**：若模块文件「更新记录」小节引用了上游 commit（形如 `基于 <repo>@<commit>`），其 `<commit>` 必须与文件首行的 commit 完全一致，禁止遗留占位符（如 `<真实commit>`）；
