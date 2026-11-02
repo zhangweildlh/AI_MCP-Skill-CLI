@@ -860,6 +860,11 @@ async function main() {
   }
   const { query, num, output, resolveRealUrl, days, cookieStr } = cli;
 
+  // Cookie 关键键齐全性告警（不阻断，保持向后兼容；残缺 Cookie 大概率仍触发反爬，提示调用方补救后重提）
+  if (cookieStr && (!/SNUID=/i.test(cookieStr) || !/SUID=/i.test(cookieStr))) {
+    console.error('[告警] 传入的 Cookie 缺少关键键（SNUID/SUID），大概率仍触发搜狗反爬；建议先在浏览器访问 weixin.sogou.com 首页完成一次正常浏览后重新提取。');
+  }
+
   if (!query) {
     console.log(`
 微信公众号文章搜索工具（零第三方依赖，可离线运行）
