@@ -7,7 +7,7 @@ license: Proprietary
 compatibility: 依赖技能 wechat-article-search（检索）、技能 ima-skills（入库）、原生网页抓取能力（正文抓取）；可选依赖浏览器自动化能力与网页抓取服务用于兜底。需要可访问互联网，且已配置目标 ima 知识库的接口凭据。
 metadata:
   author: zhangweildlh
-  version: 1.2.0
+  version: 1.2.1
   category: knowledge-management
 allowed-tools: Bash Read Write Edit WebFetch
 ---
@@ -34,7 +34,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 | folder_id | 字符串 | 由 card_id 经任务卡配置表推导 | 目标子目录标识。A 卡为 folder_7511772189689986 |
 | keywords | 数组 | 由 card_id 与轮转序号推导 | 本轮检索的关键词簇。A 卡主词簇为工程总承包、EPC、总包 |
 | rotate_index | 整数 | 空值（两簇全搜） | 轮转序号，0=主词簇、1=变体词簇；传入时只检索该序号对应的词簇，未传入时主词簇与变体词簇逐一全搜（详见「任务卡轮转规则」） |
-| search_script_dir | 字符串 | 技能 wechat-article-search 的脚本目录 | 检索脚本所在目录，由该技能自身提供，本技能不内置该脚本 |
+| search_script_dir | 字符串 | 由前置依赖检查解析的技能基址下 `wechat-article-search/scripts`（即 `<技能基址>/wechat-article-search/scripts`） | 检索脚本所在目录，由该技能自身提供，本技能不内置该脚本；执行体须据此**绝对路径**拼接步骤 4 的命令，禁止将本描述原文当作路径 |
 | max_results | 整数 | 50 | 单个关键词检索返回条数上限，检索脚本内部硬上限为 50 |
 | cool_down_seconds | 整数 | 120 | 每检索完一个关键词后的冷却秒数，用于规避平台频控 |
 | min_chars | 整数 | 800 | 正文最小字符数闸门，低于此值判定内容不完整 |
@@ -70,10 +70,11 @@ allowed-tools: Bash Read Write Edit WebFetch
 3. `web-search`：基址下 `web-search/` 目录存在且含 `SKILL.md`。
 4. `web-search` 的火爬适配层：基址下 `web-search/firecrawl/` 目录存在且含 `SKILL.md`。
 5. 探测浏览器自动化能力是否可用，仅作记录，不作为阻断项。
+6. **ima 知识库连接器（ima-mcp）连通性探测（告警项，非阻断）**：确认 ima-mcp 已连接且已授权；若未连接/未授权，须显式告警并提示用户确认 ima-mcp 已连接后再继续「入库流程」，避免「前置依赖检查通过却运行中入库失败」。同时须将 `search_script_dir` 解析为 `<技能基址>/wechat-article-search/scripts` 并用于步骤 4 命令拼接。
 
 ### 缺失处置
 
-6. 第 1 项至第 4 项中任一项缺失时，**先用第 3 条回退基址对缺失项重探一次**，确属缺失则立即停止后续全部操作，输出缺失项清单（须附实际探测到的基址路径，便于核对是否命中虚拟化 HOME），并询问用户是否授权立即安装。未获得明确授权前，禁止自行安装，也禁止继续本轮执行。
+7. 第 1 项至第 4 项中任一项缺失时，**先用第 3 条回退基址对缺失项重探一次**，确属缺失则立即停止后续全部操作，输出缺失项清单（须附实际探测到的基址路径，便于核对是否命中虚拟化 HOME），并询问用户是否授权立即安装。未获得明确授权前，禁止自行安装，也禁止继续本轮执行。
 
 ## 工作流
 
@@ -116,9 +117,9 @@ allowed-tools: Bash Read Write Edit WebFetch
     - 保留以下两项：
       a. `_progress.json` 文件；
       b. `.workbuddy/` 目录及其内部全部内容（隐藏工作区元数据目录）；
-    - 删除所有其他文件和目录（包括但不限于：`*.json`、`*.md`、`*.html`、`*.txt`、临时目录、日志文件等）；
+    - 删除所有其他文件和目录，但**严禁删除尚未成功入库的本地 `.md` 文章副本**：此类文件须移动到 `[workspace]/failed_quarantine/` 子目录保留（供人工补做或下一轮续跑）；可安全删除的仅限检索结果中间文件（如 `[关键词].json`）、临时日志与其它过程文件；
     - 删除操作必须为彻底删除（不进入回收站），但出于安全考虑，先移动到临时 quarantine 目录再删除，确认无误后清空 quarantine；
-    - 清扫完成后输出保留文件清单（仅 `_progress.json` 和 `.workbuddy/` 目录）。
+    - 清扫完成后输出保留文件清单（含 `_progress.json`、`.workbuddy/` 目录，以及 `failed_quarantine/`（若存在））。
 12. 按「任务卡轮转规则」更新该卡的上次运行日期、下次到期日与轮转序号。
 
 ## 任务卡轮转规则
@@ -136,6 +137,8 @@ allowed-tools: Bash Read Write Edit WebFetch
 ### 检索执行规则
 
 - **优先 `-c` 接口（Cookie 绕过会话维反爬）**：调用检索前，先尝试从 wechat-article-search 的脚本目录取得 `weixin.sogou.com` 的 Cookie：`CK=$(node [search_script_dir]/get_sogou_cookie.js 2>/dev/null)`；取得后以 `-c` 传入：`node [search_script_dir]/search_wechat.js "[关键词]" -n [max_results] -r -c "$CK" -o "[workspace]/[关键词].json"`。Cookie 仅缓解**会话维**反爬（antispider 验证码拦截），是本技能与 wechat-article-search 契约的优先路径。
+  - **文件名安全化**：`[关键词]` 用于输出文件名前，须将其中的文件系统非法字符（`\ / : * ? " < > |`）替换为下划线，避免 `[workspace]/[关键词].json` 路径畸形。
+  - **凭据安全**：Cookie 为会话级凭据，禁止写入进度文件或日志；以命令行参数传入时避免在标准输出/日志中回显 `$CK` 明文。
 - **回退（免 Cookie）**：若 `get_sogou_cookie.js` 失败（chrome-devtools 不可用 / 浏览器未开调试端口 / 未取得有效 Cookie），则免 Cookie 调用 `node [search_script_dir]/search_wechat.js "[关键词]" -n [max_results] -r -o "[workspace]/[关键词].json"`（不带 `-c`）；此时命中 antispider 的概率上升，属预期降级，不视为本技能故障，按下方「退出码 / `ANTI_SPIDER` 判据表」进入限流退避。
 - 运行检索或抓取脚本时，禁止使用会提前关闭管道的写法（例如把输出管道给只取前若干行的命令）。管道被关闭会中断进程，导致落盘失败、整批结果丢失。应当先重定向到日志文件，再读取日志。
 - **退出码 / `ANTI_SPIDER` 判据表**（wechat-article-search 契约，必须据此分流，禁止一律当限流）：
@@ -226,7 +229,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 进度文件模板
 
-进度文件位于 `[workspace]/_progress.json`，结构如下：
+进度文件位于 `[workspace]/_progress.json`，由「任务卡配置表」动态生成全部卡片（A/B/C 三卡，下表以 A 卡为例展示字段结构，B/C 卡结构相同仅 `name`/`folder_id` 不同），结构如下：
 
 ```json
 {
@@ -259,9 +262,10 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ## 收尾清扫
 
-1. 工区只保留进度文件与工作区元数据目录，其余过程文件一律清除。
-2. Markdown 文件入库成功后不在工区保留副本。
-3. 清扫完成后输出保留文件清单。
+1. 工区保留：进度文件 `_progress.json`、工作区元数据目录 `.workbuddy/`；此外**必须保留尚未成功入库的本地 `.md` 文章副本**（移至 `failed_quarantine/` 子目录，禁止随过程文件一并删除，避免内容不可逆丢失）。
+2. 可清除：检索结果中间文件（如 `[关键词].json`）、临时日志与其余过程文件；清除须先移至临时 quarantine 再彻底删除。
+3. Markdown 文件成功入库后不在工区保留副本（由「入库流程」步骤 4 删除）。
+4. 清扫完成后输出保留文件清单。
 
 ## 示例
 
@@ -269,7 +273,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 输入：无任何参数传入。
 
-输出：前置依赖检查四项全部具备；进度文件存在且三张卡上次运行日期均为空，按轮转规则选择 A 卡；因未传入轮转序号，主词簇（工程总承包、EPC、总包）与变体词簇（总承包EPC、EPC总承包）逐一全搜，目标子目录为 folder_7511772189689986。检索到 12 篇，去重后 10 篇，过滤剔除 2 篇开工类，抓取成功 8 篇，闸门全部通过，入库 8 篇，复验列表条目数 8 且父目录标识正确。四栏清单为「应入库 8 / 实入库 8 / 被过滤 2 / 失败 0」。执行完成后 A 卡上次运行日期设为今天、下次到期日设为今天加 10 天；因两簇均已覆盖，轮转序号保持 0 不变。
+输出：前置依赖检查四项全部具备；进度文件存在且三张卡上次运行日期均为空，按轮转规则选择 A 卡；因未传入轮转序号，主词簇（工程总承包、EPC、总包）与变体词簇（总承包EPC、EPC总承包）逐一全搜，目标子目录为 folder_7511772189689986。检索到 12 篇，去重后 10 篇，过滤剔除 2 篇开工类，抓取成功 8 篇，闸门全部通过，入库 8 篇，复验列表条目数 8 且目标子目录（folder_id）标识正确。四栏清单为「应入库 8 / 实入库 8 / 被过滤 2 / 失败 0」。执行完成后 A 卡上次运行日期设为今天、下次到期日设为今天加 10 天；因两簇均已覆盖，轮转序号保持 0 不变。
 
 ### 示例二：边界场景（指定任务卡且命中变体轮次）
 
