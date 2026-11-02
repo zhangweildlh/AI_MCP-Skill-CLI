@@ -25,7 +25,7 @@
   - `dir/tender-review-kit`
   - `dir/web-search`
   - `dir/Workbuddy专属`（无 SKILL.md，按目录 scope 处理；合集目录，内含子 Skill，统一按目录 scope 管理）
-- 2.2 根级 Skill 文件（9 个，scope 标识 `file/<name 字段>`）：
+- 2.2 根级 Skill 文件（8 个，scope 标识 `file/<name 字段>`）：
 
   | 文件名 | name 字段 |
   |---|---|
@@ -34,7 +34,6 @@
   | Skill-多文件分析+知识图谱构建.md | `multi-file-analysis` |
   | Skill-多源代码审查整合收敛.md | `code-audit-consolidation` |
   | Skill-对当前对话会话做经验沉淀和方法论固化.md | `task-methodology-consolidation` |
-  | Skill-微信公众号文章抓取入iam库.md | `wechat-article-to-ima` |
   | Skill-扫描Skill技能生成xml技能标签.md | `find-skill-to-xml` |
   | Skill-推广文章撰写.md | `promotion-writer` |
   | Skill-滴答清单智能任务解析创建器.md | `ticktick` |
@@ -109,7 +108,7 @@
   | `task-methodology-consolidation` | `Skill-对当前对话会话做经验沉淀和方法论固化.md` | `task-methodology-consolidation/SKILL.md` | 根级单文件 | 目录（仅 SKILL.md） | 双侧 26255 B，同 `c1fb5928…` | 实质一致（单文件→目录形态转换） |
   | `workbuddy-workspace-migration` | `Workbuddy专属/workbuddy-workspace-migration/` | `workbuddy-workspace-migration/` | 合集目录内子 Skill | 目录 | 双侧 25522 B，同 `296e1f3b…` | 实质一致（仅所在目录不同） |
   | `self-improvement` | ~~`self-improvement/`（scope `dir/self-improvement`）~~（已随 PR 移除） | **无对应部署目录**；同名的 `self-improvement-system__skillhub/` 系外部安装体，非本仓库部署副本 | 目录型 | 未部署 / 被同名外部体占用 | 仓库版 4312 B，外部版 5577 B，正文不同 | **未部署**，开发态已移除（裁决见 §7.4） |
-  | `wechat-article-to-ima` | `Skill-微信公众号文章抓取入iam库.md`（仓库根级单文件 Skill） | **无部署态副本**；WorkBuddy 与定时任务直接按路径调用开发态副本，不经部署流程 | 根级单文件 | 未部署 / 直接调用开发态 | 待采集 | 已登记（2026-10-03）；按 §7.5 落地部署前须先完成本行登记 |
+  | `wechat-article-to-ima` | `Workbuddy专属/wechat-article-to-ima/`（合集目录内子 Skill，目录型） | `wechat-article-to-ima/`（用户级 skills 目录，目录型） | 合集目录内子 Skill（目录型） | 目录 | 开发态 25285 B / 295 行 / 去 CR 后 md5 `bd420c35…`；部署态由 main blob 经 `git show` 同步（LF），同步后与开发态**字节完全一致**（§7.3 最高一致等级；当前部署态为旧版 v1.1.0，待任务 18 同步后复采数值） | **实质一致**（部署态同步后复采，预测与开发态字节一致） |
   | `wechat-article-search` | `Workbuddy专属/wechat-article-search/` | `wechat-article-search/` | 合集目录内子 Skill（目录型，11 文件） | 目录（物理一份） | 2026-11-02 首轮审计后复采：双侧 102928 B × 102928 B、2216 行、11 文件；去 CR 后聚合 md5 同 `ab8a876e…`；`git hash-object` 逐文件等于 main 的 blob；`od -c` 确认 blob 与部署态首行纯 `\n` 无 `\r`（双侧均为 LF） | **实质一致**（字节完全一致，§7.3 最高一致等级；随 PR #156 纳入开发态，经 PR #158/#159/#160 首轮审计修复）。**部署方式**：统一由技能内 `scripts/deploy.js` 从 main 的 git blob 同步（`node scripts/deploy.js`），**不经工作树**——本仓库 `core.autocrlf=true` 且无 `.gitattributes`，直接拷工作树会让部署态带上 CRLF 而与 blob 产生字节分歧。开发态刻意排除部署态专有物 `tests/audit/`（市场审计过程产物，含 45KB `ocrA.json`）与 `_skillhub_meta.json`（市场安装元数据），二者既不入库也不由部署脚本删除或覆盖。部署副本物理上为一份：`C:\Users\Administrator\.workbuddy` 系指向 `C:\Users\15794\.workbuddy` 的 NTFS Junction（实测 LinkType=Junction，`cmp` 零差异），非第二份独立副本 |
 - 7.3 **副本判等口径（硬规则）**：判定两副本是否「实质一致」，**只**以「去掉行尾回车后（`tr -d '\r'`）两侧 md5 相同 且 `diff` 输出 0 行」为准；**CRLF/LF 行尾差异一律不计为实质差异**。`Workbuddy专属` 下单文件与部署目录 `SKILL.md` 的字节差恰好等于文件行数（237 / 185 / 809 行），即每行仅多一个 CR 字节；若仅比对原始 md5，会把这类副本误判为「版本分叉」。本条为据上述实测补正（原纪律未定义判等口径）。
 - 7.4 **`self-improvement` 同名占用（2026-10-01 已裁决并执行）**：部署态 `self-improvement-system__skillhub/` 是外部（SkillHub）安装的运行态副本（含 `references/`、`lessons.md`、`mistakes.md`、`playbook.md`、`soul.md`、`session-log.md`、`_meta.json`、`_icon.png`），其 frontmatter 采用 Markdown 标题式 `## name: self-improvement`（非 YAML 键），与仓库原 `self-improvement/SKILL.md` 的 YAML 式 frontmatter 写法不同，但 name / description / author / version 完全一致（均为 OpenClaw v1.2.0）。
