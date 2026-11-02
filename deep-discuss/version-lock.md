@@ -59,13 +59,17 @@ deep-discuss/
 ```
 
 验证脚本示例（按缓存文件首行 commit hash 反查 version-lock.md，避免文件名与仓库名子串不匹配；并扩展校验「更新记录↔首行」与「主干锁↔main HEAD」两处易遗漏链路）：
+
+> ⚠️ 以下脚本须在 deep-discuss 技能根目录内运行，或把下方 `SKILL_ROOT` 改为该目录的**绝对路径**；否则相对路径会解析到错误位置（执行技能时工作目录未必是技能根，参见 SKILL.md「资源路径锚定」纪律）。
+
 ```bash
+SKILL_ROOT="$(pwd)"   # 改为技能绝对路径，或在本技能根目录内运行
 # 验证所有缓存文档的版本标记与 version-lock.md 一致（含更新记录与主干锁自洽）
-for f in references/enhancements/*.md; do
+for f in "$SKILL_ROOT"/references/enhancements/*.md; do
   commit=$(head -1 "$f" | grep -oP 'commit:\K\S+')
   if [ -n "$commit" ]; then
     # ① 首行 commit 须出现在锁定表
-    grep -q "$commit" version-lock.md || echo "FAIL 首行版本未锁定: $f ($commit)"
+    grep -q "$commit" "$SKILL_ROOT"/version-lock.md || echo "FAIL 首行版本未锁定: $f ($commit)"
     # ② 更新记录引用的 commit 须与首行一致（防占位符遗留）
     rec=$(grep -oP '基于 \S+@\K\S+' "$f" | head -1)
     if [ -n "$rec" ] && [ "$rec" != "$commit" ]; then
@@ -73,9 +77,9 @@ for f in references/enhancements/*.md; do
     fi
   fi
 done
-# ③ 主干锁 commit 须等于当前 main HEAD（防锁过期）
-main_head=$(git rev-parse --short main 2>/dev/null)
-lock=$(grep -oP '^\| 主干 \| 自身 \| commit:\K\S+' version-lock.md | head -1)
+# ③ 主干锁 commit 须等于当前 main HEAD（防锁过期；非 git 仓库/部署态时自动跳过）
+main_head=$(git -C "$SKILL_ROOT" rev-parse --short main 2>/dev/null)
+lock=$(grep -oP '^\| 主干 \| 自身 \| commit:\K\S+' "$SKILL_ROOT"/version-lock.md | head -1)
 if [ -n "$main_head" ] && [ -n "$lock" ]; then
   if [ "$lock" != "$main_head" ]; then
     echo "FAIL 主干锁过期: version-lock.md 主干=$lock, 实际 main HEAD=$main_head"

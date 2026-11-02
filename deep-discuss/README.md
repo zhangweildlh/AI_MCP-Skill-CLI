@@ -232,7 +232,7 @@ Phase 2 done → Phase 3：深度分析
 | 提示模块版本不匹配 | 检查缓存文件首行的 `<!-- 版本锁定: commit:... -->` 是否与 `version-lock.md` 一致 | 重新缓存对应模块或更新 version-lock.md |
 | 流程卡在某阶段 | 检查是否有未解决的“必须有”未知项需要用户补充 | 按 Unknowns 优先级引导用户提供信息 |
 | 输出格式混乱 | 检查是否正确使用了模板文件 | 使用 `assets/templates/` 下的对应模板 |
-| 怀疑降级了却未提示 | 检查相关缓存文件是否存在并完整 | 验证 `references/enhancements/` 下的三个模块文件 |
+| 怀疑降级了却未提示 | 运行 `uv run python scripts/discover_resources.py` 取**绝对路径**，确认模块文件存在且非空（注意：执行技能时工作目录未必是技能根，勿直接对相对路径 `references/enhancements/*.md` 做 Glob，否则会误判"模块未找到"） | 验证 `references/enhancements/` 下的三个模块文件 |
 | 思维审计层未生效 | 检查运行时 MCP 服务 / 工具集（含直接连接与经聚合器中转两类拓扑）是否提供能力特征三件套（记录+摘要+清空） | 运行时探测不可用会自动降级，属正常；确认对应服务已连接（直连或经任意聚合器，如 `dynamic-mcp`） |
 
 ### 上游演进自主检查
