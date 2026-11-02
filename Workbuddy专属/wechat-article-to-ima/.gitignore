@@ -1,0 +1,2 @@
+# ima 凭据本地固化文件：含真实凭据，绝不入库（仓库根 .git/info/exclude 另有本机级兜底）
+ima_credentials.json

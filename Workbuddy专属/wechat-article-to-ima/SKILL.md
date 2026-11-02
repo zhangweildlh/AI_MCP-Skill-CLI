@@ -7,7 +7,7 @@ license: Proprietary
 compatibility: 依赖技能 wechat-article-search（检索）、技能 ima-skills（入库）、原生网页抓取能力（正文抓取）；可选依赖浏览器自动化能力与网页抓取服务用于兜底。需要可访问互联网，且已配置目标 ima 知识库的接口凭据。
 metadata:
   author: zhangweildlh
-  version: 1.2.1
+  version: 1.2.2
   category: knowledge-management
 allowed-tools: Bash Read Write Edit WebFetch
 ---
@@ -29,7 +29,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 | 参数名 | 类型 | 默认值 | 说明 |
 | ------ | ------ | ------ | ------ |
 | workspace | 字符串 | D:/Documents/AI_Work_Temp/ima+WorkBuddy | 工区绝对路径。临时文件、状态文件、进度文件一律直接存放于该根目录，不建子目录 |
-| knowledge_base_id | 字符串 | eGuTHK4Ve1i9wX7bE4Sj7n2B_Jb1WnOdqYlGRo91RQM= | 目标 ima 知识库标识 |
+| knowledge_base_id | 字符串 | ima_kb_QFSIbCma | 目标 ima 知识库标识（2026-11-02 经 ima 开放接口 `get_addable_knowledge_base_list` 实测更新；旧值 `eGuTHK4Ve1i9wX7bE4Sj7n2B_Jb1WnOdqYlGRo91RQM=` 已失效，服务端要求 `ima_kb_` 前缀加 8 位字母数字格式） |
 | card_id | 字符串 | 空值 | 任务卡标识。传入时执行该卡；留空时按进度文件自动轮转选择 |
 | folder_id | 字符串 | 由 card_id 经任务卡配置表推导 | 目标子目录标识。A 卡为 folder_7511772189689986 |
 | keywords | 数组 | 由 card_id 与轮转序号推导 | 本轮检索的关键词簇。A 卡主词簇为工程总承包、EPC、总包 |
@@ -71,10 +71,15 @@ allowed-tools: Bash Read Write Edit WebFetch
 4. `web-search` 的火爬适配层：基址下 `web-search/firecrawl/` 目录存在且含 `SKILL.md`。
 5. 探测浏览器自动化能力是否可用，仅作记录，不作为阻断项。
 6. **ima 知识库连接器（ima-mcp）连通性探测（告警项，非阻断）**：确认 ima-mcp 已连接且已授权；若未连接/未授权，须显式告警并提示用户确认 ima-mcp 已连接后再继续「入库流程」，避免「前置依赖检查通过却运行中入库失败」。同时须将 `search_script_dir` 解析为 `<技能基址>/wechat-article-search/scripts` 并用于步骤 4 命令拼接。
+7. **ima 凭据可用性探测（告警项，非阻断）**：确认 ima 开放接口凭据（client_id / api_key）已配置且有效，按以下优先级解析，任一层存在即视为具备：
+   - ① 环境变量 `IMA_CLIENT_ID` 与 `IMA_API_KEY`（用户级持久化或本次执行已注入）；
+   - ② 技能目录内 `ima_credentials.json`（读取 `client_id` 与 `api_key` 字段后注入本次执行进程的环境变量使用；该文件含敏感凭据，禁止入库、禁止回显明文、禁止写入进度文件或日志）；
+   - ③ 用户真实主目录下 `~/.config/ima/client_id` 与 `~/.config/ima/api_key`（`ima_api.cjs` 原生兜底；注意须用 Node 侧 `os.homedir()` 的真实用户目录解析，本环境执行沙箱中 `$HOME` 被虚拟化，不可直接采信）。
+   三层皆缺时显式告警并提示用户配置凭据后再执行入库流程（检索与抓取不受影响）；凭据有效性的判据：以凭据调用 ima 开放接口（如 `openapi/note/v1/list_notebook`）返回业务码 0。
 
 ### 缺失处置
 
-7. 第 1 项至第 4 项中任一项缺失时，**先用第 3 条回退基址对缺失项重探一次**，确属缺失则立即停止后续全部操作，输出缺失项清单（须附实际探测到的基址路径，便于核对是否命中虚拟化 HOME），并询问用户是否授权立即安装。未获得明确授权前，禁止自行安装，也禁止继续本轮执行。
+8. 第 1 项至第 4 项中任一项缺失时，**先用第 3 条回退基址对缺失项重探一次**，确属缺失则立即停止后续全部操作，输出缺失项清单（须附实际探测到的基址路径，便于核对是否命中虚拟化 HOME），并询问用户是否授权立即安装。未获得明确授权前，禁止自行安装，也禁止继续本轮执行。
 
 ## 工作流
 
