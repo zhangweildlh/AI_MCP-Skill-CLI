@@ -242,62 +242,6 @@ async function requestText(options) {
 }
 
 /**
- * 从响应头中提取cookie
- * @param {Object} headers - HTTP响应头
- * @returns {string} cookie字符串
- */
-function extractCookies(headers) {
-  const cookies = [];
-  const setCookieHeader = headers['set-cookie'];
-  
-  if (setCookieHeader) {
-    setCookieHeader.forEach(cookie => {
-      const cookieValue = cookie.split(';')[0];
-      if (cookieValue) {
-        cookies.push(cookieValue);
-      }
-    });
-  }
-  
-  return cookies.join('; ');
-}
-
-/**
- * 从搜狗视频页面获取cookie
- * @returns {Promise<{cookieStr: string, cookieObj: Object}>} cookie字符串与对象
- */
-async function getSogouCookie() {
-  try {
-    const resp = await request({
-      url: 'https://v.sogou.com/v?ie=utf8&query=&p=40030600',
-      headers: {
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Encoding': 'identity',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-        'User-Agent': getRandomUserAgent(),
-      },
-      timeoutMs: 10000,
-      retries: 1,
-    });
-
-    const cookies = extractCookies(resp.headers);
-    const cookieObj = {};
-    if (cookies) {
-      cookies.split('; ').forEach(cookie => {
-        const [key, value] = cookie.split('=');
-        if (key && value) {
-          cookieObj[key.trim()] = value.trim();
-        }
-      });
-    }
-
-    return { cookieStr: cookies || '', cookieObj };
-  } catch {
-    return { cookieStr: '', cookieObj: {} };
-  }
-}
-
-/**
  * 发起HTTP GET请求
  * @param {string} url - 请求URL
  * @param {string} cookieStr - cookie字符串（可选）
@@ -322,18 +266,31 @@ async function httpGet(url, cookieStr = '') {
   return resp.text;
 }
 
+// 搜狗「合法空结果页」的判定标记：命中任一即认定是正常的「没搜到」页面，而非反爬拦截页。
+// 该页面可能很短（实测样本 620 字符 / 1204 字节），必须先于长度判据豁免，
+// 否则会被误判为 antispider，导致 searchWechatArticles 抛错，违反「合法空结果返回空列表」契约。
+const LEGIT_EMPTY_MARKERS = [
+  '没有找到相关的微信公众号文章',
+  'no-result',
+];
+
 /**
  * 检测是否为搜狗反爬拦截页（antispider）。
- * 拦截页特征：body 含 'antispider' 关键字，或页面极短（约 220 字节）且无 ul.news-list。
- * 正常结果页包含 ul.news-list 且 body 通常远大于 1KB。
+ * 拦截页特征（按优先级）：
+ *   1. body 含 'antispider' 关键字 —— 主判据，确定性最强；
+ *   2. 页面短于阈值，且既无 ul.news-list、也无搜狗空结果页标记 —— 兜底判据。
+ * 正常结果页含 ul.news-list；搜狗合法空结果页含 LEGIT_EMPTY_MARKERS 之一。
+ * 注：长度阈值作用于「字符数」（JS 字符串长度），非字节数；合法空页样本实测 620 字符，
+ *     故其合法性依赖标记豁免而非长度裕量。
  * @param {string} html
  * @returns {boolean}
  */
 function isAntiSpider(html) {
   if (!html) return true;
   if (html.includes('antispider')) return true;
-  if (html.length < 1000 && !html.includes('news-list')) return true;
-  return false;
+  if (html.includes('news-list')) return false;
+  if (LEGIT_EMPTY_MARKERS.some((m) => html.includes(m))) return false;
+  return html.length < 1000;
 }
 
 /**
@@ -387,12 +344,12 @@ function extractRedirectUrlFromHtml(html) {
   //   url += 'weixin.qq.com/...';
   //   window.location.replace(url)
   // 参考截图中的 Python 思路：re.findall("url\s*\+=\s*'([^']*)'") 后 join
+  // 注意：单次遍历 + 引号类型交替捕获，保持片段在文档中的原始顺序；
+  //       原先分两趟（先收全部单引号、再收全部双引号）会把双引号片段整体排到末尾，
+  //       混合引号时拼出错误 URL，导致真实直链解析失败。
   const urlParts = [];
-  for (const m of html.matchAll(/url\s*\+=\s*'([^']*)'/g)) {
-    urlParts.push(m[1]);
-  }
-  for (const m of html.matchAll(/url\s*\+=\s*"([^"]*)"/g)) {
-    urlParts.push(m[1]);
+  for (const m of html.matchAll(/url\s*\+=\s*(?:'([^']*)'|"([^"]*)")/g)) {
+    urlParts.push(m[1] !== undefined ? m[1] : m[2]);
   }
   if (urlParts.length > 0) {
     const joined = urlParts.join('');
@@ -493,27 +450,66 @@ function parseCliArgs(args) {
   let days = 0; // 客户端按 datetime 二次过滤的时间窗（天），0 表示不过滤
   let cookieStr = ''; // 浏览器 Cookie：从 chrome-devtools（或浏览器手动）过验证码后提取的 cookie，用于绕过 antispider
 
+  // 非法输入一律显式抛错（由 main 统一转成 stderr 提示 + 退出码 2），
+  // 不做静默降级——静默回落默认值会让「用户请求」与「实际行为」背离。
+  const fail = (msg) => {
+    throw new Error('参数错误：' + msg);
+  };
+  const readInt = (raw, name) => {
+    if (raw === undefined) fail(`${name} 需要一个整数值（缺失）`);
+    if (!/^-?\d+$/.test(String(raw).trim())) fail(`${name} 需要一个整数，收到：${raw}`);
+    return Number.parseInt(raw, 10);
+  };
+
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '-n' || args[i] === '--num') {
-      num = parseInt(args[i + 1]) || 10;
-      i++;
-    } else if (args[i] === '-o' || args[i] === '--output') {
-      output = args[i + 1] || '';
-      i++;
-    } else if (args[i] === '-d' || args[i] === '--days') {
-      days = parseInt(args[i + 1]) || 0;
-      i++;
-    } else if (args[i] === '-r' || args[i] === '--resolve-url') {
+    const a = args[i];
+    if (a === '-n' || a === '--num') {
+      const v = readInt(args[++i], a);
+      if (v < 1) fail(`${a} 必须 ≥ 1（返回结果数量），收到：${v}`);
+      if (v > 50) {
+        console.error(`[提示] ${a} 上限为 50，已从 ${v} 截断为 50`);
+        num = 50;
+      } else {
+        num = v;
+      }
+    } else if (a === '-o' || a === '--output') {
+      const raw = args[++i];
+      if (!raw) fail(`${a} 需要一个文件路径`);
+      output = raw;
+    } else if (a === '-d' || a === '--days') {
+      const v = readInt(args[++i], a);
+      if (v < 0) fail(`${a} 不能为负，收到：${v}`);
+      days = v;
+    } else if (a === '-r' || a === '--resolve-url') {
       resolveRealUrl = true;
-    } else if (args[i] === '-c' || args[i] === '--cookie') {
-      cookieStr = args[i + 1] || '';
-      i++;
-    } else if (!args[i].startsWith('-')) {
-      query = args[i];
+    } else if (a === '-c' || a === '--cookie') {
+      const raw = args[++i];
+      if (raw === undefined) fail(`${a} 需要一个 Cookie 字符串`);
+      cookieStr = raw;
+    } else if (a.startsWith('-')) {
+      fail(`未知选项：${a}`);
+    } else {
+      if (query) fail(`仅接受一个关键词，收到多个：${query} / ${a}`);
+      query = a;
     }
   }
 
   return { query, num, output, resolveRealUrl, days, cookieStr };
+}
+
+/**
+ * 解析「北京时间墙钟」字符串为绝对时刻（UTC 毫秒）。
+ * datetime 字段统一为北京时间墙钟（UTC+8），故解析必须显式按 UTC+8 折算，
+ * 不能依赖运行机本地时区——否则同一份数据在 UTC+8 与非 UTC+8 机器上会得到不同的时间窗判定。
+ * @param {string} s - 'YYYY-MM-DD HH:mm:ss'
+ * @returns {number} UTC 毫秒；格式非法返回 NaN
+ */
+function parseChinaDateTime(s) {
+  if (!s) return NaN;
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(String(s).trim());
+  if (!m) return NaN;
+  // 北京时间 = UTC+8 → UTC 时刻 = 墙钟 - 8h（Date.UTC 会自动归一化负小时）
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4] - 8, +m[5], +m[6]);
 }
 
 /**
@@ -530,7 +526,7 @@ function filterByDays(articles, days) {
   let undated = 0;
   for (const a of articles) {
     if (!a.datetime) { undated++; continue; }
-    const t = new Date(a.datetime.replace(' ', 'T')).getTime();
+    const t = parseChinaDateTime(a.datetime);
     if (isNaN(t)) { undated++; continue; }
     if (t >= cutoff) kept.push(a); else dropped++;
   }
@@ -609,7 +605,8 @@ function parseRelativeTime(timeText) {
   const dayMatch = timeText.match(/(\d+)天前/);
   const hourMatch = timeText.match(/(\d+)小时前/);
   const minuteMatch = timeText.match(/(\d+)分钟前/);
-  
+  const justNowMatch = timeText.match(/刚刚|just\s+now/i);
+
   if (dayMatch) {
     const days = parseInt(dayMatch[1]);
     targetDate.setDate(now.getDate() - days);
@@ -619,23 +616,27 @@ function parseRelativeTime(timeText) {
   } else if (minuteMatch) {
     const minutes = parseInt(minuteMatch[1]);
     targetDate.setMinutes(now.getMinutes() - minutes);
+  } else if (justNowMatch) {
+    // 「刚刚」= 当前时刻。此前落到默认分支返回空 datetime，
+    // 会让该文章被 -d 时间窗计为 undated 而丢弃。
   } else {
-    // 尝试匹配标准日期格式（如"2024-01-15"）
+    // 尝试匹配标准日期格式（如"2024-01-15"），按北京时间零点解释
     const dateMatch = timeText.match(/(\d{4})-(\d{2})-(\d{2})/);
     if (dateMatch) {
-      targetDate = new Date(
-        parseInt(dateMatch[1]),
-        parseInt(dateMatch[2]) - 1,
-        parseInt(dateMatch[3])
-      );
+      targetDate = new Date(Date.UTC(
+        parseInt(dateMatch[1]), parseInt(dateMatch[2]) - 1, parseInt(dateMatch[3]), 0, 0, 0
+      ) - 8 * 60 * 60 * 1000);
     } else {
       return { datetime: '', dateText: timeText };
     }
   }
-  
-  const datetime = targetDate.toISOString().slice(0, 19).replace('T', ' ');
-  const dateText = `${targetDate.getFullYear()}年${String(targetDate.getMonth() + 1).padStart(2, '0')}月${String(targetDate.getDate()).padStart(2, '0')}日`;
-  
+
+  // 与时间戳分支保持同一时区口径：统一输出北京时间（UTC+8）墙钟，
+  // 避免同一字段混用 UTC 与 UTC+8 两种表示（此前相差 8 小时）。
+  const datetime = formatChinaDateTime(targetDate);
+  const cn = new Date(targetDate.getTime() + 8 * 60 * 60 * 1000);
+  const dateText = `${cn.getUTCFullYear()}年${String(cn.getUTCMonth() + 1).padStart(2, '0')}月${String(cn.getUTCDate()).padStart(2, '0')}日`;
+
   return { datetime, dateText };
 }
 
@@ -835,8 +836,17 @@ async function searchWechatArticles(query, maxResults = 10, resolveRealUrl = fal
 async function main() {
   const args = process.argv.slice(2);
 
-  const { query, num, output, resolveRealUrl, days, cookieStr } = parseCliArgs(args);
-  
+  let cli;
+  try {
+    cli = parseCliArgs(args);
+  } catch (e) {
+    // 参数非法：明确报错并以退出码 2 结束，不静默降级为默认值
+    console.error(`[错误] ${e.message}`);
+    console.error('用法：node search_wechat.js <关键词> [-n 数量] [-d 天数] [-o 文件] [-r] [-c cookie]');
+    process.exit(2);
+  }
+  const { query, num, output, resolveRealUrl, days, cookieStr } = cli;
+
   if (!query) {
     console.log(`
 微信公众号文章搜索工具（零第三方依赖，可离线运行）
@@ -845,8 +855,8 @@ async function main() {
   node search_wechat.js <关键词> [选项]
 
 选项:
-  -n, --num <数量>       返回结果数量（默认10，最大50）
-  -d, --days <天数>      仅保留最近 N 天内、有可解析发布时间的文章（客户端过滤）
+  -n, --num <数量>       返回结果数量（默认10，取值 1-50，超出上限会截断并提示）
+  -d, --days <天数>      仅保留最近 N 天内、有可解析发布时间的文章（客户端过滤，0 表示不过滤）
   -o, --output <文件>    输出JSON文件路径
   -r, --resolve-url      解析真实的微信文章URL（会额外请求每个链接）
   -c, --cookie <cookie>  传入从 chrome-devtools（或浏览器手动）取得的 weixin.sogou.com Cookie，用于绕过 antispider

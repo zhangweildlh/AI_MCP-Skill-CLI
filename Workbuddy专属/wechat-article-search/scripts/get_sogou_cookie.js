@@ -146,14 +146,20 @@ class CdpWs {
       header[2] = (len >>> 8) & 0xff;
       header[3] = len & 0xff;
     } else {
+      // RFC 6455：长度 ≥ 65536 必须用 127 形式，载荷长度为 8 字节大端序，
+      // 其中 header[2] 为最高字节（对 <2^63 的长度必须为 0），header[9] 为最低字节。
+      // 原实现把「高 32 位」错放到 header[2..5]、把低 32 位错放到 header[6]，
+      // 导致长度域被解析成完全不同的值（仅在 len<65536 走 126 分支时不受影响）。
       header = Buffer.alloc(10);
       header[1] = 0x80 | 127;
-      header[2] = Math.floor(len / 2 ** 32) & 0xff;
-      header[3] = (len >>> 24) & 0xff;
-      header[4] = (len >>> 16) & 0xff;
-      header[5] = (len >>> 8) & 0xff;
-      header[6] = len & 0xff;
-      header[7] = 0; header[8] = 0; header[9] = 0;
+      header[2] = Math.floor(len / 2 ** 56) & 0xff; // 最高字节（长度 < 2^63 时恒为 0）
+      header[3] = Math.floor(len / 2 ** 48) & 0xff;
+      header[4] = Math.floor(len / 2 ** 40) & 0xff;
+      header[5] = Math.floor(len / 2 ** 32) & 0xff;
+      header[6] = Math.floor(len / 2 ** 24) & 0xff;
+      header[7] = Math.floor(len / 2 ** 16) & 0xff;
+      header[8] = Math.floor(len / 2 ** 8) & 0xff;
+      header[9] = len & 0xff;
     }
     header[0] = 0x80 | opcode; // FIN + opcode
     const masked = Buffer.alloc(len);
@@ -196,8 +202,27 @@ function httpGet(path) {
   });
 }
 
-function connectWs(wsUrl) {
+/**
+ * 建立 CDP WebSocket 连接。
+ * 必须同时处理三类结局，否则会「永不落定」：
+ *   1. 101 Switching Protocols → 成功（'upgrade' 事件）
+ *   2. 非 101 响应（如 404：target 已关闭/URL 失效）→ 必须显式 reject
+ *      （Node 在非 101 时只发 'response' 事件；若不监听，Promise 永不落定，
+ *        socket 关闭后进程会以退出码 0 静默结束，用户拿到空 Cookie 却以为成功）
+ *   3. 握手超时 → 必须显式 reject
+ * @param {string} wsUrl
+ * @param {number} timeoutMs
+ * @returns {Promise<CdpWs>}
+ */
+function connectWs(wsUrl, timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(arg);
+    };
     const u = new URL(wsUrl);
     const key = crypto.randomBytes(16).toString('base64');
     const req = http.request({
@@ -211,58 +236,75 @@ function connectWs(wsUrl) {
         'Sec-WebSocket-Version': '13',
       },
     });
-    req.on('upgrade', (_res, socket) => resolve(new CdpWs(socket)));
-    req.on('error', reject);
+    const timer = setTimeout(() => {
+      req.destroy();
+      settle(reject, new Error(`WebSocket 握手超时（${timeoutMs}ms）`));
+    }, timeoutMs);
+    req.on('upgrade', (_res, socket) => settle(resolve, new CdpWs(socket)));
+    req.on('response', (res) => {
+      res.resume();
+      settle(reject, new Error(`WebSocket 升级被拒绝：HTTP ${res.statusCode}`));
+    });
+    req.on('error', (e) => settle(reject, e));
     req.end();
   });
 }
 
 async function main() {
-  // 必须连接「页面级（page）」CDP target，而非浏览器级 target：
-  // 浏览器级 target（/json/version 的 webSocketDebuggerUrl）不暴露 Network 域，
-  // 只有 page 级 target 才能 Network.enable + Network.getCookies（含 HttpOnly）。
-  let targets;
-  try {
-    targets = await httpGet('/json/list');
-  } catch (e) {
-    console.error(`[错误] 无法连接 ${CDP_HOST}:${CDP_PORT}（${e.message}）。`);
-    console.error(`请确保 360Chrome 以 --remote-debugging-port=${CDP_PORT} 运行：`);
-    console.error(`  360chromex.exe --remote-debugging-port=${CDP_PORT} --user-data-dir="<临时目录>" --no-first-run`);
-    process.exit(1);
-  }
-
-  const list = Array.isArray(targets) ? targets : [];
-  const pageTargets = list.filter((t) => t.type === 'page' && t.webSocketDebuggerUrl);
-
-  // 优先选用已在 weixin.sogou.com 上的标签页（Cookie 必然就绪）；
-  // 回退到任意 page 标签页（Cookie 仍按 origin 过滤从浏览器 Cookie 库读取）。
-  let target =
-    pageTargets.find((t) => (t.url || '').includes(TARGET_ORIGIN)) ||
-    pageTargets[0];
-
-  if (!target) {
-    console.error(`[错误] 未找到可用的 page 级 CDP target。`);
-    console.error(`请在 360Chrome 中至少打开一个标签页，再运行本脚本。`);
-    process.exit(1);
-  }
-
-  let ws;
-  try {
-    ws = await connectWs(target.webSocketDebuggerUrl);
-  } catch (e) {
-    console.error(`[错误] 无法建立 CDP WebSocket 连接：${e.message}`);
-    process.exit(1);
-  }
+  // 单一出口：所有分支只设置 exitCode 与错误信息，finally 统一关闭 WebSocket，
+  // 避免在 try 内直接 process.exit 导致 finally 的 ws.close() 被跳过。
+  let exitCode = 0;
+  let ws = null;
 
   try {
+    // 必须连接「页面级（page）」CDP target，而非浏览器级 target：
+    // 浏览器级 target（/json/version 的 webSocketDebuggerUrl）不暴露 Network 域，
+    // 只有 page 级 target 才能 Network.enable + Network.getCookies（含 HttpOnly）。
+    let targets;
+    try {
+      targets = await httpGet('/json/list');
+    } catch (e) {
+      console.error(`[错误] 无法连接 ${CDP_HOST}:${CDP_PORT}（${e.message}）。`);
+      console.error(`请确保浏览器以 --remote-debugging-port=${CDP_PORT} 运行（Chrome / Chromium 内核浏览器均支持，如 360Chrome、Chrome）：`);
+      console.error(`  <浏览器可执行文件> --remote-debugging-port=${CDP_PORT} --user-data-dir="<临时目录>" --no-first-run`);
+      exitCode = 1;
+      return;
+    }
+
+    const list = Array.isArray(targets) ? targets : [];
+    const pageTargets = list.filter((t) => t.type === 'page' && t.webSocketDebuggerUrl);
+
+    // 优先选用已在 weixin.sogou.com 上的标签页（Cookie 必然就绪）；
+    // 回退到任意 page 标签页（Cookie 仍按 origin 过滤从浏览器 Cookie 库读取）。
+    const target =
+      pageTargets.find((t) => (t.url || '').includes(TARGET_ORIGIN)) ||
+      pageTargets[0];
+
+    if (!target) {
+      console.error(`[错误] 未找到可用的 page 级 CDP target。`);
+      console.error(`请在浏览器中至少打开一个标签页，再运行本脚本。`);
+      exitCode = 1;
+      return;
+    }
+
+    try {
+      ws = await connectWs(target.webSocketDebuggerUrl);
+    } catch (e) {
+      console.error(`[错误] 无法建立 CDP WebSocket 连接：${e.message}`);
+      console.error(`常见原因：目标标签页在列出后被关闭或跳转（可重新打开页面后重试）。`);
+      exitCode = 1;
+      return;
+    }
+
     // 启用 Network 域后读取目标域 Cookie（含 HttpOnly）
     await ws.send('Network.enable', {});
     const result = await ws.send('Network.getCookies', { urls: [TARGET_ORIGIN + '/'] });
     const cookies = result.cookies || [];
     if (cookies.length === 0) {
       console.error(`[提示] 未读取到 ${TARGET_ORIGIN} 的 Cookie。`);
-      console.error(`请先在 chrome-devtools 驱动的 360Chrome 中打开并通过验证 weixin.sogou.com，再运行本脚本。`);
-      process.exit(2);
+      console.error(`请先在 chrome-devtools 驱动的浏览器中打开并通过验证 weixin.sogou.com，再运行本脚本。`);
+      exitCode = 2;
+      return;
     }
     // 按名称去重（同名不同 path/domain 时保留最后一次出现），避免 Cookie 串出现重复键。
     const seen = new Map();
@@ -274,10 +316,15 @@ async function main() {
     console.log(cookieStr);
   } catch (e) {
     console.error(`[错误] 读取 Cookie 失败：${e.message}`);
-    process.exit(1);
+    exitCode = 1;
   } finally {
-    ws.close();
+    if (ws) {
+      try { ws.close(); } catch (_) { /* ignore */ }
+    }
   }
+
+  // 退出码在 finally 之后再设置，确保 WebSocket 已优雅关闭
+  if (exitCode !== 0) process.exit(exitCode);
 }
 
 main();

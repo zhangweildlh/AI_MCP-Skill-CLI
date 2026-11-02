@@ -149,6 +149,45 @@ async function main() {
   const f2 = context.filterByDays([{ datetime: '' }, { datetime: '2024-01-15 00:00:00' }], 365);
   check('边界3-无日期计 undated、超窗计 dropped', f2.undated === 1 && f2.dropped === 1 && f2.kept.length === 0);
 
+  console.log('\n[Step4/回归] Round1 缺陷锁定用例（修复前应失败，修复后必须通过）');
+  // R1: 合法空结果页（<1000 字符、不含 news-list、含搜狗空结果标记）不得被误判为反爬
+  const LEGIT_EMPTY_SHORT = '<html><body><div class="no-result"><p>抱歉，没有找到相关的微信公众号文章。</p></div></body></html>';
+  check('R1-短小合法空页不误判为反爬', context.isAntiSpider(LEGIT_EMPTY_SHORT) === false,
+    'len=' + LEGIT_EMPTY_SHORT.length + ' 判定=' + context.isAntiSpider(LEGIT_EMPTY_SHORT));
+  // R2: 「刚刚」必须产出 datetime（否则该文章被 -d 时间窗计为 undated 丢弃）
+  const justNow = context.parseRelativeTime('刚刚');
+  check('R2-「刚刚」产出非空 datetime', typeof justNow.datetime === 'string' && justNow.datetime.length > 0,
+    JSON.stringify(justNow));
+  // R3: 同一绝对时刻，时间戳路径与相对时间路径必须同一时区口径（北京时间墙钟）
+  const cnInstant = (s) => Date.parse(s.replace(' ', 'T') + 'Z') - 8 * 3600 * 1000;
+  const viaTs = context.formatChinaDateTime(new Date(Date.now() - 3600 * 1000));
+  const viaRel = context.parseRelativeTime('1小时前').datetime;
+  check('R3-时间戳/相对时间两路径同口径', Math.abs(cnInstant(viaTs) - cnInstant(viaRel)) < 60000,
+    '时间戳路径=' + viaTs + ' 相对路径=' + viaRel);
+  // R4: 必须提供与运行机时区无关的 UTC+8 解析函数（filterByDays 依赖它）
+  check('R4-存在 parseChinaDateTime 且按 UTC+8 解析',
+    typeof context.parseChinaDateTime === 'function' &&
+    context.parseChinaDateTime('2026-01-01 08:00:00') === Date.UTC(2026, 0, 1, 0, 0, 0),
+    typeof context.parseChinaDateTime === 'function'
+      ? 'got=' + context.parseChinaDateTime('2026-01-01 08:00:00') + ' want=' + Date.UTC(2026, 0, 1, 0, 0, 0)
+      : '函数不存在');
+  // R5: CLI 非法参数必须显式报错，不得静默降级为默认值
+  const thrown = (fn) => { try { fn(); return null; } catch (e) { return e.message; } };
+  check('R5a--n 0 被拒绝', thrown(() => context.parseCliArgs(['kw', '-n', '0'])) !== null,
+    String(thrown(() => context.parseCliArgs(['kw', '-n', '0']))));
+  check('R5b--n abc 被拒绝', thrown(() => context.parseCliArgs(['kw', '-n', 'abc'])) !== null,
+    String(thrown(() => context.parseCliArgs(['kw', '-n', 'abc']))));
+  check('R5c-未知选项被拒绝', thrown(() => context.parseCliArgs(['kw', '--numm', '20'])) !== null,
+    String(thrown(() => context.parseCliArgs(['kw', '--numm', '20']))));
+  check('R5d-多余位置参数被拒绝', thrown(() => context.parseCliArgs(['kw', 'kw2'])) !== null,
+    String(thrown(() => context.parseCliArgs(['kw', 'kw2']))));
+  check('R5e-合法参数仍被接受', thrown(() => context.parseCliArgs(['kw', '-n', '20', '-d', '365'])) === null,
+    String(thrown(() => context.parseCliArgs(['kw', '-n', '20', '-d', '365']))));
+  // R6: url+= 混合单双引号时必须保持文档出现顺序
+  const mixed = context.extractRedirectUrlFromHtml(
+    '<script>var url=\'\';url+=\'https://mp.\';url+="weixin.qq.com";url+=\'/s?x=1\';window.location.replace(url);</script>');
+  check('R6-混合引号 url+= 顺序正确', mixed === 'https://mp.weixin.qq.com/s?x=1', String(mixed));
+
   console.log('\n[Step4/集成] Cookie 注入（浏览器驱动降级路径）');
   // 有 cookie：搜索请求 + 直链请求都应带 Cookie
   resetRequests();
