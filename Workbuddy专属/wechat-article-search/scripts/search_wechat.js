@@ -765,6 +765,7 @@ async function searchWechatArticles(query, maxResults = 10, resolveRealUrl = fal
 
   const articles = [];
   let page = 1;
+  let lastError = null; // 记录首个非反爬的请求失败，用于区分「请求失败」与「确实没搜到」
   const pagesNeeded = Math.ceil(targetRaw / 10);
 
   while (articles.length < targetRaw && page <= pagesNeeded) {
@@ -804,8 +805,20 @@ async function searchWechatArticles(query, maxResults = 10, resolveRealUrl = fal
       // 反爬拦截是不可重试的硬错误，向上抛出以在 main 中给出明确提示；其余错误按原逻辑降级
       if (error && error.message && error.message.startsWith('ANTI_SPIDER')) throw error;
       console.error(`请求第${page}页失败:`, error.message);
+      if (!lastError) lastError = error;
       break;
     }
+  }
+
+  // 首页即失败且一篇都没取到：这是「请求失败」（网络/服务端/连接重置），
+  // 不是「确实没搜到」。必须显式抛错，让调用方以退出码 1 结束，
+  // 否则会返回 total=0 的空列表被误读为「该关键词没有文章」——
+  // 与「命中反爬不静默返回空结果」的契约同族，且更隐蔽（stderr 有提示但 JSON 说 0 条）。
+  if (articles.length === 0 && lastError) {
+    throw new Error(
+      `搜索请求失败：${lastError.message}（未获取到任何文章；这不代表「没有搜到」，` +
+      `请检查网络连通性与出口 IP 后重试，或改用 -c 携带浏览器 Cookie 降低被拦截概率）`
+    );
   }
 
   // 客户端按 datetime 二次时间过滤
