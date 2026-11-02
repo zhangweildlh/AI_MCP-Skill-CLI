@@ -3,7 +3,7 @@
 ## [2026-11-02]
 
 ### Added
-- **dir/Workbuddy专属：新增 wechat-article-search 开发态副本（主副本）**（PR #156，功能提交 `2c7b08c`；合并提交 hash 待 PR #156 合并后回填）：将「微信公众号文章搜索」技能纳入本仓库作为开发态（主副本），部署态副本位于用户级 skills 目录 `wechat-article-search/`。自此该技能的改动须先在本仓库归因分析并走 worktree + PR 闭环，部署副本由开发态同步生成，禁止直接修改部署副本（§7.1 副本纪律）。
+- **dir/Workbuddy专属：新增 wechat-article-search 开发态副本（主副本）**（PR #156，功能提交 `2c7b08c`，合并提交 `5a0fc08`）：将「微信公众号文章搜索」技能纳入本仓库作为开发态（主副本），部署态副本位于用户级 skills 目录 `wechat-article-search/`。自此该技能的改动须先在本仓库归因分析并走 worktree + PR 闭环，部署副本由开发态同步生成，禁止直接修改部署副本（§7.1 副本纪律）。
   - **纳入范围**：`SKILL.md`（技能主文件：角色与目标、能力边界、输入参数表、工作流、chrome-devtools 不可用时的回退方案、输出格式、3 个示例、边界与限制）、`README.md`（非执行必需信息：反爬三维模型、解耦选型理由「弃用 browser-skill」、方案演进与修改历史）、`scripts/search_wechat.js`（检索主脚本 + antispider 护栏 + `-c` Cookie 接口）、`scripts/get_sogou_cookie.js`（零依赖 CDP Cookie 提取一键脚本），以及可复用测试套件 `tests/run_tests.js`、`tests/cross_engine/`、`tests/fixtures/`（搜狗响应样本 3 例）。
   - **刻意排除**：`tests/audit/`（市场安装时的审计过程产物，含 45KB `ocrA.json`，属 §8.3④ 过程文件 / §8.3⑤ 测试衍生文件）、`_skillhub_meta.json`（市场安装元数据，属部署态产物而非源码）。字节差账目：部署态 131414 B − 开发态 72468 B = 58946 B，恰等于 `tests/audit/` 58471 B + `_skillhub_meta.json` 475 B，无其它遗漏。
   - **判等核验**（§7.3 口径）：`diff -r` 输出 0 行；去 CR 后 10 文件聚合 md5 双方同为 `09ca046d…`；`od -c` 确认 blob 首行纯 `\n` 无 `\r`——开发态 blob 与部署态**字节完全一致（双侧均 LF）**，属 §7.3 最高一致等级。
