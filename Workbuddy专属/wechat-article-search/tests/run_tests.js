@@ -43,7 +43,15 @@ function fakeHttpsRequest(reqOptions, cb) {
   } else {
     res = makeRes(200, {}, '');
   }
-  const fakeReq = { on() {}, setTimeout() {}, end() { cb(res); } };
+  const fakeReq = {
+    on(ev, fn) { if (ev === 'error') state.onError = fn; },
+    setTimeout() {},
+    end() {
+      // 模拟网络层失败（如 ECONNRESET）：触发 request() 的 error 回调而非响应回调
+      if (state.netError) { if (state.onError) state.onError(new Error(state.netError)); return; }
+      cb(res);
+    },
+  };
   return fakeReq;
 }
 
@@ -187,6 +195,14 @@ async function main() {
   const mixed = context.extractRedirectUrlFromHtml(
     '<script>var url=\'\';url+=\'https://mp.\';url+="weixin.qq.com";url+=\'/s?x=1\';window.location.replace(url);</script>');
   check('R6-混合引号 url+= 顺序正确', mixed === 'https://mp.weixin.qq.com/s?x=1', String(mixed));
+  // R7: 首页请求失败（网络层）必须显式报错，不得返回空列表被误读为「没搜到」
+  state.netError = 'read ECONNRESET';
+  await assertRejects(() => context.searchWechatArticles('x', 10, false, 0, ''),
+    'R7-首页请求失败→抛错而非返回空列表',
+    (e) => /搜索请求失败/.test(e.message) && /ECONNRESET/.test(e.message));
+  state.netError = null;
+  state.onError = null;
+  state.searchHtml = NORMAL;
 
   console.log('\n[Step4/集成] Cookie 注入（浏览器驱动降级路径）');
   // 有 cookie：搜索请求 + 直链请求都应带 Cookie
