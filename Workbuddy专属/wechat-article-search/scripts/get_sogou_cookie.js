@@ -7,21 +7,25 @@
  * 不调用 chrome-devtools MCP 工具链，与 wechat-article-search 技能、
  * chrome-devtools 技能均解耦。
  *
- * 前置：360Chrome 必须以 --remote-debugging-port=9223 运行，且用户已在其中
+ * 前置：调试浏览器须经 chrome-devtools 激活（其 start.cjs 会自动探测真实调试端口并写入
+ *       local-config.json 的 debugPort；本机实测常为 9222 而非 9223），且用户已在其中
  *       打开并通过人机验证 weixin.sogou.com（Cookie 才会存在）。
  *
  * 用法：node get_sogou_cookie.js
- * 输出：stdout 打印 "SNUID=...; SUGGEST=..." 形式的 Cookie 串（供 -c 使用）
- * 退出码：0=成功且关键键齐全；3=成功但 Cookie 残缺（缺 SNUID/SUID，stderr 给出告警，Cookie 串仍输出）；
- *        2=未读取到 Cookie；1=读取失败。
+ * 端口解析：优先读取环境变量 SOGOU_CDP_PORT；未设置则自动探测 9222~9240（UA 过滤跳过
+ *          WorkBuddy 自身 Electron），命中即用；仍失败再报错。
+ * 输出：stdout 打印 "SNUID=...; SUGGEST=..." 形式的 Cookie 串（供 -c 使用，仅关键键齐全时输出）
+ * 退出码：0=成功且关键键齐全（输出 Cookie 串）；3=读取成功但 Cookie 残缺（缺 SNUID/SUID，
+ *        stderr 给出告警，stdout 不输出 Cookie 串以免调用方误用）；2=未读取到 Cookie；1=读取失败。
  */
 
 const http = require('http');
 const crypto = require('crypto');
 
 const CDP_HOST = '127.0.0.1';
-// 端口可经环境变量覆盖（便于测试与自定义调试实例）；默认 9223
-const CDP_PORT = Number(process.env.SOGOU_CDP_PORT) || 9223;
+// 端口解析：优先读取环境变量 SOGOU_CDP_PORT；未设置先置 0，待 main() 内自动探测 9222~9240 回填。
+// 保持「与 chrome-devtools 解耦」原则：仅消费其已记录的端口（环境变量契约），不调用其 MCP 链。
+let CDP_PORT = Number(process.env.SOGOU_CDP_PORT) || 0;
 const TARGET_ORIGIN = 'https://weixin.sogou.com';
 
 // --- 最小 WebSocket 客户端（RFC 6455，零依赖） ---
@@ -253,6 +257,42 @@ function connectWs(wsUrl, timeoutMs = 8000) {
   });
 }
 
+// 探测单个端口是否开放且为真实调试浏览器（非 WorkBuddy 自身 Electron）。
+// 命中返回端口号，否则返回 0；超时/错误/UA 不符均判为未命中。
+function probePort(port) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: CDP_HOST, port, path: '/json/version' }, (res) => {
+      let d = '';
+      res.on('data', (c) => (d += c));
+      res.on('end', () => {
+        try {
+          const info = JSON.parse(d);
+          const ua = (info && info['User-Agent']) || '';
+          // UA 为空或含 WorkBuddy/Electron → 跳过（9222 上的 WorkBuddy 自身 Electron 调试实例）
+          if (!ua || /workbuddy|electron/i.test(ua)) {
+            resolve(0);
+          } else {
+            resolve(port);
+          }
+        } catch {
+          resolve(0);
+        }
+      });
+    });
+    req.on('error', () => resolve(0));
+    req.setTimeout(600, () => { req.destroy(); resolve(0); });
+  });
+}
+
+// 自动探测调试浏览器端口：与 chrome-devtools 探测范围对齐（9222~9240），并行探测缩短耗时。
+// 命中即返回；全部未命中返回 0。
+async function detectCdpPort() {
+  const candidates = [];
+  for (let p = 9222; p <= 9240; p++) candidates.push(p);
+  const hits = await Promise.all(candidates.map((p) => probePort(p)));
+  return hits.find((p) => p > 0) || 0;
+}
+
 async function main() {
   // 单一出口：所有分支只设置 exitCode 与错误信息，finally 统一关闭 WebSocket，
   // 避免在 try 内直接 process.exit 导致 finally 的 ws.close() 被跳过。
@@ -260,6 +300,16 @@ async function main() {
   // main()，使末尾的 process.exit(exitCode) 被跳过，导致错误路径仍以退出码 0 结束。
   let exitCode = 0;
   let ws = null;
+
+  // ---- 端口解析（优先 SOGOU_CDP_PORT，否则自动探测 9222~9240）----
+  if (CDP_PORT === 0) {
+    try { CDP_PORT = await detectCdpPort(); } catch { CDP_PORT = 0; }
+  }
+  if (!CDP_PORT) {
+    console.error(`[错误] 未探测到可用的调试浏览器端口（已扫 9222~9240）。`);
+    console.error(`请先经 chrome-devtools 激活调试浏览器（其 start.cjs 会探测真实端口并写入 local-config.json 的 debugPort），或显式设置环境变量 SOGOU_CDP_PORT=<端口> 后重试。`);
+    process.exit(1);
+  }
 
   try {
     // ---- 阶段 1：取「页面级（page）」CDP target ----
@@ -270,8 +320,8 @@ async function main() {
       targets = await httpGet('/json/list');
     } catch (e) {
       console.error(`[错误] 无法连接 ${CDP_HOST}:${CDP_PORT}（${e.message}）。`);
-      console.error(`请确保浏览器以 --remote-debugging-port=${CDP_PORT} 运行（Chrome / Chromium 内核浏览器均支持，如 360Chrome、Chrome）：`);
-      console.error(`  <浏览器可执行文件> --remote-debugging-port=${CDP_PORT} --user-data-dir="<临时目录>" --no-first-run`);
+      console.error(`请确保调试浏览器已通过 chrome-devtools 激活：其 start.cjs 会自动探测真实调试端口并写入 local-config.json 的 debugPort；`);
+      console.error(`或显式设置环境变量 SOGOU_CDP_PORT=<端口> 后重试（Chrome / Chromium 内核浏览器如 360Chrome、Chrome 均支持 --remote-debugging-port）。`);
       exitCode = 1;
     }
 
@@ -306,8 +356,8 @@ async function main() {
             const result = await ws.send('Network.getCookies', { urls: [TARGET_ORIGIN + '/'] });
             const cookies = result.cookies || [];
             if (cookies.length === 0) {
-              console.error(`[提示] 未读取到 ${TARGET_ORIGIN} 的 Cookie。`);
-              console.error(`请先在 chrome-devtools 驱动的浏览器中打开并通过验证 weixin.sogou.com，再运行本脚本。`);
+              console.error(`[提示] 当前调试浏览器 profile 尚未访问过 ${TARGET_ORIGIN}（Cookie 库为空）。`);
+              console.error(`请先在 chrome-devtools 驱动的浏览器中访问该域名首页并完成一次正常浏览（含人机验证），再运行本脚本提取 Cookie。`);
               exitCode = 2;
             } else {
               // 按名称去重（同名不同 path/domain 时保留最后一次出现），避免 Cookie 串出现重复键。
