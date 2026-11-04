@@ -38,7 +38,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 | max_results | 整数 | 50 | 单个关键词检索返回条数上限，检索脚本内部硬上限为 50 |
 | cool_down_seconds | 整数 | 120 | 每检索完一个关键词后的冷却秒数，用于规避平台频控 |
 | min_chars | 整数 | 800 | 正文最小字符数闸门，低于此值判定内容不完整 |
-| min_periods | 整数 | 5 | 正文最小句号数闸门，低于此值判定内容不完整 |
+| min_periods | 整数 | 5 | 正文最小句号数**软告警**阈值：低于此值但满足任一辅助判据（正文段落数 ≥ 3 / 含结构化表格或列表 ≥ 2 项 / 标题层级 ≥ 2）时不自动拒，标记 `periods_low` 交人工复核（详见「完整性闸门」） |
 | cycle_days | 整数 | 10 | 同一张任务卡两次执行的目标间隔天数，仅用于计算下次到期日 |
 | max_attempts | 整数 | 4 | 判定为平台限流后的最大重试次数，超出则停止硬试 |
 
@@ -71,11 +71,20 @@ allowed-tools: Bash Read Write Edit WebFetch
 4. `web-search` 的火爬适配层：基址下 `web-search/firecrawl/` 目录存在且含 `SKILL.md`。
 5. 探测浏览器自动化能力是否可用，仅作记录，不作为阻断项。
 6. **ima 知识库连接器（ima-mcp）连通性探测（告警项，非阻断）**：确认 ima-mcp 已连接且已授权；若未连接/未授权，须显式告警并提示用户确认 ima-mcp 已连接后再继续「入库流程」，避免「前置依赖检查通过却运行中入库失败」。同时须将 `search_script_dir` 解析为 `<技能基址>/wechat-article-search/scripts` 并用于步骤 4 命令拼接。
-7. **ima 凭据可用性探测（告警项，非阻断）**：确认 ima 开放接口凭据（client_id / api_key）已配置且有效，按以下优先级解析，任一层存在即视为具备：
-   - ① 环境变量 `IMA_CLIENT_ID` 与 `IMA_API_KEY`（用户级持久化或本次执行已注入）；
-   - ② 技能目录内 `ima_credentials.json`（读取 `client_id` 与 `api_key` 字段后注入本次执行进程的环境变量使用；该文件含敏感凭据，禁止入库、禁止回显明文、禁止写入进度文件或日志）；
-   - ③ 用户真实主目录下 `~/.config/ima/client_id` 与 `~/.config/ima/api_key`（`ima_api.cjs` 原生兜底；注意须用 Node 侧 `os.homedir()` 的真实用户目录解析，本环境执行沙箱中 `$HOME` 被虚拟化，不可直接采信）。
-   三层皆缺时显式告警并提示用户配置凭据后再执行入库流程（检索与抓取不受影响）；凭据有效性的判据：以凭据调用 ima 开放接口（如 `openapi/note/v1/list_notebook`）返回业务码 0。
+7. **ima 凭据可用性探测（告警项，非阻断）**：确认 ima 开放接口凭据（client_id / api_key）已配置且有效，按以下**优先级**解析，任一层存在即视为具备：
+   - ① 环境变量 `IMA_CLIENT_ID` 与 `IMA_API_KEY`（**最优先**，用户级持久化或本次执行已注入，明文不落盘）；
+   - ② 用户真实主目录下 `~/.config/ima/client_id` 与 `~/.config/ima/api_key`（`ima_api.cjs` 原生兜底；须用 Node 侧 `os.homedir()` 的真实用户目录解析，本环境执行沙箱中 `$HOME` 被虚拟化，不可直接采信）；
+   - ③ 技能目录内 `ima_credentials.json`（读取 `client_id` 与 `api_key` 字段后注入本次执行进程的环境变量使用；**仅作兼容遗留兜底**，该文件含敏感凭据，禁止入库、禁止回显明文、禁止写入进度文件或日志）。
+   **推荐**：将凭据移出技能目录，改用环境变量或 `~/.config/ima/`，技能目录内 `ima_credentials.json` 仅作兼容遗留且禁止入库；三层皆缺时显式告警并提示用户配置凭据后再执行入库流程（检索与抓取不受影响）。凭据有效性的判据：以凭据调用 ima 开放接口（如 `openapi/note/v1/list_notebook`）返回业务码 0。
+
+### 前置：chrome-devtools 调试浏览器就绪（与 wechat-article-search 呼应）
+
+本技能经 wechat-article-search 提取 `weixin.sogou.com` Cookie 以绕过会话维反爬；该 Cookie **依赖 chrome-devtools 已就绪的真实调试浏览器**（含站点登录态 / Cookie）。执行检索前必须满足：
+
+1. 确认 chrome-devtools 已激活：其 `start.cjs` 已自动探测真实调试浏览器端口（按 UA 过滤跳过 9222 上的 WorkBuddy 自身 Electron），并写入 `local-config.json` 的 `debugPort`。
+2. 读取该端口，经环境变量 `SOGOU_CDP_PORT` 传给 `get_sogou_cookie.js`（本技能不再依赖 9223 硬编码默认）；未就绪时先按 chrome-devtools 流程拉起（复用真实浏览器登录态 / `User Data` 拷贝方案），再继续。
+3. Cookie 提取后置 `-c` 传给 `search_wechat.js`；**禁止用 `&&` 串联提取与检索**（避免前段失败静默短路掩盖真实搜索行为），须两段式（先取 `CK` 并判 `rc==0 && -n CK`，否则转免 Cookie 降级，详见「检索执行规则」）。
+4. ANTI_SPIDER 即停试与会话级终止策略见「检索执行规则 → 退出码 / `ANTI_SPIDER` 判据表」硬约束（F4）。
 
 ### 缺失处置
 
@@ -90,7 +99,7 @@ allowed-tools: Bash Read Write Edit WebFetch
    - 检查上次运行遗留的临时文件清单，若工区根目录中存在除 `_progress.json` 和 `.workbuddy/` 以外的文件，则判定为上次清扫未完成，记录告警并在本轮收尾清扫时一并彻底清除；
    - 若记忆文件中记录了上次未完成的任务卡或限流状态，与进度文件中的对应字段交叉核对，不一致时以进度文件为准并记录差异。
 3. 按「任务卡轮转规则」确定本轮执行的任务卡、目标子目录与关键词簇。
-4. 对 `[keywords]` 中的每个关键词串行执行检索（优先 `-c` 接口，见「检索执行规则」），捕获检索脚本的退出码与标准错误，按「退出码 / `ANTI_SPIDER` 判据表」分流：退出码 2 立即中止本轮并报告；退出码 1（无论是否含 `ANTI_SPIDER`）按限流退避并累加 attempts；退出码 0 且 `total:0` 标记「服务端零收录」并继续下一关键词（不累加 attempts）。每次检索后等待 `[cool_down_seconds]` 秒。对 `url_resolved=true` 的结果直接保留；对 `url_resolved=false` 的结果（搜狗中转链接）**不立即丢弃**，纳入「抓取降级链」由一级 / 二级尝试打开中转链接解析真实内容，最终以「完整性闸门」判定是否入库——取到完整正文则入库，取不到则标记失败并继续，禁止静默丢弃。
+4. 对 `[keywords]` 中的每个关键词串行执行检索（优先 `-c` 接口，见「检索执行规则」，**提取与检索须两段式、禁止 `&&` 串联**），捕获检索脚本的退出码与标准错误，按「退出码 / `ANTI_SPIDER` 判据表」分流：退出码 2 立即中止本轮并报告；退出码 1 + 含 `ANTI_SPIDER` 立即终止该关键词本轮（仅记 1 次尝试，不累加 attempts）并据会话级熔断规则判断是否整体终止；退出码 1 无 `ANTI_SPIDER`（网络故障）按限流退避并累加 attempts；退出码 0 且 `total:0` 标记「服务端零收录」并继续下一关键词（不累加 attempts）。每次检索后等待 `[cool_down_seconds]` 秒。对 `url_resolved=true` 的结果直接保留；对 `url_resolved=false` 的结果（搜狗中转链接）**不立即丢弃**，纳入「抓取降级链」由一级 / 二级尝试打开中转链接解析真实内容，最终以「完整性闸门」判定是否入库——取到完整正文则入库，取不到则标记失败并继续，禁止静默丢弃。
 5. 对检索结果按标题去重，再按「过滤规则」剔除中标类、开工类、招商类、广告类文章，命中即丢弃且不抓取。
 6. 按「抓取降级链」逐篇抓取正文，抓取结果落盘为 Markdown 文件，文件名等于文章标题（替换文件系统非法字符）。每份 Markdown 文件必须在正文前写入元数据头，依次包含：来源公众号、发布时间、作者、原文直链、采集日期，随后为正文。文件内容格式如下：
    ```
@@ -144,7 +153,16 @@ allowed-tools: Bash Read Write Edit WebFetch
 - **优先 `-c` 接口（Cookie 绕过会话维反爬）**：调用检索前，先尝试从 wechat-article-search 的脚本目录取得 `weixin.sogou.com` 的 Cookie：`CK=$(node [search_script_dir]/get_sogou_cookie.js 2>/dev/null)`；取得后以 `-c` 传入：`node [search_script_dir]/search_wechat.js "[关键词]" -n [max_results] -r -c "$CK" -o "[workspace]/[关键词].json"`。Cookie 仅缓解**会话维**反爬（antispider 验证码拦截），是本技能与 wechat-article-search 契约的优先路径。
   - **文件名安全化**：`[关键词]` 用于输出文件名前，须将其中的文件系统非法字符（`\ / : * ? " < > |`）替换为下划线，避免 `[workspace]/[关键词].json` 路径畸形。
   - **凭据安全**：Cookie 为会话级凭据，禁止写入进度文件或日志；以命令行参数传入时避免在标准输出/日志中回显 `$CK` 明文。
-  - **Cookie 齐全性校验（2026-11-02 实测沉淀）**：提取后先核对关键键齐全（至少含 `SNUID` 与 `SUID`）再传 `-c`；仅访问搜索结果页直提通常只得到访客标识 `SUV`，属残缺 Cookie，直接检索大概率仍被反爬拦截。补救：先在浏览器访问 `weixin.sogou.com` 首页完成一次正常浏览（种全套会话 Cookie），再重新提取。`get_sogou_cookie.js` 检出残缺时以退出码 3 告警（Cookie 串仍输出），检索脚本对残缺 `-c` 也会在标准错误给出告警。
+  - **Cookie 齐全性校验（2026-11-02 实测沉淀）**：提取后先核对关键键齐全（至少含 `SNUID` 与 `SUID`）再传 `-c`；仅访问搜索结果页直提通常只得到访客标识 `SUV`，属残缺 Cookie，直接检索大概率仍被反爬拦截。补救：先在浏览器访问 `weixin.sogou.com` 首页完成一次正常浏览（种全套会话 Cookie），再重新提取。`get_sogou_cookie.js` 检出残缺时以退出码 3 告警（**Cookie 串不再输出**，避免调用方误用残缺串），检索脚本对残缺 `-c` 也会在标准错误给出告警。
+  - **提取与检索必须两段式（F5 禁止 `&&` 短路）**：先把 `CK` 存入变量并判定 `rc==0` 且 `CK` 非空，再决定带 `-c` 检索或转免 Cookie 降级；**严禁 `CK=$(...) && search_wechat.js` 串联**——前段失败（退出 2/3）会静默短路，使搜索脚本根本未执行，整体退出码被误显为「搜索 ANTI_SPIDER」。范式：
+    ```bash
+    CK=$(node [search_script_dir]/get_sogou_cookie.js 2>/dev/null); rc=$?
+    if [ $rc -eq 0 ] && [ -n "$CK" ]; then
+      node [search_script_dir]/search_wechat.js "[关键词]" -n [max_results] -r -c "$CK" -o "[workspace]/[关键词].json"
+    else
+      echo "[告警] Cookie 提取失败(rc=$rc)，转免 Cookie 降级检索"; node [search_script_dir]/search_wechat.js "[关键词]" -n [max_results] -r -o "[workspace]/[关键词].json"
+    fi
+    ```
 - **回退（免 Cookie）**：若 `get_sogou_cookie.js` 失败（chrome-devtools 不可用 / 浏览器未开调试端口 / 未取得有效 Cookie），则免 Cookie 调用 `node [search_script_dir]/search_wechat.js "[关键词]" -n [max_results] -r -o "[workspace]/[关键词].json"`（不带 `-c`）；此时命中 antispider 的概率上升，属预期降级，不视为本技能故障，按下方「退出码 / `ANTI_SPIDER` 判据表」进入限流退避。
 - 运行检索或抓取脚本时，禁止使用会提前关闭管道的写法（例如把输出管道给只取前若干行的命令）。管道被关闭会中断进程，导致落盘失败、整批结果丢失。应当先重定向到日志文件，再读取日志。
 - **退出码 / `ANTI_SPIDER` 判据表**（wechat-article-search 契约，必须据此分流，禁止一律当限流）：
@@ -152,11 +170,13 @@ allowed-tools: Bash Read Write Edit WebFetch
   | 检索脚本退出码 | 标准错误标记 | 含义 | 本技能应对 |
   | --- | --- | --- | --- |
   | 0 | — | 成功，标准输出为 JSON（`total` + `articles`） | 正常解析，进入去重 / 过滤 / 抓取 |
-  | 1 | 含 `ANTI_SPIDER` | 会话维反爬触发（验证码拦截） | 记一次限流尝试并退避；若本轮已带 `-c` 仍被拦，先刷新 Cookie（`get_sogou_cookie.js`）再补试一次，仍失败转限流退避 |
+  | 1 | 含 `ANTI_SPIDER` | 会话维反爬触发（验证码拦截） | **立即终止该关键词本轮**（仅记 1 次尝试，**不累加至 `max_attempts`**），转下一关键词；严禁刷新 Cookie 后硬补试（同会话 / IP 已被标记，补试必然再触发 `ANTI_SPIDER`，纯耗配额） |
   | 1 | 无 `ANTI_SPIDER`（网络中断 / 连接重置等） | 请求失败、一篇未取到 | 视为临时网络故障，按退避公式重试；**严禁**把该情形伪装为 `total:0` 空列表（脚本自身已保证失败时不返回空列表） |
   | 2 | — | 参数非法（如 `-n 0` / 非数字 / 未知选项） | 立即中止本轮并报告，属本技能调用姿势错误，须修正 `[search_script_dir]` 与参数后再调用 |
 
-- **零结果细化（内部判定，对外口径不变）**：检索结束须区分三种零结果——(a) 退出码 1 + 含 `ANTI_SPIDER` → 反爬（按限流退避，累加 attempts）；(b) 退出码 1 + 无 `ANTI_SPIDER` → 网络故障（按限流退避，累加 attempts）；(c) 退出码 0 + `total:0` → 服务端确无该关键词收录（**不累加 attempts**，标记「服务端零收录」并继续下一关键词）。对外表述仍统一为「疑似平台限流」（遵循 §边界与限制第 5 条），不得宣称「该主题没有文章」。
+- **会话级反爬熔断（F4 硬约束）**：同一执行内若连续 ≥2 个关键词命中 `ANTI_SPIDER`（退出码 1 + 含 `ANTI_SPIDER`），判定「当前出口 IP / 会话已被风控」，立即**整体终止本轮**（不等候、不空转），将该卡标记为「反爬终止 / 待冷却数小时后或换出口 IP 重试」；**明令禁止**对已被标记会话维反爬的关键词在同一执行内重复硬试。
+
+- **零结果细化（内部判定，对外口径不变）**：检索结束须区分三种零结果——(a) 退出码 1 + 含 `ANTI_SPIDER` → 反爬（**不累加 attempts**，仅记 1 次尝试并转下一关键词，见上方判据表与会话级熔断）；(b) 退出码 1 + 无 `ANTI_SPIDER` → 网络故障（按限流退避，累加 attempts）；(c) 退出码 0 + `total:0` → 服务端确无该关键词收录（**不累加 attempts**，标记「服务端零收录」并继续下一关键词）。对外表述仍统一为「疑似平台限流」（遵循 §边界与限制第 5 条），不得宣称「该主题没有文章」。
 
 ### 过滤规则
 
@@ -178,10 +198,14 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 完整性闸门
 
-每份 Markdown 文件必须同时满足以下两条，否则判定为内容不完整：
+每份 Markdown 文件须满足以下判定，否则标记内容不完整（**软硬结合**）：
 
-1. 正文字符数不小于 `[min_chars]`。
-2. 正文句号数不小于 `[min_periods]`。
+1. **硬下限（防纯垃圾）**：正文字符数不小于 `[min_chars]`；未达直接判定不完整。
+2. **软告警（句号数不再硬拒）**：正文句号数不小于 `[min_periods]` 为理想态；若不足但满足任一**辅助判据**，标记 `periods_low` 交人工复核、**不自动拒**：
+   - 正文段落数 ≥ 3；或
+   - 含结构化表格或列表 ≥ 2 项；或
+   - 标题层级 ≥ 2（存在 `##` 及以上分级）。
+3. 句号数不足且**全部辅助判据均不满足**时，才判定为内容不完整（自动拒）。
 
 内容范围补充：文末来源行、免责声明、相关阅读、配图链接缺失，均不判定为不完整。
 
@@ -196,13 +220,17 @@ allowed-tools: Bash Read Write Edit WebFetch
 在创建笔记前，先做知识库有效性预检，再重名检查：
 
 1. **知识库有效性预检（2026-11-02 实测沉淀）**：调用 `openapi/wiki/v1/get_knowledge_base` 接口（body 传 `{"ids":["[knowledge_base_id]"]}`）确认目标知识库有效。返回业务码非 0 且提示 `invalid or outdated knowledge_base_id` 时（有效格式为 `ima_kb_` 前缀加 8 位字母数字），改调 `openapi/wiki/v1/get_addable_knowledge_base_list`（body 传 `{"cursor":"","limit":50}`）列出本凭据可添加的知识库，从返回 `addable_knowledge_base_list[].id` 取得新标识替换本轮 `[knowledge_base_id]` 取值（仅本轮生效，禁止改写参数配置区默认值）后继续；列表为空或仍失败则终止入库并报告用户。
-2. 重名检查：调用 `openapi/wiki/v1/check_repeated_names` 接口，检查目标子目录下是否已存在同名条目（避免重复入库）。重名检查必须同时满足以下三条：
+2. 重名检查与去重（**按媒体类型分流，关键陷阱**）：
 
-   1. 接口路径必须带版本前缀（实测有效完整路径为 `openapi/wiki/v1/check_repeated_names`），缺少前缀会返回未找到。
-   2. 参数结构为重名参数数组，每项含名称与媒体类型，字段名不可替换为其他名称。
-   3. 名称必须带 `.md` 扩展名。不带扩展名时接口会误判为未重复。
-
-若 `is_repeated=true`，说明该文章已入库，本轮跳过（不重复创建），标记为已去重。
+   - **文件类（media_type ≠ 11）**：调用 `openapi/wiki/v1/check_repeated_names` 接口，检查目标子目录下是否已存在同名条目（避免重复入库）。须同时满足：① 接口路径带版本前缀（实测有效完整路径为 `openapi/wiki/v1/check_repeated_names`）；② 参数结构为重名参数数组，每项含名称与媒体类型，字段名不可替换；③ 名称必须带 `.md` 扩展名（不带会误判为未重复）。
+   - **笔记类（media_type = 11，本技能入库模式）**：`check_repeated_names` **仅适用于文件类型，对笔记会误判「未重复」**，可能造成重复入库。**笔记去重须改用 `openapi/wiki/v1/get_knowledge_list`**：取目标子目录全量条目（`knowledge_base_id` + `folder_id` + `cursor` 空串 + `limit` ≤ 50），以条目 `title`（归一化，去首尾空格、转小写）比对本次待入库标题，命中即跳过。示例：
+     ```bash
+     # 经 ima_api.cjs 取目标子目录全量笔记条目
+     node <ima_api.cjs 路径> "openapi/wiki/v1/get_knowledge_list" \
+       '{"knowledge_base_id":"[knowledge_base_id]","folder_id":"[folder_id]","cursor":"","limit":50}'
+     # 遍历返回的 knowledge_list[]，以 title 归一化后比对本次标题，命中即视为已存在
+     ```
+   - 若去重判定为已存在（文件类 `is_repeated=true` 或笔记类 title 命中），说明该文章已入库，本轮跳过（不重复创建），标记为已去重。
 
 **第二步：创建笔记**
 
@@ -229,11 +257,11 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 **调用层陷阱警示：`ima_api.cjs` 空响应（2026-11-02 实测沉淀）**
 
-底层执行脚本 `ima_api.cjs` 的 HTTP 封装**不检查状态码**：404（路径错）/ 401（凭据错）等异常也会表现为「进程退出码 0 且标准输出为空」。凡出现退出码 0 但标准输出为空或非 JSON 空串的调用，一律按 HTTP 层异常处理：用 curl 携带 `ima-openapi-clientid` 与 `ima-openapi-apikey` 头对同一接口重放，以真实 `HTTP_CODE` 定位（404 查路径前缀、401 查凭据），禁止当成功处理。另：ima-skills 主文档中的 `openapi/list_docs` 为过时示例（实测 404），禁止使用；本节所列完整路径为 2026-11-02 实测有效口径。
+底层执行脚本 `ima_api.cjs` 的 `postJson` **现已校验 HTTP 状态码**：非 2xx（如 404 路径错 / 401 凭据错）会以**退出码 1 + 标准错误 JSON（含 `httpStatus` 与截断 body）** 暴露，不再表现为「退出码 0 且空输出」。遇此直接用 curl 携带 `ima-openapi-clientid` 与 `ima-openapi-apikey` 头对同一接口重放定位（404 查路径前缀、401 查凭据），禁止当成功处理。另：ima-skills 主文档中的 `openapi/list_docs` 为过时示例（实测 404），禁止使用；本节所列完整路径为实测有效口径。
 
 **第四步：入库后清理**
 
-笔记成功关联到知识库后，立即删除本地对应的 `.md` 文件（不在工区保留副本），仅在进度文件中记录入库状态。
+笔记成功关联到知识库后，立即删除本地对应的 `.md` 文件（不在工区保留副本），仅在进度文件中记录入库状态。**口径调和**：本条仅针对「成功入库」的 `.md`；未成功 / 失败的本地 `.md` 一律按「收尾清扫」移入 `failed_quarantine/` 保留，二者不冲突。
 
 ### 限流与断点续跑
 
@@ -268,6 +296,23 @@ allowed-tools: Bash Read Write Edit WebFetch
 }
 ```
 
+### 进度文件写操作纪律（F9 硬约束）
+
+`_progress.json` 的**任何**写操作（追加 / 修改 `articles` 条目、标记 `ingested` / `failed`、设置 / 重置 `attempts`、轮转状态）**必须且只能通过 `scripts/state.js` 执行**，禁止直接手工编辑 JSON。其强约束如下（违反即拒绝写入并报错）：
+
+- `mark-ingested` 须先调 `openapi/wiki/v1/get_knowledge_list` 复核目标条目 `media_type===11` 真实存在于知识库，否则不得标记为已入库；
+- `gate_failed`（闸门未通过）或被标记 `failed` 的条目**严禁**标记为 `ingested`；
+- `pending` 与已尝试次数须一致（`attempts` 仅由 `set-attempts` / `reset-attempts` 改写）；
+- 每轮结算的四栏清单须由 `state.js report` 产出，不得手工拼凑。
+
+`state.js` 用法（须在 `wechat-article-to-ima/scripts/` 下以 Node 运行，传入 `--progress <路径>`）：
+
+- `validate`：结构与一致性校验；
+- `mark-ingested --card C --title T --media-id M [--verify]`：标记入库（默认不联机复核，加 `--verify` 时调 `ima_api.cjs` 复核 `media_type===11`）；
+- `mark-failed --card C --title T --reason R`：标记失败；
+- `set-attempts --card C --n N` / `reset-attempts --card C`：设置 / 重置已尝试次数；
+- `report`：输出应入库 / 实入库 / 被过滤 / 失败四栏清单。
+
 文章条目追加到 `articles` 数组，每条包含所属任务卡、标题、抓取状态、过滤结果、闸门结果、入库状态与备注。
 
 ## 输出格式约束
@@ -279,7 +324,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ## 收尾清扫
 
-1. 工区保留：进度文件 `_progress.json`、工作区元数据目录 `.workbuddy/`；此外**必须保留尚未成功入库的本地 `.md` 文章副本**（移至 `failed_quarantine/` 子目录，禁止随过程文件一并删除，避免内容不可逆丢失）。
+1. 工区保留：进度文件 `_progress.json`、工作区元数据目录 `.workbuddy/`；此外**必须保留尚未成功入库的本地 `.md` 文章副本**（移至 `failed_quarantine/` 子目录，禁止随过程文件一并删除，避免内容不可逆丢失）。（与「入库流程」步骤 4 一致：仅「成功入库」的 `.md` 删除，未成功者在此保留。）
 2. 可清除：检索结果中间文件（如 `[关键词].json`）、临时日志与其余过程文件；清除须先移至临时 quarantine 再彻底删除。
 3. Markdown 文件成功入库后不在工区保留副本（由「入库流程」步骤 4 删除）。
 4. 清扫完成后输出保留文件清单。
