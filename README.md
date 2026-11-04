@@ -10,30 +10,32 @@
 
 ## 一、技能总览
 
-| # | 技能名称(name) | 内部版本 | 形态 | 位置 | 一句话用途 |
-|---|---|---|---|---|---|
-| 1 | `github-personal-manager` | 随仓库 v2.2.1 | 目录型 | 仓库根 | 个人 GitHub 全流程管理（改代码、PR、同步、CI、发版、清分支） |
-| 2 | `ref-material-writing` | 5.0.0 | 目录型 | 仓库根 | 基于提纲+多份参考资料的文档撰写，输出 Office(docx) 文件 |
-| 3 | `tender-review-kit` | — | 目录型 | 仓库根 | 招标文件审标，产出投标核对清单（废标项/评分项/▲参数/时间节点） |
-| 4 | `web-search` | 1.0.0 | 目录型 | 仓库根 | 深度联网搜索与下载，多来源印证，落盘素材文件 |
-| 5 | `code-review-combo` | 1.0.0 | 目录型 | 仓库根 | 双子技能（委托模式 + 五焦点语义）交叉验证，产出唯一合并审计报告 |
-| 6 | `mimo-code-collab` | 6 | 目录型 | 仓库根 | 与小米 MiMo 代码智能体(mimo.code)协同开展工程任务 |
-| 7 | `playwright-360chrome` | 2.0.0 | 目录型 | 仓库根 | Playwright + 360Chromex 内核的浏览器自动化（导航/截图/抓取） |
-| 8 | `workbuddy-workspace-migration` | — | 目录型 | `Workbuddy专属/` | 工作区迁移/恢复丢失的 WorkBuddy 会话 |
-| 9 | `chrome-devtools` | — | 目录型 | 仓库根 | 通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome / 360Chromex）调试、自动化、性能分析与网络检查（全局安装 `chrome-devtools-mcp`） |
-| 10 | `skill-forge` | 3.0.0 | 单文件 | 仓库根 `Skill-元技能，Skill创建校验器.md` | 元技能双模：创建新 Skill + 校验既有 Skill 定义（合并原 skill-creator 与 skill-checker） |
-| 11 | `multi-file-analysis` | — | 单文件 | 仓库根 `Skill-多文件分析+知识图谱构建.md` | 多文件解析、实体关系抽取、冲突/缺失识别，构建知识图谱 JSON |
-| 12 | `find-skill-to-xml` | 1.1.0 | 单文件 | 仓库根 `Skill-扫描Skill技能生成xml技能标签.md` | 扫描目录发现 Skill 文件，生成标准 XML 技能标签清单 |
-| 13 | `promotion-writer` | — | 单文件 | 仓库根 `Skill-推广文章撰写.md` | 面向微信公众号/小红书的中文推广文案撰写 |
-| 14 | `ticktick` | — | 单文件 | 仓库根 `Skill-滴答清单智能任务解析创建器.md` | 解析自然语言指令，批量创建/管理滴答清单(TickTick)任务 |
-| 15 | `code-audit-consolidation` | 1.0.0 | 单文件 | 仓库根 `Skill-多源代码审查整合收敛.md` | 整合多视角审计报告，去重归因、交叉分析、根因分析，产出唯一根治报告（由 `Skill-多代码审计报告归一收敛.md` 重命名而来） |
-| 16 | `external-tool-onboarding` | — | 单文件 | 仓库根 `Skill-外部工具引入评估与落地.md` | 外部工具与外部资产的引入评估与接入落地通用工作流 |
-| 17 | `task-methodology-consolidation` | 3.4.0 | 单文件 | 仓库根 `Skill-对当前对话会话做经验沉淀和方法论固化.md` | 对当前对话会话做经验沉淀和方法论固化（踩坑/避坑/成败经验 → 开箱即用方法论） |
-| 18 | `wechat-article-to-ima` | 1.2.0 | 目录型 | `Workbuddy专属/wechat-article-to-ima/` | 按关键词检索微信公众号文章、抓取正文、批量入库腾讯 ima 知识库指定子目录并复验完整性（含限流退避/断点续跑/任务卡轮转） |
+> 形态（目录型 / 根级单文件型）与各技能在仓库内的路径以 `AGENTS.md` §2.1 / §2.2 为权威登记，此处仅列名称、内部版本与一句话用途，不重复登记信息。
+
+| # | 技能名称(name) | 内部版本 | 一句话用途 |
+|---|---|---|---|
+| 1 | `github-personal-manager` | 随仓库 v2.2.1 | 个人 GitHub 全流程管理（改代码、PR、同步、CI、发版、清分支） |
+| 2 | `ref-material-writing` | 5.0.0 | 基于提纲+多份参考资料的文档撰写，输出 Office(docx) 文件 |
+| 3 | `tender-review-kit` | — | 招标文件审标，产出投标核对清单（废标项/评分项/▲参数/时间节点） |
+| 4 | `web-search` | 1.0.0 | 深度联网搜索与下载，多来源印证，落盘素材文件 |
+| 5 | `code-review-combo` | 1.0.0 | 双子技能（委托模式 + 五焦点语义）交叉验证，产出唯一合并审计报告 |
+| 6 | `mimo-code-collab` | 6 | 与小米 MiMo 代码智能体(mimo.code)协同开展工程任务 |
+| 7 | `playwright-360chrome` | 2.0.0 | Playwright + 360Chromex 内核的浏览器自动化（导航/截图/抓取） |
+| 8 | `workbuddy-workspace-migration` | — | 工作区迁移/恢复丢失的 WorkBuddy 会话（位于 `Workbuddy专属/`） |
+| 9 | `chrome-devtools` | — | 通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome / 360Chromex）调试、自动化、性能分析与网络检查（全局安装 `chrome-devtools-mcp`） |
+| 10 | `skill-forge` | 3.0.0 | 元技能双模：创建新 Skill + 校验既有 Skill 定义（合并原 skill-creator 与 skill-checker） |
+| 11 | `multi-file-analysis` | — | 多文件解析、实体关系抽取、冲突/缺失识别，构建知识图谱 JSON |
+| 12 | `find-skill-to-xml` | 1.1.0 | 扫描目录发现 Skill 文件，生成标准 XML 技能标签清单 |
+| 13 | `promotion-writer` | — | 面向微信公众号/小红书的中文推广文案撰写 |
+| 14 | `ticktick` | — | 解析自然语言指令，批量创建/管理滴答清单(TickTick)任务 |
+| 15 | `code-audit-consolidation` | 1.0.0 | 整合多视角审计报告，去重归因、交叉分析、根因分析，产出唯一根治报告（由 `Skill-多代码审计报告归一收敛.md` 重命名而来） |
+| 16 | `external-tool-onboarding` | — | 外部工具与外部资产的引入评估与接入落地通用工作流 |
+| 17 | `task-methodology-consolidation` | 3.4.0 | 对当前对话会话做经验沉淀和方法论固化（踩坑/避坑/成败经验 → 开箱即用方法论） |
+| 18 | `wechat-article-to-ima` | 1.2.0 | 按关键词检索微信公众号文章、抓取正文、批量入库腾讯 ima 知识库指定子目录并复验完整性（含限流退避/断点续跑/任务卡轮转） |
 
 > 注：
 > - 已退役/移除，不再纳入说明：`anysearch-skill`（2026-07-23 清理其独立目录，CLI 现位于 `web-search/anysearch-skill/scripts/anysearch_cli.py`）、`github-repo-sync`（2026-07-24 退役，能力并入 `github-personal-manager`）。
-> - 根目录原有 3 个单文件技能（`Skill-memory-consolidate.md`、`Skill-workflow-distill.md`、`Skill-代码审查.md`）：前二者已移入 `Workbuddy专属/` 子目录；`Skill-代码审查.md` 已删除，能力并入 `code-review-combo`。
+> - 根目录原有 3 个单文件技能：`Skill-memory-consolidate.md`、`Skill-workflow-distill.md` 已移入 `Workbuddy专属/`；`Skill-代码审查.md` 已删除，能力并入 `code-review-combo`。
 > - 根目录另有 `在Deepseek和WorkBuddy等AI中安装小米智能体-2026-07-07.7z` 压缩包（属历史存档，**不入库、不纳入活跃技能说明**）。
 
 ---
@@ -47,10 +49,9 @@
   - **`git`**：`D:\Tools\Assembly\git\cmd\git.exe`（v2.54.0）。
   - **`gh` CLI**：`D:\Tools\Assembly\gh.exe`（v2.96.0，已登录 `zhangweildlh`，scopes 含 repo/workflow/admin:org）。
   - **GitHub 账号 + 网络**：用于远端读取/搜索/PR/CI/Release。
-  - **本地仓库根目录**：默认 `D:\Documents\AI_Work_Temp`（一级子目录即各仓库）。
+  - **本地仓库根目录**：默认 `D:\Documents\AI_MCP-Skill-CLI`（一级子目录即各仓库）。
   - **参考文件**：`references/gh-capability.md`、`references/fork-ci-pitfalls.md`、`references/docs-sync-checklist.md`。
-  - **多工作树并行开发 SOP（2026-08-03 新增）**：`scripts/sop_worktree_add.sh` / `sop_worktree_cleanup.sh` / `sop_worktree_merge.sh` 三件套（顶层方案文档 `multi-worktree-parallel-merge-sop.md` 已于 2026-08-06 移除，能力内聚于三件套脚本本身）。
-  - **图形客户端工作流封装（SourceGit / Git Extensions）**：`workflows/wf_*.sh`（含 `wf_branch_clean.sh` 一键回收已合并本地分支等），GUI 配置见 `workflows/README.md`。
+  - **SOP 与 GUI 封装**：多工作树并行开发三件套 `sop_worktree_*.sh`（顶层方案文档已移除，能力内聚脚本本身）；SourceGit/Git Extensions 图形封装 `workflows/wf_*.sh`（含 `wf_branch_clean.sh` 一键回收已合并本地分支，GUI 见 `workflows/README.md`）。
   - **不依赖任何 MCP**；本机无 Docker、禁止本地编译（构建产物走远程 CI）。
 - **备注**：含硬约束——禁止强推/删 main、标签重推用"删远端标签+重推"、本地 main 跟踪 origin/main。
 
