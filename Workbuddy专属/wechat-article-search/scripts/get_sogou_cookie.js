@@ -316,17 +316,22 @@ async function main() {
               const cookieStr = Array.from(seen.values())
                 .map((c) => `${c.name}=${c.value}`)
                 .join('; ');
-              // 关键键齐全性校验（2026-11-02 实测沉淀）：仅访问搜索结果页直提通常只得访客标识 SUV，
-              // 残缺 Cookie 直接用于检索大概率仍触发反爬——显式告警并以退出码 3 区分（Cookie 串仍输出，保持管道兼容）。
+              // 关键键齐全性校验（2026-11-02 实测沉淀，2026-11-04 修正 F3 BUG）：
+              // 仅访问搜索结果页直提通常只得访客标识 SUV，残缺 Cookie 直接用于检索大概率仍触发反爬，故以退出码 3 区分。
+              // F3 修正点：残缺态严禁向 stdout 输出 Cookie 串——旧代码在 exitCode=3 时仍无条件打印 [成功] 并输出 cookieStr，
+              // 导致调用方（wechat-article-to-ima / wechat-article-search 检索脚本）把残缺凭据当作可用 Cookie 喂给搜狗，反而稳定触发验证码。
+              // 故残缺时只走 stderr 告警、保持非零退出码，且 stdout 为空，使下游管道只能拿到空值而跳过误用。
               const KEY_COOKIE_NAMES = ['SNUID', 'SUID'];
               const missingKeys = KEY_COOKIE_NAMES.filter((n) => !seen.has(n));
               if (missingKeys.length > 0) {
-                console.error(`[告警] Cookie 残缺：缺少关键键 ${missingKeys.join('、')}，直接用于检索大概率仍触发反爬。`);
+                console.error(`[残缺-关键键缺失] 读取到 ${cookies.length} 个 Cookie，但缺少关键键 ${missingKeys.join('、')}，直接用于检索大概率仍触发反爬。`);
                 console.error(`[建议] 先在浏览器访问 ${TARGET_ORIGIN}/ 首页完成一次正常浏览（种全套会话 Cookie）后重新提取。`);
                 exitCode = 3;
+                // 残缺时不向 stdout 输出 Cookie 串，避免调用方误用（见上方注释）。
+              } else {
+                console.error(`[成功] 读取到 ${cookies.length} 个 ${TARGET_ORIGIN} Cookie，可直接用于 -c：`);
+                console.log(cookieStr);
               }
-              console.error(`[成功] 读取到 ${cookies.length} 个 ${TARGET_ORIGIN} Cookie，可直接用于 -c：`);
-              console.log(cookieStr);
             }
           } catch (e) {
             console.error(`[错误] 读取 Cookie 失败：${e.message}`);
