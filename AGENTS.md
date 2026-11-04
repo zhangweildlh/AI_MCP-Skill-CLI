@@ -56,6 +56,7 @@
   3. 在 worktree 内修改对应 Skill 内容并提交；
   4. 提交与 PR 遵循第 5 章约定（`github-personal-manager/scripts/sop_pr_create.sh`）；
   5. 合并后运行 `bash github-personal-manager/scripts/sop_worktree_cleanup.sh <仓库> --branch feat/<name>-<topic>-<YYYYMMDDHHMMSS> --confirm` 清理（本地目录与分支删除自动；远端分支删除须另行 `--confirm`，不默认执行）。
+   - **授权模型例外（全链路授权）**：当单条指令**显式授予覆盖本地与远端清理的「全链路授权」**时，本地+远端清理可经**一次** `--confirm` 完成，无需分别授权——此例外仅放宽「分别确认」的形式要求，**不削弱任何安全闸门**：未合并内容校验（`merge-base --is-ancestor` 或 squash 合并探测，见 `github-personal-manager` 技能 `sop_worktree_cleanup.sh`）与开放 PR 告警仍强制保留；删除 `origin/main` 等受保护分支、强推、推 upstream 等绝对红线不受此例外影响。无显式全链路授权时，远端删除的分别 `--confirm` 仍须独立给出。
 - 4.3 禁止事项：禁止在主工作树改动他单元内容；禁止跨 worktree 混改；禁止在 worktree 内改动不属于该 Skill 的文件（`.gitignore` 等仓库根 meta 文件改动见 §8.5，走 meta 分支）。
 
 ## 5 提交 / PR / CI 约定
