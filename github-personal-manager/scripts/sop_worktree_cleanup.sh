@@ -121,6 +121,21 @@ fi
 # 捕获 TIP 树（用于 squash 合并探测与删后校验）
 TIP_TREE="$("$GIT_BIN" rev-parse "$TIP^{tree}" 2>/dev/null || true)"
 
+# 判定「某棵树是否存在于主线历史（HEAD 可达提交的树集合）」
+# 【实现约束·勿改】必须避免 `git log --format=%T HEAD | grep -q <tree>`：
+#   grep -q 命中即退出 → 管道被关闭 → git log 收到 SIGPIPE（退出码 141）→
+#   本脚本 set -o pipefail 传播该非零 → 判定被误判为「树不在主线」→
+#   ① 代理2 永远命中不了（等于废码）；② 删后校验触发假告警
+#   「疑似误删未合并提交」并 exit 1（误报，内容其实已在主线）。
+#   实测本仓库 main 有 461 个提交（log 输出 18901 B），必然触发。
+#   改用 grep -Fx（无 -q：读尽输入不提前退出）+ stdout 重定向，
+#   git log 必然写完、无 SIGPIPE，判定恒为真值。
+tree_in_main_history() {
+  local tree="$1"
+  [ -n "$tree" ] || return 1
+  "$GIT_BIN" log --format=%T HEAD 2>/dev/null | grep -Fx -- "$tree" >/dev/null 2>&1
+}
+
 # 合并校验：Tip 须可达主线 HEAD；否则尝试 squash 合并探测，避免误拒已合并分支
 SQUASH_MERGED=0
 SQUASH_REASON=""
@@ -140,11 +155,9 @@ else
     fi
   fi
   # 代理2（兜底，无需 gh/网络）：分支树已存在于主线历史 → 内容已在主线
-  if [ "${SQUASH_OK:-0}" != "1" ] && [ -n "$TIP_TREE" ]; then
-    if "$GIT_BIN" log --format=%T HEAD | grep -qx "$TIP_TREE"; then
-      SQUASH_OK=1
-      SQUASH_REASON="分支树已存在于主线历史（内容已在主线）"
-    fi
+  if [ "${SQUASH_OK:-0}" != "1" ] && tree_in_main_history "$TIP_TREE"; then
+    SQUASH_OK=1
+    SQUASH_REASON="分支树已存在于主线历史（内容已在主线）"
   fi
   if [ "${SQUASH_OK:-0}" = "1" ]; then
     SQUASH_MERGED=1
@@ -290,7 +303,7 @@ fi
 # 删后校验：提交内容未丢失
 if [ "$SQUASH_MERGED" = "1" ]; then
   # squash 合并：祖先校验不适用，改用「TIP 树仍在主线历史中」验证内容未丢失
-  if [ -n "$TIP_TREE" ] && "$GIT_BIN" log --format=%T HEAD | grep -qx "$TIP_TREE"; then
+  if tree_in_main_history "$TIP_TREE"; then
     echo "✅ 删后校验：TIP 树($TIP_TREE) 仍存在于主线历史，提交内容未丢失。"
   else
     echo "⛔ 删后校验异常：TIP 树不在主线历史，疑似误删未合并提交！请立即核查。"

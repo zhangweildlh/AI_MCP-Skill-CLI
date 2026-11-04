@@ -4,15 +4,17 @@
 # 中文名: 工作流五专属测试（多工作树并行·开树/合并/回收）
 #
 # 【功能】
-#   工作流五「多工作树并行开发 + 普通合并 + 清理」的专属用例集，覆盖三个脚本共 15 条用例：
+#   工作流五「多工作树并行开发 + 普通合并 + 清理」的专属用例集，覆盖三个脚本共 17 条用例：
 #     sop_worktree_add（开工作树，6 条）:
 #       预览模式不创建、确认后成功创建工作树与分支、非主线守卫拒绝、
 #       主仓库脏工作区硬停、分支已存在守卫、工作树根位于仓库内时写入本地忽略清单。
 #     sop_worktree_merge（普通合并，4 条）:
 #       预览模式不改主线、确认后生成双父合并碑、冲突预测命中即暂停、无分支保护时走直推路径。
-#     sop_worktree_cleanup（回收，5 条）:
+#     sop_worktree_cleanup（回收，7 条）:
 #       已合并分支正常回收且提交完整保留、未合并一律拒绝、
-#       远端分支预览模式不真删、确认后真删、工作树含未提交改动时默认拒绝。
+#       远端分支预览模式不真删、确认后真删、工作树含未提交改动时默认拒绝、
+#       squash 合并（分支树已在主线历史）可回收且删后校验不误报、
+#       树判据禁用「短管道 + grep 快速退出」写法（确定性门禁）。
 #
 # 【新命名约定（方案 Y，对齐 AGENTS.md §4.1 与 sop_worktree_add.sh）】
 #   sop_worktree_add.sh 现按「时间戳一致性」命名：
@@ -473,6 +475,81 @@ test_wt_cleanup_dirty_reject() {
   fail "脏工作树拒止输出异常 rc=$rc: $out"; return 1
 }
 
+# 16) squash 合并场景可回收（代理2：分支树已在主线历史）——回归「树判据 SIGPIPE 假阴性」
+#     真实事故：旧判据 `git log --format=%T HEAD | grep -qx <tree>` 中 grep 命中即退出 → 管道关闭 →
+#     git log 收到 SIGPIPE(141) → 脚本 set -o pipefail 传播非零 → ① 代理2 永远命中不了（废码）
+#     ② 删后校验误报「疑似误删未合并提交」并 exit 1（实测 20% 概率随机误报，主线内容其实完好）。
+#     本用例同时覆盖：代理2 兜底路径可用 + 删后校验不误报 + squash 分支被正确回收。
+#     【平台差异·须知】SIGPIPE 误报依赖「管道缓冲 < log 输出量」：Windows Git Bash 匿名管道缓冲
+#     实测仅 4096 B（→ 必然触发），Linux CI 默认 64 KB（→ 本用例不复现旧缺陷）。
+#     故本用例是「功能覆盖 + 症状留痕」，**跨平台的确定性拦截由下方第 17 条承担**。
+test_wt_cleanup_squash_merged() {
+  local pair; pair="$(wt_make_repo)"
+  local ldir="${pair#*|}"
+  local pair_data; pair_data="$(wt_prepare "$ldir" "topicSQ" "$(wt_root)")"
+  local wt="${pair_data%% *}" branch="${pair_data#* }"
+  local tip; tip="$("$GIT_BIN" -C "$wt" rev-parse HEAD)"
+
+  # 模拟 squash 合并：把分支提交 cherry-pick 到主线 → 主线树 == 分支尖端树，
+  # 但分支尖端不是主线祖先（merge-base --is-ancestor 恒假，与真实 squash 合并同构）。
+  # 注意：必须用 --no-commit + 另起提交（消息不同），否则 cherry-pick 会复刻出与分支尖端
+  # 完全相同的 SHA（tree/parent/author/committer/消息全同 → SHA 相同），分支尖端就成了主线祖先。
+  "$GIT_BIN" -C "$ldir" cherry-pick --no-commit "$tip" >/dev/null 2>&1 || { fail "cherry-pick 失败"; return 1; }
+  "$GIT_BIN" -C "$ldir" commit -qm "squash-sim of $tip" >/dev/null 2>&1 || { fail "squash 模拟提交失败"; return 1; }
+
+  # 为主线补足历史长度，使 `git log --format=%T HEAD` 输出超过管道缓冲
+  # （实测 Git Bash 匿名管道缓冲 = 4096 B；150 个提交 × 41 B ≈ 6150 B，留足余量）。
+  # 不足则旧判据不会触发 SIGPIPE，本用例就抓不到该缺陷。
+  # 用 commit-tree 造同树空提交：不改树 → 主线工作区保持干净（不误触 cleanup 的「主仓库须干净」守卫）。
+  local tree prev i
+  tree="$("$GIT_BIN" -C "$ldir" rev-parse "HEAD^{tree}")"
+  prev="$("$GIT_BIN" -C "$ldir" rev-parse HEAD)"
+  i=0
+  while [ "$i" -lt 150 ]; do
+    prev="$("$GIT_BIN" -C "$ldir" commit-tree "$tree" -p "$prev" -m "pad $i" 2>/dev/null)" || break
+    i=$((i + 1))
+  done
+  "$GIT_BIN" -C "$ldir" update-ref "refs/heads/$MAIN_BRANCH" "$prev" || { fail "update-ref 失败"; return 1; }
+
+  # 前置条件断言：主线尖端树 == 分支尖端树，且分支尖端不是主线祖先（squash 同构成立）
+  local mtree btree
+  mtree="$("$GIT_BIN" -C "$ldir" rev-parse "HEAD^{tree}")"
+  btree="$("$GIT_BIN" -C "$ldir" rev-parse "$tip^{tree}")"
+  if [ "$mtree" != "$btree" ]; then fail "前置条件不成立：主线树 != 分支树"; return 1; fi
+  if "$GIT_BIN" -C "$ldir" merge-base --is-ancestor "$tip" HEAD 2>/dev/null; then
+    fail "前置条件不成立：分支尖端已是主线祖先（非 squash 场景）"; return 1
+  fi
+
+  local out rc
+  out="$("$ROOT_DIR/scripts/sop_worktree_cleanup.sh" "$ldir" --branch "$branch" --worktree-path "$wt" --confirm 2>&1)"; rc=$?
+  if [ "$rc" -ne 0 ]; then fail "squash 合并分支清理异常 rc=$rc: $out"; return 1; fi
+  if ! assert_contains "squash 合并探测通过" "$out"; then fail "未走 squash 探测路径: $out"; return 1; fi
+  if ! assert_contains "仍存在于主线历史" "$out"; then fail "删后校验未通过（疑 SIGPIPE 假阴性）: $out"; return 1; fi
+  if assert_contains "删后校验异常" "$out"; then fail "出现删后校验误报: $out"; return 1; fi
+  if [ -e "$wt" ]; then fail "squash 合并后工作树未移除"; return 1; fi
+  if "$GIT_BIN" -C "$ldir" show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+    fail "squash 合并后本地分支未删"; return 1
+  fi
+  pass "cleanup squash 合并: 代理2 命中 + 删后校验通过 + 工作树/分支已回收"
+}
+
+# 17) 树判据禁用「短管道 + grep 快速退出」写法（确定性门禁，勿改）
+#     行为用例（16）依赖管道缓冲与时序，属概率性判据，且在 Linux CI（管道缓冲 64 KB）不复现；
+#     本条为跨平台确定性判据：剥除整行注释后仍无 grep 快速退出类写法，且 tree_in_main_history 在位。
+#     反向测试已实测：把脚本还原为已发布的 PR #179 版本后，本条必然 FAIL（100% 拦截）。
+test_cleanup_tree_check_no_sigpipe() {
+  local script="$ROOT_DIR/scripts/sop_worktree_cleanup.sh"
+  local hits
+  hits="$(sed 's/^[[:space:]]*#.*$//' "$script" | grep -E "grep[[:space:]]+-[a-zA-Z]*q" || true)"
+  if [ -n "$hits" ]; then
+    fail "树判据使用了 grep 快速退出短管道（SIGPIPE 假阴性风险）: $hits"; return 1
+  fi
+  if ! grep -q "tree_in_main_history" "$script"; then
+    fail "缺少 tree_in_main_history 辅助函数（树判据实现约定缺失）"; return 1
+  fi
+  pass "树判据无 grep 快速退出短管道 + tree_in_main_history 辅助函数在位"
+}
+
 # ---------- 注册 ----------
 register_test "W5-add: 仓库内 worktree 根写 exclude(L2核心修复)" test_wt_add_inner_exclude
 register_test "W5-cleanup: 远端 --confirm 真删" test_wt_cleanup_remote_confirm_delete
@@ -491,4 +568,6 @@ register_test "W5-merge: 冲突预测暂停"         test_wt_merge_conflict_paus
 register_test "W5-merge: 无保护直推路径"       test_wt_merge_no_protection_direct
 register_test "W5-cleanup: 已合并清理+提交保留" test_wt_cleanup_merged
 register_test "W5-cleanup: 未合并拒绝"         test_wt_cleanup_unmerged_reject
+register_test "W5-cleanup: squash 合并可回收(代理2+删后校验)" test_wt_cleanup_squash_merged
+register_test "W5-cleanup: 树判据无 SIGPIPE 短管道(确定性门禁)" test_cleanup_tree_check_no_sigpipe
 register_test "W5-cleanup: 远端 dry-run 不真删" test_wt_cleanup_remote_dryrun_noop
