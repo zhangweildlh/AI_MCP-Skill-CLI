@@ -66,10 +66,10 @@ chrome-devtools/
 │   ├── fix_trace_engine_dts.cjs  # 剥离 @paulirish/trace_engine 冲突全局声明（TS2717 上游 workaround）
 │   ├── compat.cjs                # 上游 package.json 依赖兼容守卫（固定 zod 版本等）
 │   ├── verify_browser.cjs        # 自动检测本机浏览器路径，写入 local-config.json
-│   ├── start.cjs                 # 以 --user-data-dir 启动浏览器（复用登录态）
+│   ├── start.cjs                 # 自动探测 CDP 端口（扫 9222~9240，跳过 WorkBuddy Electron）+ 以临时 profile 拷贝启动浏览器（继承登录态不污染真实 profile）
 │   ├── cli_run.cjs               # CLI 模式辅助（仅 CLI 模式，可被删除）
 │   ├── fragments/                # 本地化注入片段源（_frag_*.md / *.txt / *.json）
-│   └── test/localize.test.cjs    # 本地化层单元测试（预期 全部 PASS（当前 14 项；增减后请以 test 文件实际 T 编号为准））
+│   └── test/localize.test.cjs    # 本地化层单元测试（预期 全部 PASS（当前 22 项；增减后请以 test 文件实际 T 编号为准））
 ├── local-config.json             # 机器专属（浏览器路径/端口），由脚本生成，不入库
 ├── mcp-local-config.json         # 生成的 MCP 配置样例，不入库
 └── upstream/                     # 【子技能·vendored 快照 + 流水线就地注入·非手工编辑区】见 3.2
@@ -224,7 +224,7 @@ DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 
 ### 6.5 verify_browser.cjs / start.cjs / cli_run.cjs / compat.cjs
 
 - **verify_browser.cjs**：自动搜索本机 `360Chromex.exe` / `Chrome.exe`（优先已注册安装，规避便携版），将浏览器路径写入 `local-config.json`。
-- **start.cjs**：以 `--user-data-dir` 指向本机 User Data 启动浏览器（复用登录态），依赖 `local-config.json` 中的浏览器路径。脚本依赖 `verify_browser.cjs` 先写好路径。
+- **start.cjs**：自动探测 CDP 端口（扫 `127.0.0.1:9222~9240`，优先复用已运行的真实调试浏览器、跳过 9222 的 WorkBuddy Electron，否则在默认启动端口 9223 起的窗口内新启实例），并以 `--user-data-dir` 指向**真实 User Data 的临时拷贝**（`%temp%/chrome-devtools-profile`，继承登录态且不污染真实 profile）启动浏览器。依赖 `local-config.json` 中的浏览器路径（缺失时自动调用 `verify_browser.cjs` 检测）。
 - **cli_run.cjs**：CLI 模式辅助（`cli_run.cjs <tool> [参数]` 封装「先 `start` 连接、再调工具」的两段式）。**仅 CLI 模式使用，可被删除**，删除不影响 MCP 服务模式。
 - **compat.cjs**：上游 `package.json` 依赖兼容守卫（固定 `zod` 等兼容版本，避免 npm install 浮动装 v4 导致编译失败）。被 `deploy.cjs` / `upstream.cjs` 调用。
 
@@ -345,7 +345,11 @@ node localization/upstream.cjs
 
 > 本小节为「补充能力」：前文（第 2 节「步骤 1」、第 7 节）均以 chrome-devtools-mcp 的 MCP 工具 / CLI 子命令驱动浏览器；当这些工具不足以完成**更底层的真机诊断**时（如 headless 加载扩展验证、诊断页面卡死、扩展页面 DOM 断言），可在浏览器已以 9223 调试端口运行的前提下，用 Node 内置 `WebSocket` **直连 CDP**（不依赖 puppeteer/playwright 封装）。该模式与技能「`--browserUrl` 直连已运行的 360Chromex」底层路径一致，属兼容补充。
 >
-> **端口约定（重要）**：本机 **WorkBuddy 的 Electron 渲染进程占用 9222**，故 chrome-devtools 统一改用 **9223** 调试端口，避免端口冲突（与根 `SKILL.md`「步骤 1 / 形态一」配置、`local-config.json` 的 `debugPort` 缺省值、`mcp.json` 的 `--browserUrl` 保持一致）。请勿改回 9222，否则会误连到 WorkBuddy 自身而非 360Chromex，且 Electron 不支持经 CDP 新建标签页。
+> **端口约定（重要）**：本机 **WorkBuddy 的 Electron 渲染进程占用 9222**，故 chrome-devtools 统一改用 **9223** 作为**默认启动端口**，避免端口冲突（与根 `SKILL.md`「步骤 1 / 形态一」配置、`local-config.json` 的 `debugPort` 缺省值、`mcp.json` 的 `--browserUrl` 保持一致）。请勿改回 9222，否则会误连到 WorkBuddy 自身而非 360Chromex，且 Electron 不支持经 CDP 新建标签页。
+>
+> **自动探测（不硬绑定端口）**：`start.cjs` / `cli_run.cjs` 在每次激活技能时都会**自动探测实际 CDP 端口**（扫描 `9222~9240`），优先复用已运行的真实调试浏览器（Chrome / 360Chromex / Edge 等，UA 命中真实内核），并自动跳过 9222 上的 WorkBuddy 自身 Electron；无已运行实例时再在 9223 起的窗口内新启。因此本机调试浏览器实际运行在 9222 / 9224 / 任意端口都能被自动发现，无需手工改端口。探测到的实际端口写入 `local-config.json`，并由 `start.cjs` **自动同步**到 `~/.workbuddy/mcp.json` 的 `--browserUrl`（`syncBrowserUrlPort`：仅改写该参数端口，保留其它 args / 其它 server 条目 / env，幂等），因此形态一 MCP 直连不会因静态端口失配而报 `connect ECONNREFUSED`。注意：形态一的 MCP 服务器在 WorkBuddy 启动时读取该参数，改端口后需**重启 WorkBuddy / 重新信任该连接器**方能生效；CLI 形态（`cli_run.cjs`）每次调用都重新探测，无此缓存问题。
+>
+> **登录态继承的边界（实测结论）**：`start.cjs` 默认把真实 User Data **全量拷贝**到 `%temp%/chrome-devtools-profile` 再启动（继承登录态、不污染真实 profile、避开单实例锁冲突）。但**浏览器正在运行时**会独占锁定 `Default/Network/Cookies`（站点 Cookie 库），该文件无法拷贝 → 此时为**部分继承**（`Login Data` / `Local Storage` / `Preferences` 已继承，站点 Cookie 缺失）。`start.cjs` 会以 `[登录态未完整继承]` 显式告警，解决路径：① 关闭浏览器主实例后重跑 `node localization/start.cjs --refresh`（源无锁 → 完整继承，实测 `skipped=0`）；② 复用已运行的调试端口（`reuse`，登录态天然完整、无需拷贝）。**推荐优先复用已运行的调试浏览器**。
 >
 > 适用前提：Chrome / Chromium 系内核（含 360Chromex 等定制内核）+ 用 Node 内置 WebSocket 直连 CDP。
 

@@ -57,6 +57,17 @@ try {
   console.log('[清理] 临时目录 ' + tmp + ' 下移除 chrome-devtools-mcp-* 目录 ' + n + ' 个');
 } catch (e) { skipped.push(tmp + ' (' + e.message + ')'); }
 
+// 3b) 问题2修复：移除临时 profile 拷贝目录（%temp%/chrome-devtools-profile）。
+//     该目录由 start.cjs 全量拷贝真实 User Data 生成，仅用于隔离启动、继承登录态而不污染真实 profile。
+//     注意：仅移除「拷贝副本」，绝不触碰真实 User Data（红线）。
+try {
+  const tmpProfile = path.join(tmp, 'chrome-devtools-profile');
+  if (fs.existsSync(tmpProfile)) {
+    rmDir(tmpProfile);
+    console.log('[清理] 已移除临时 profile 拷贝目录: ' + tmpProfile);
+  }
+} catch (e) { skipped.push('chrome-devtools-profile (' + e.message + ')'); }
+
 // 4) 日志：仅清理技能目录顶层直接散落的 *.log（不递归，避免误删 upstream 等子目录）
 try {
   const ents = fs.readdirSync(REPO);

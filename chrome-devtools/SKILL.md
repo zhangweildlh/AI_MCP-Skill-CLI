@@ -20,7 +20,7 @@ description: "通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome
 接入本技能后、调用任何浏览器能力之前，必须先做**有序的连接器检查**（判定随平台而异，严禁硬编码平台命名；**必须实测一次成功才认定可用，不可仅凭配置**）：
 
 1. **形态一：直连 `chrome-devtools` MCP 服务（最高优先）**：宿主（如 WorkBuddy）已把 chrome-devtools 的 MCP 工具暴露为可直接调用的工具（如 `mcp__chrome-devtools__list_pages`）。**实测**调用一次页面列表类工具成功返回 → 形态一可用，**全程使用 MCP，禁止降级 CLI / 中转**。
-   - WorkBuddy：`~/.workbuddy/mcp.json` 含 `chrome-devtools` 条目（command 指向全局 bin、`--browserUrl=http://127.0.0.1:9223`）且连接器已信任；工具名形如 `mcp__<server>__<tool>`，若为延迟工具（deferred tools）须先加载工具 schema 再调用。
+   - WorkBuddy：`~/.workbuddy/mcp.json` 含 `chrome-devtools` 条目（command 指向全局 bin、`--browserUrl=http://127.0.0.1:<探测端口，缺省 9223>`）且连接器已信任；端口由 `start.cjs` 自动探测并写入 `local-config.json`，`mcp.json` 的 `--browserUrl` 须与之保持一致。工具名形如 `mcp__<server>__<tool>`，若为延迟工具（deferred tools）须先加载工具 schema 再调用。
    - DeepSeek++（DeepSeek-pp 扩展）：侧边栏「能力 > MCP」新增服务（传输选 Streamable HTTP 或 Native）；工具名由平台生成，形如 `mcp_<server>_<tool>` 或 `mcp_t_<uuid>_<tool>`，经 `mcp_discover`/`mcp_describe`/`mcp_invoke` 间接调用。
    - 其他 Agent：按其平台暴露的 MCP 工具命名与调用方式使用。
 2. **形态二：经 `dynamic-mcp` MCP 中转（次选）**：若形态一无，检查是否存在 `dynamic-mcp` 连接器且其聚合后端含 `chrome-devtools`（如 `http://127.0.0.1:8082/dynamic-mcp`）。**实测**经 `mcp__dynamic-mcp__*` 能否列出 / 调用 chrome-devtools 后端工具 → 可用则经 dynamic-mcp 调用（工具名随平台变体）。注意：**端点未聚合该后端则形态二不可用**（如 `dynamic-mcp.json` 无 chrome-devtools 条目时不得强行使用）。
@@ -28,7 +28,7 @@ description: "通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome
 
 > **R1 红线（禁止依赖外部启动脚本）**：本技能**禁止依赖、调用 `启动360chromex+MCP_Bridge桥接+chrome-devtools.bat`（或任何外部启动脚本 / MCP_Bridge 桥接）**。本技能**自行**经 `verify_browser.cjs` + `start.cjs` 检测并启动本地浏览器、经 `--browserUrl` 直连；`dynamic-mcp` 中转仅为可选连接器检查，未配置即跳过，**不依赖外部桥接脚本拉起**。
 
-**通用前置（所有形态共用）**：确认全局 bin 存在（`node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js"`，不存在则先部署安装）；确认浏览器已以远程调试端口运行（见步骤 1）。任何形态下，浏览器调试端口都是硬前置。**360 极速浏览器（360Chromex）注意**：若已有实例占用 `User Data` profile，新起带调试端口实例会被单实例机制静默吞掉（端口无响应），**切勿关闭用户日常浏览器**，改用独立临时 profile（`--user-data-dir=<新空目录>`）启动调试实例。
+**通用前置（所有形态共用）**：确认全局 bin 存在（`node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js"`，不存在则先部署安装）；确认浏览器已以远程调试端口运行（见步骤 1）。任何形态下，浏览器调试端口都是硬前置。**360 极速浏览器（360Chromex）注意**：若已有实例占用 `User Data` profile，新起带调试端口实例会被单实例机制静默吞掉（端口无响应），**切勿关闭用户日常浏览器**——`start.cjs` 默认的临时 profile 拷贝方案（步骤 2）正是为此设计：拷贝真实 User Data 到 `%temp%` 后启动，既避开单实例锁冲突、又不污染真实 profile。
 
 > 严禁使用 `npx -y chrome-devtools-mcp`。MCP 直连/中转用 `node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js"`；CLI 兜底（见步骤 3）用 `node "$(npm root -g)/chrome-devtools-mcp/build/src/bin/chrome-devtools.js"`（Windows 见下方 `for /f` 形式）。
 
@@ -36,15 +36,22 @@ description: "通过 Chrome DevTools MCP 服务器驱动本地浏览器（Chrome
 
 浏览器必须以远程调试端口运行，MCP/CLI 才能连接。本机已预置 360Chromex（含登录态）。**调用任何浏览器能力之前**，请按以下顺序由你自己（Agent）执行，不要要求用户手动敲命令：
 
-1. **先检测端口是否已在监听**（避免重复启动导致 `user-data-dir` 锁冲突）：
-   - Windows：`curl -s http://127.0.0.1:9223/json/version`
-   - 若返回包含 `Browser` 字段的 JSON，说明浏览器已启动，**直接跳到步骤 2/3**。
-2. **若端口无响应，自动检测并启动浏览器**（这两个脚本位于技能目录的 `localization/` 下；调用时**务必在技能目录内**——先 `cd` 到技能根目录，或使用脚本绝对路径如 `node "<技能根目录>/localization/verify_browser.cjs"`，**不要在非技能目录用相对路径 `node localization/...`**，否则会因找不到文件而误报"脚本缺失"）：
-   - 运行 `node localization/verify_browser.cjs`（自动搜索 360Chromex.exe / Chrome.exe：优先已注册安装，规避便携版；结果写入技能目录的 `local-config.json`）。
-   - 再运行 `node localization/start.cjs`（以 `--user-data-dir` 指向本机 User Data 启动，复用登录态；脚本依赖 `local-config.json` 中的浏览器路径）。
-3. **确认就绪**：访问 `http://127.0.0.1:9223/json`，出现版本信息即成功。
+1. **先自动探测端口（问题1修复：兼容跨机 / 跨平台，不再硬绑定 9223）**。运行 `node localization/start.cjs`（位于技能目录的 `localization/` 下；调用时**务必在技能目录内**——先 `cd` 到技能根目录，或用绝对路径 `node "<技能根目录>/localization/start.cjs"`，**不要在非技能目录用相对路径 `node localization/...`**，否则会因找不到文件而误报"脚本缺失"）：
+   - 脚本扫描 `127.0.0.1:9222~9240`，**优先复用已运行的真实调试浏览器**（Chrome / 360Chromex / Edge 等，UA 命中真实内核），并**自动跳过 `9222` 上的 WorkBuddy 自身 Electron**（其不支持 CDP 新建标签页）；
+   - 若没有已运行的调试浏览器，则在默认启动端口 `9223` 起的窗口内找首个空闲端口**新启实例**（默认启动端口避开 9222，遵循下方「端口约定」）；
+   - 实际选用端口写入技能目录的 `local-config.json`（`mcp.json` 的 `--browserUrl` 须与之保持一致）。
+   - 首次运行若未检测到浏览器，`start.cjs` 会自动调用 `verify_browser.cjs`（自动搜索 360Chromex.exe / Chrome.exe：优先已注册安装，规避便携版；结果写入 `local-config.json`）。
+2. **（默认）以临时 profile 拷贝启动，继承登录态且不污染（问题2修复）**。`start.cjs` 默认将真实 User Data **全量拷贝**到系统临时目录（`%temp%/chrome-devtools-profile`），再以该拷贝 `--user-data-dir` 启动：
+   - 继承登录态 / Cookie（拷贝自真实 User Data），但写入隔离在临时副本，**不污染真实 User Data**；
+   - 天然避开 `SingletonLock` 单实例锁冲突（临时副本已排除锁文件），无需关闭用户日常浏览器；
+   - 选项：`--no-temp-profile` 回退使用真实 profile（原始行为，须自行处理锁冲突）；`--refresh` 强制重新全量拷贝。
+   - **登录态继承的真实边界（实测结论，务必知悉）**：若**浏览器正在运行**，它会独占锁定 `Default/Network/Cookies`（站点 Cookie 库），该文件**无法被拷贝** → 此时临时 profile **仅部分继承登录态**（`Login Data` 凭据 / `Local Storage` 本地存储 / `Preferences` 均已继承，但站点 Cookie 缺失，部分站点可能需重新登录）。`start.cjs` 会以 `[登录态未完整继承]` 显式告警并给出两条解决路径：
+     - **A）** 关闭浏览器主实例后重跑 `node localization/start.cjs --refresh` → 源目录无锁 → **登录态完整继承**（实测 `skipped=0`、Cookies 完整拷入）；
+     - **B）** 保持浏览器运行、复用其已开放的调试端口（`reuse` 动作）→ 直接用运行中实例，**登录态天然完整**，无需拷贝。
+     - 推荐优先走 **B**（复用已运行的调试浏览器）：既完整继承登录态，又零拷贝开销、零污染。
+3. **确认就绪**：访问探测到的端口 `http://127.0.0.1:<port>/json`（端口读取自 `local-config.json` 的 `debugPort`），出现版本信息即成功。
 
-> 浏览器路径与用户数据目录由 `verify_browser.cjs` 写入 `local-config.json`。注意：必须用 `--user-data-dir` 指向本机 User Data（或 `--browserUrl` 连接已运行的登录实例）以保留登录态；**切勿用 `--isolated`**（会生成临时 profile 丢登录态）。每次激活本技能都应先检测端口、仅在无响应时才启动，避免重复启动冲突。
+> 浏览器路径与用户数据目录由 `verify_browser.cjs` 写入 `local-config.json`。`start.cjs` 是端口探测 + 启动的唯一入口，必须先用它确保浏览器已就绪。**切勿用 `--isolated`**（会生成临时空 profile 丢登录态）；本技能的临时 profile 是「真实 User Data 的拷贝」，与 `--isolated` 不同，可继承登录态。每次激活本技能都应先 `start.cjs` 探测端口、仅在无响应时才新启，避免重复启动冲突。
 
 ### 步骤 2：MCP 直连配置参考（形态一；WorkBuddy 示例，实际以当前平台配置为准）
 
@@ -55,7 +62,7 @@ MCP 服务器（stdio）配置示例（全局路径，仓库根指本主副本�
   "mcpServers": {
     "chrome-devtools": {
       "command": "node",
-      "args": ["<全局 bin 路径>", "--browserUrl=http://127.0.0.1:9223", "--no-usage-statistics"],
+      "args": ["<全局 bin 路径>", "--browserUrl=http://127.0.0.1:<探测端口，缺省 9223>", "--no-usage-statistics"],
       "env": { "CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS": "1" }
     }
   }
@@ -69,6 +76,8 @@ MCP 服务器（stdio）配置示例（全局路径，仓库根指本主副本�
 - 在 WorkBuddy 连接器管理页"信任" chrome-devtools 服务器即可使用29 个原生工具。
 
 ### 步骤 3：CLI 模式运行（形态三兜底，仅 MCP 直连/中转均不可用时使用）
+
+> 端口说明：下方 `--browserUrl=http://127.0.0.1:9223` 中的 `9223` 为本技能**默认启动端口**；实际端口由 `start.cjs` 自动探测并写入 `local-config.json`（详见步骤 1），以探测结果为准。最简方式是用 `node localization/cli_run.cjs <tool>`，它内部先跑 `start.cjs` 自动探测端口再连接，无需手填端口。
 
 CLI 采用「常驻服务（daemon）+ 工具命令」两段式。首参数必须是子命令名（`start` / `status` / `stop` 或工具名）；**`--browserUrl` 与 `--no-usage-statistics` 仅属于 `start` 子命令（常驻服务的连接参数），不能跟在工具命令后面**，否则报 `Unknown argument`。
 
@@ -128,6 +137,7 @@ node localization/cleanup.cjs
 - 技能目录根级的 `local-config.json`、`mcp-local-config.json`（由 `verify_browser.cjs` / `apply_localize.cjs` / `deploy.cjs` 生成的机相关状态文件）；
 - 经 CLI 形态（形态三）拉起的本地常驻 daemon（`chrome-devtools.js stop`，仅停本技能启动的服务，不影响宿主 MCP stdio 服务与用户正在使用的浏览器）；
 - 系统临时目录下 `chrome-devtools-mcp-*` 临时目录（daemon / 工具落盘的临时文件）；
+- 系统临时目录下 `chrome-devtools-profile` 临时 profile 拷贝目录（问题2 启动隔离所用的真实 User Data 全量拷贝，**仅移除拷贝，绝不触碰真实 User Data**）；
 - 技能目录顶层直接散落的 `*.log`（仅顶层、不递归，避免误删 `upstream/` 等子目录）。
 
 **R5 红线（清理绝不动）**：`User Data`（浏览器登录态 / profile）、浏览器原始程序（`360chromex.exe` 等）及其部署目录下非本技能生成的文件、`upstream/`（上游 vendored 快照）、`node_modules/`、`build/`、`localization/` 源码、`SKILL.md` / `README.md` / `fragments/` / `*.example.json`（技能定义），以及用户个人文件（Desktop / Documents / Downloads 等）。清理仅移除技能生成物，**浏览器实例与登录态均保留**，用户日常浏览器不被关闭。
@@ -144,7 +154,7 @@ node localization/cleanup.cjs
 
 ### 关键约束（本地化红线，任何操作不得违反）
 
-- 复用登录态必须 `--browserUrl` 直连已启动实例；`--isolated` 默认临时 profile 会丢登录态。
+- 复用登录态必须 `--browserUrl` 直连已启动实例；`--isolated` 默认临时 profile 会丢登录态。**本技能的「临时 profile」是真实 User Data 的全量拷贝（`%temp%/chrome-devtools-profile`），与 `--isolated` 不同——可继承登录态且不污染真实 profile**。
 - 浏览器用 `--executablePath` 而非 `--channel`（360Chromex 不在受支持 channel 列表）。
 - 依赖安装务必 `PUPPETEER_SKIP_DOWNLOAD=1`，否则 puppeteer 会下载 Chromium（部署脚本已内置）。
 - **严禁 `npx -y <pkg>`**：一律用 `node "$(npm root -g)/..."` 或 `npm install -g .` 全局安装；本机全局根即 `$(npm root -g)`（随 Node 安装位置而定，切勿写死绝对路径）。

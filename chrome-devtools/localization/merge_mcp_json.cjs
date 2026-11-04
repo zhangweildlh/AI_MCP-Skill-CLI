@@ -33,4 +33,38 @@ function mergeIntoMcpJson(mcp, opts) {
   console.log('[mcp] 已自动合并 chrome-devtools 到 ' + mcpJsonPath);
 }
 
-module.exports = { mergeIntoMcpJson };
+// 问题1修复：把 chrome-devtools 条目 args 中的 --browserUrl 端口同步为实测端口。
+// 背景：~/.workbuddy/mcp.json 里的 --browserUrl 是静态硬编码（部署时写死 9223），
+// 而真实调试浏览器可能运行在 9222/9224/... 任意端口，直接连会 ECONNREFUSED（用户报的原错误）。
+// 幂等且最小侵入：只改写 args 数组中 --browserUrl= 参数的端口部分，
+//   不覆盖整个 args（保留用户自传的其它参数）、不动其它 server 条目、不动 env。
+// 返回 { changed, previousPort, port }；changed=false 表示无需改动或文件/条目不存在。
+function syncBrowserUrlPort(port, opts) {
+  const home = (opts && opts.home) || process.env.USERPROFILE || process.env.HOME || '';
+  const mcpJsonPath = path.join(home, '.workbuddy', 'mcp.json');
+  const p = Number(port);
+  if (!home || !Number.isInteger(p) || p <= 0 || p > 65535) {
+    return { changed: false, previousPort: null, port: p || null };
+  }
+  if (!fs.existsSync(mcpJsonPath)) return { changed: false, previousPort: null, port: p };
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf8')); }
+  catch (e) { return { changed: false, previousPort: null, port: p }; }
+  const entry = doc.mcpServers && doc.mcpServers['chrome-devtools'];
+  if (!entry || !Array.isArray(entry.args)) return { changed: false, previousPort: null, port: p };
+  let previousPort = null, changed = false;
+  entry.args = entry.args.map((a) => {
+    if (typeof a !== 'string') return a;
+    const m = a.match(/^--browserUrl=(?:https?:\/\/[^:]+):(\d+)(\/.*)?$/);
+    if (!m) return a;
+    previousPort = Number(m[1]);
+    if (previousPort === p) return a;
+    changed = true;
+    return '--browserUrl=' + (m[0].match(/^--browserUrl=(https?:\/\/[^:]+)/)[1]) + ':' + p + (m[2] || '');
+  });
+  if (!changed) return { changed: false, previousPort, port: p };
+  fs.writeFileSync(mcpJsonPath, JSON.stringify(doc, null, 2), 'utf8');
+  return { changed: true, previousPort, port: p };
+}
+
+module.exports = { mergeIntoMcpJson, syncBrowserUrlPort };
