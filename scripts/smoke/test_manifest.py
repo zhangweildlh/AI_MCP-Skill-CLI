@@ -199,9 +199,12 @@ def run_project_tests(scope: str | None, allow_real: bool) -> int:
 
 
 # 测试过程/临时文件清理目标（相对仓库根）；与 AGENTS.md §8.3⑤ 衔接
+# 注：github-personal-manager 的两处运行期产物（skill 内 .gitignore 明列
+# 「冒烟测试运行期产物」/「回归测试运行期产物」）须成对收录，漏收其一即残留。
 CLEANUP_DIRS = [
     "code-review-combo/.verify_tmp",
     "github-personal-manager/smoke/tmp",
+    "github-personal-manager/regression/tmp",
     "tender-review-kit/tests/workspace",
 ]
 
