@@ -1,5 +1,18 @@
 ---
 
+## [2026-11-04]
+
+### Fixed
+- **dir/chrome-devtools：修复「无法连接 127.0.0.1:9223（connect ECONNREFUSED）」与「全新 --user-data-dir 无法继承已登录状态」两个坐实问题（PR #176，功能提交 `bb14d36`，合并提交 `e50d7bb`）**：两项均由本机实测坐实——① 9222 实为 WorkBuddy 自身 Electron（UA 含 `Electron/37.10.3`，不支持 CDP 新建标签页），而技能全链路硬编码 9223（`cli_run.cjs` / `verify_browser.cjs` / `apply_localize.cjs` / `~/.workbuddy/mcp.json` 的 `--browserUrl`），`start.cjs` 从 9223 向上扫描（漏掉 9222）→ 跨机/跨平台必然连错端口；② 新起调试实例若用全新空 `--user-data-dir` 则丢登录态，若直连真实 `User Data` 则撞 `SingletonLock` 单实例锁并污染真实 profile，二者不可兼得。
+  - **问题1 修复（自动探测，不硬绑定端口）**：新增 `findTargetCdpPort` / `findAnyCdpPort`（扫 `127.0.0.1:9222~9240`），优先复用已运行的真实调试浏览器；`isTargetBrowserOnPort` 由「UA 含 360/qihu」改为「UA 非空且不含 WorkBuddy/Electron」，从而**自动跳过 9222 上的 WorkBuddy 自身**，同时兼容 Chrome / 360Chromex / Edge / Brave 等跨机跨平台真实内核（定制内核的 DevTools UA 常为通用 Chrome UA，未必带 360 字样）。`cli_run.cjs` 改为先跑 `start.cjs` 完成探测、再按 `local-config.json` 的实际端口连接，不再盲连硬编码端口；`start.cjs` 把实测端口写入 `local-config.json` 并同步到 `~/.workbuddy/mcp.json` 的 `--browserUrl`（新增 `syncBrowserUrlPort`，**仅改写该参数端口**，保留其它 args / 其它 server 条目 / env，幂等）。
+  - **问题2 修复（临时 profile 拷贝，继承登录态且不污染）**：新增 `prepareTempProfile` 把真实 User Data **全量拷贝**到 `%temp%/chrome-devtools-profile` 再以其 `--user-data-dir` 启动——继承登录态 / Cookie，写入隔离在临时副本、**不污染真实 profile**、天然避开单实例锁冲突（拷贝已排除 `SingletonLock` 等锁文件），无需关闭用户日常浏览器。改用**手动递归拷贝**替代 `fs.cpSync`：实测运行中浏览器独占锁定 `Default/Network/Cookies` 时 `fs.cpSync` 直接抛 `EBUSY` 中断整段拷贝并被迫回退真实 profile，现改为逐文件复制、遇锁跳过而继续（实测 `skipped=4` 不再抛错）。选项 `--no-temp-profile` 回退真实 profile、`--refresh` 强制重新全量拷贝。
+  - **登录态边界诚实标注（实测结论）**：浏览器**正在运行**时会独占锁定 `Default/Network/Cookies`（站点 Cookie 库）→ 无法拷贝 → 临时 profile **仅部分继承**登录态（`Login Data` 凭据 / `Local Storage` / `Preferences` 已继承，站点 Cookie 缺失，部分站点可能需重新登录）。`start.cjs` 以 `[登录态未完整继承]` 显式告警并给出两条解决路径：A) 关闭浏览器主实例后 `--refresh` 重跑（源无锁 → **登录态完整继承**，实测 `skipped=0`、`missingCritical=[]`、Cookies 完整拷入）；B) 复用已开放的调试端口（`reuse` 动作，登录态天然完整、零拷贝）。**推荐优先走 B**。
+  - **实测证据**：浏览器在 9228 时自动探测并复用，`cli_run.cjs list_pages` 成功列出页面；`mcp.json` 端口 9223→9228 同步后，3 个 server 条目、其它条目（dynamic-mcp / codebase-memory）、`env`、`command`、非 browserUrl 的 args **逐字节未变**；源目录被运行时占用时精确报出 4 个被跳过文件（`Default/Network/Cookies` / `Cookies-journal` / `Session_*` / `Tabs_*`）；9222 上的 WorkBuddy Electron 被正确跳过（`findTargetCdpPort` 返回 null）。**隔离性坐实**：进程命令行核查显示 11 个临时实例进程带 `--user-data-dir=<%temp% 路径>`、19 个用户日常实例不带该参数（各自独立 profile），用户日常浏览器全程未被关闭或污染。
+  - **其它**：`cleanup.cjs` 增清理 `%temp%/chrome-devtools-profile` 拷贝目录（**绝不触碰真实 User Data**）；README / SKILL.md / `_frag_skill_main.md` 同步端口自动探测与登录态边界说明（片段与 SKILL.md 逐字一致，避免 `apply_localize.cjs` 重新生成时漂移）；单测 14 → **25 项**（新增端口探测 / 临时 profile 拷贝 / 锁文件跳过 / 登录态完整性判定 / mcp.json 端口同步幂等用例）。本地门禁 `run_all.py --tier 0,1,2 --scope dir/chrome-devtools` 12 OK / 0 FATAL / 0 WARN；CI `scope-map` / `smoke` / `smoke-scoped` 三项全 pass。
+- **meta（AGENTS.md §7.2）：复采 chrome-devtools 副本映射实测值并登记部署方式**：部署态 `chrome-devtools/` 此前落后 main **14 个文件**（`SKILL.md` 18712 B vs 21596 B 等，含本轮 9 个修复文件 + 5 个历史未同步文件），本轮由 main 的 git blob 逐字节重建 26 个受跟踪文件（**不经工作树**——本仓库 `core.autocrlf=true` 且无 `.gitattributes`，直接拷工作树会让部署态带上 CRLF 而与 blob 产生字节分歧）。判等核验（§7.3 口径）：`git hash-object` 相等 = 26/26 字节完全一致（双侧均 LF，达最高一致等级）、`cmp` 零差异；**部署副本物理上为一份**——`C:\Users\Administrator\.workbuddy` 系 `C:\Users\15794\.workbuddy` 的 NTFS Junction（实测 LinkType=Junction，同 inode 3377699720781168），同一物理文件透传，无需单独同步。部署态实跑回归：单元测试 25/25 通过，`start.cjs` 非交互自动检测浏览器成功、端口探测 9223、临时 profile 完整继承、浏览器启动就绪，`cli_run.cjs list_pages` 成功列出页面。
+
+---
+
 ## [2026-11-02]
 
 ### Added
