@@ -5,7 +5,7 @@
 #
 # 【功能】
 #   站在主线(main) 视角，把已经完成普通合并的功能分支及其工作树整体回收，按四步执行：
-#     1. 合并校验：确认功能分支尖端已是当前主线提交的祖先；未合并则硬停止，绝不清理，防止丢提交；
+#     1. 合并校验：确认功能分支尖端已是当前主线提交的祖先（或探测为 squash 合并且内容已在主线）；未合并且无 squash 证据则硬停止，绝不清理，防止丢提交；
 #     2. 工作树回收：自动判定该工作树是「活跃登记」还是「游离残留」，分别用登记接口移除或直接删目录；
 #     3. 本地分支回收：使用「仅删已合并分支」的安全删除方式，未合并会被 git 自身拒绝；
 #     4. 远端分支回收：属公开动作，脚本会醒目提示，必须显式授权后才执行。
@@ -54,6 +54,7 @@
 #   - 回收远端分支前，请先在 GitHub 上核对是否仍有处于开放状态的合并请求(PR)（本脚本不自动查询）；
 #     开放中的 PR 对应的分支被清理后，该 PR 会被自动关闭。
 #   - 本脚本只回收功能分支，不会触碰主线分支本身。
+#   - squash 合并兼容：若分支经 squash 合并（与主线无祖先关系），脚本会探测「存在已合并 PR」或「分支树已存在于主线历史」作为内容已在主线的证据，安全以 -D 回收；两端证据皆缺时仍硬停止，不误删未合并内容。
 #<!--HELP-END-->
 set -uo pipefail
 SOP_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -117,13 +118,41 @@ if [ -z "$TIP" ]; then
   echo "⛔ 无法定位分支 [$BRANCH] 的尖端(Tip)：本地/远端分支均不存在，且未提供有效工作树路径。请确认分支名或加 --worktree-path。"
   exit 1
 fi
+# 捕获 TIP 树（用于 squash 合并探测与删后校验）
+TIP_TREE="$("$GIT_BIN" rev-parse "$TIP^{tree}" 2>/dev/null || true)"
 
-# 合并校验：Tip 须可达主线 HEAD（merge-base --is-ancestor = 0）；否则硬停止，拒绝清理未合并工作
+# 合并校验：Tip 须可达主线 HEAD；否则尝试 squash 合并探测，避免误拒已合并分支
+SQUASH_MERGED=0
+SQUASH_REASON=""
 if "$GIT_BIN" merge-base --is-ancestor "$TIP" HEAD 2>/dev/null; then
   echo "✅ 合并校验通过：Tip($TIP) 已并入主线 HEAD（merge-base --is-ancestor=0）。"
 else
-  echo "⛔ 合并校验失败：Tip($TIP) 尚未并入主线 HEAD（merge-base --is-ancestor≠0）。该分支仍有未合并工作，拒绝清理以防丢失提交。请先 --no-ff 合并后再清理。"
-  exit 1
+  # squash 合并陷阱：squash 合并不建立祖先关系，merge-base 恒为假，导致脚本误拒已合并分支。
+  # 此处借「已合并 PR」或「分支树已存在于主线历史」判定内容是否已在主线，安全回收（采纳 MEMORY 手工回收协议）。
+  echo "⚠️ merge-base 祖先校验未通过，探测是否为 squash 合并（内容已并入主线但无祖先关系）…"
+  SQUASH_OK=0
+  # 代理1（最可靠）：存在已合并的 PR（无论是否 squash 合并）
+  if command -v gh >/dev/null 2>&1; then
+    PR_MERGED="$(gh pr list --head "$BRANCH" --state merged --limit 1 2>/dev/null | head -1)"
+    if [ -n "$PR_MERGED" ]; then
+      SQUASH_OK=1
+      SQUASH_REASON="存在已合并 PR（$PR_MERGED）"
+    fi
+  fi
+  # 代理2（兜底，无需 gh/网络）：分支树已存在于主线历史 → 内容已在主线
+  if [ "${SQUASH_OK:-0}" != "1" ] && [ -n "$TIP_TREE" ]; then
+    if "$GIT_BIN" log --format=%T HEAD | grep -qx "$TIP_TREE"; then
+      SQUASH_OK=1
+      SQUASH_REASON="分支树已存在于主线历史（内容已在主线）"
+    fi
+  fi
+  if [ "${SQUASH_OK:-0}" = "1" ]; then
+    SQUASH_MERGED=1
+    echo "✅ squash 合并探测通过（$SQUASH_REASON）：内容已在主线，可安全回收（将以 -D 强制删本地分支）。"
+  else
+    echo "⛔ 合并校验失败：Tip($TIP) 尚未并入主线 HEAD，且未探测到 squash 合并证据（无已合并 PR、分支树不在主线历史）。拒绝清理以防丢失提交。请先 --no-ff 合并后再清理。"
+    exit 1
+  fi
 fi
 
 # 自动探测 worktree 路径（用户未显式提供时）：从 git worktree list 找 checkout 了该分支的 worktree
@@ -160,7 +189,7 @@ if "$GIT_BIN" show-ref --verify --quiet "refs/remotes/$ORIGIN_REMOTE/$BRANCH" 2>
 
 echo "===== 清理工作树 + 分支（多工作树并行合并·阶段五/六）====="
 echo "主仓库: $(pwd)  主线: $MAIN_BRANCH  功能分支: $BRANCH"
-echo "合并校验: Tip=$TIP 已并入主线"
+echo "合并校验: Tip=$TIP $([ "$SQUASH_MERGED" = "1" ] && echo '内容已在主线（squash 探测）' || echo '已并入主线')"
 echo "工作树: ${WTPATH:-（无，可能已手动移除）}  存在=$WT_EXISTS  状态=$([ "$WT_DIRTY" = "1" ] && echo 脏 || echo 干净)  判定=$([ "$WT_ORPHAN" = "1" ] && echo 游离 || echo 活跃)"
 echo "本地分支[$BRANCH]: $([ "$LOCAL_BRANCH_EXISTS" = "1" ] && echo 存在待删 || echo 不存在)"
 echo "远端分支[$ORIGIN_REMOTE/$BRANCH]: $([ "$REMOTE_BRANCH_EXISTS" = "1" ] && echo 存在待删-公开动作 || echo 不存在)"
@@ -182,7 +211,13 @@ if [ "$CONFIRM" -ne 1 ]; then
     echo "   - （工作树不存在，跳过移除）"
   fi
   echo "   - ⚠️ 提醒：删除分支前请先在 GitHub 确认该分支无未关闭的 open PR（本脚本不自动查询）。"
-  [ "$LOCAL_BRANCH_EXISTS" = "1" ] && echo "   - git branch -d $BRANCH （小写 -d 仅删已合并）"
+  if [ "$LOCAL_BRANCH_EXISTS" = "1" ]; then
+    if [ "$SQUASH_MERGED" = "1" ]; then
+      echo "   - git branch -D $BRANCH （squash 合并：强制删本地，内容已在主线）"
+    else
+      echo "   - git branch -d $BRANCH （小写 -d 仅删已合并）"
+    fi
+  fi
   if [ "$REMOTE_BRANCH_EXISTS" = "1" ]; then
     echo "   - git push --delete $ORIGIN_REMOTE $BRANCH （⚠️ 公开动作：删除远端分支，须 --confirm 授权）"
     echo "   - git branch -d -r $ORIGIN_REMOTE/$BRANCH （远端删除成功后，兜底清理本地远程跟踪引用）"
@@ -219,13 +254,22 @@ if [ "$WT_EXISTS" = "1" ]; then
   fi
   echo "✅ 工作树已移除"
 fi
-# 2. 本地分支（小写 -d 仅删已合并；若有残留未合并则拒绝，安全）
+# 2. 本地分支（squash 合并用 -D 强制删；普通合并用 -d 仅删已合并；若有残留未合并则拒绝，安全）
 if [ "$LOCAL_BRANCH_EXISTS" = "1" ]; then
-  echo "   git branch -d $BRANCH"
-  if "$GIT_BIN" branch -d "$BRANCH" >/dev/null 2>&1; then
-    echo "✅ 本地分支已删"
+  if [ "$SQUASH_MERGED" = "1" ]; then
+    echo "   git branch -D $BRANCH （squash 合并：强制删本地）"
+    if "$GIT_BIN" branch -D "$BRANCH" >/dev/null 2>&1; then
+      echo "✅ 本地分支已删"
+    else
+      echo "⚠️ 本地分支 [$BRANCH] 强制删除失败，请核查。"
+    fi
   else
-    echo "⚠️ 本地分支 [$BRANCH] 删除被拒（可能仍有未合并提交），请核查。"
+    echo "   git branch -d $BRANCH"
+    if "$GIT_BIN" branch -d "$BRANCH" >/dev/null 2>&1; then
+      echo "✅ 本地分支已删"
+    else
+      echo "⚠️ 本地分支 [$BRANCH] 删除被拒（可能仍有未合并提交），请核查。"
+    fi
   fi
 fi
 # 3. 远端分支（公开动作，醒目提示）
@@ -243,11 +287,21 @@ if [ "$REMOTE_BRANCH_EXISTS" = "1" ]; then
   fi
 fi
 
-# 删后校验：提交未丢失（Tip 仍可达主线 HEAD）
-if "$GIT_BIN" merge-base --is-ancestor "$TIP" HEAD 2>/dev/null; then
-  echo "✅ 删后校验：Tip($TIP) 仍可达主线 HEAD，提交未丢失。"
+# 删后校验：提交内容未丢失
+if [ "$SQUASH_MERGED" = "1" ]; then
+  # squash 合并：祖先校验不适用，改用「TIP 树仍在主线历史中」验证内容未丢失
+  if [ -n "$TIP_TREE" ] && "$GIT_BIN" log --format=%T HEAD | grep -qx "$TIP_TREE"; then
+    echo "✅ 删后校验：TIP 树($TIP_TREE) 仍存在于主线历史，提交内容未丢失。"
+  else
+    echo "⛔ 删后校验异常：TIP 树不在主线历史，疑似误删未合并提交！请立即核查。"
+    exit 1
+  fi
 else
-  echo "⛔ 删后校验异常：Tip 不再可达 main，疑似误删未合并提交！请立即核查。"
-  exit 1
+  if "$GIT_BIN" merge-base --is-ancestor "$TIP" HEAD 2>/dev/null; then
+    echo "✅ 删后校验：Tip($TIP) 仍可达主线 HEAD，提交未丢失。"
+  else
+    echo "⛔ 删后校验异常：Tip 不再可达 main，疑似误删未合并提交！请立即核查。"
+    exit 1
+  fi
 fi
 echo "🎉 清理完成（工作树 + 本地/远端分支回收，提交已安全保留于主线）。"
