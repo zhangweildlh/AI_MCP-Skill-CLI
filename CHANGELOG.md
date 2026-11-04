@@ -3,483 +3,350 @@
 ## [2026-11-04]
 
 ### Fixed
-- **dir/chrome-devtools：修复「无法连接 127.0.0.1:9223（connect ECONNREFUSED）」与「全新 --user-data-dir 无法继承已登录状态」两个坐实问题（PR #176，功能提交 `bb14d36`，合并提交 `e50d7bb`）**：两项均由本机实测坐实——① 9222 实为 WorkBuddy 自身 Electron（UA 含 `Electron/37.10.3`，不支持 CDP 新建标签页），而技能全链路硬编码 9223（`cli_run.cjs` / `verify_browser.cjs` / `apply_localize.cjs` / `~/.workbuddy/mcp.json` 的 `--browserUrl`），`start.cjs` 从 9223 向上扫描（漏掉 9222）→ 跨机/跨平台必然连错端口；② 新起调试实例若用全新空 `--user-data-dir` 则丢登录态，若直连真实 `User Data` 则撞 `SingletonLock` 单实例锁并污染真实 profile，二者不可兼得。
-  - **问题1 修复（自动探测，不硬绑定端口）**：新增 `findTargetCdpPort` / `findAnyCdpPort`（扫 `127.0.0.1:9222~9240`），优先复用已运行的真实调试浏览器；`isTargetBrowserOnPort` 由「UA 含 360/qihu」改为「UA 非空且不含 WorkBuddy/Electron」，从而**自动跳过 9222 上的 WorkBuddy 自身**，同时兼容 Chrome / 360Chromex / Edge / Brave 等跨机跨平台真实内核（定制内核的 DevTools UA 常为通用 Chrome UA，未必带 360 字样）。`cli_run.cjs` 改为先跑 `start.cjs` 完成探测、再按 `local-config.json` 的实际端口连接，不再盲连硬编码端口；`start.cjs` 把实测端口写入 `local-config.json` 并同步到 `~/.workbuddy/mcp.json` 的 `--browserUrl`（新增 `syncBrowserUrlPort`，**仅改写该参数端口**，保留其它 args / 其它 server 条目 / env，幂等）。
-  - **问题2 修复（临时 profile 拷贝，继承登录态且不污染）**：新增 `prepareTempProfile` 把真实 User Data **全量拷贝**到 `%temp%/chrome-devtools-profile` 再以其 `--user-data-dir` 启动——继承登录态 / Cookie，写入隔离在临时副本、**不污染真实 profile**、天然避开单实例锁冲突（拷贝已排除 `SingletonLock` 等锁文件），无需关闭用户日常浏览器。改用**手动递归拷贝**替代 `fs.cpSync`：实测运行中浏览器独占锁定 `Default/Network/Cookies` 时 `fs.cpSync` 直接抛 `EBUSY` 中断整段拷贝并被迫回退真实 profile，现改为逐文件复制、遇锁跳过而继续（实测 `skipped=4` 不再抛错）。选项 `--no-temp-profile` 回退真实 profile、`--refresh` 强制重新全量拷贝。
-  - **登录态边界诚实标注（实测结论）**：浏览器**正在运行**时会独占锁定 `Default/Network/Cookies`（站点 Cookie 库）→ 无法拷贝 → 临时 profile **仅部分继承**登录态（`Login Data` 凭据 / `Local Storage` / `Preferences` 已继承，站点 Cookie 缺失，部分站点可能需重新登录）。`start.cjs` 以 `[登录态未完整继承]` 显式告警并给出两条解决路径：A) 关闭浏览器主实例后 `--refresh` 重跑（源无锁 → **登录态完整继承**，实测 `skipped=0`、`missingCritical=[]`、Cookies 完整拷入）；B) 复用已开放的调试端口（`reuse` 动作，登录态天然完整、零拷贝）。**推荐优先走 B**。
-  - **实测证据**：浏览器在 9228 时自动探测并复用，`cli_run.cjs list_pages` 成功列出页面；`mcp.json` 端口 9223→9228 同步后，3 个 server 条目、其它条目（dynamic-mcp / codebase-memory）、`env`、`command`、非 browserUrl 的 args **逐字节未变**；源目录被运行时占用时精确报出 4 个被跳过文件（`Default/Network/Cookies` / `Cookies-journal` / `Session_*` / `Tabs_*`）；9222 上的 WorkBuddy Electron 被正确跳过（`findTargetCdpPort` 返回 null）。**隔离性坐实**：进程命令行核查显示 11 个临时实例进程带 `--user-data-dir=<%temp% 路径>`、19 个用户日常实例不带该参数（各自独立 profile），用户日常浏览器全程未被关闭或污染。
-  - **其它**：`cleanup.cjs` 增清理 `%temp%/chrome-devtools-profile` 拷贝目录（**绝不触碰真实 User Data**）；README / SKILL.md / `_frag_skill_main.md` 同步端口自动探测与登录态边界说明（片段与 SKILL.md 逐字一致，避免 `apply_localize.cjs` 重新生成时漂移）；单测 14 → **25 项**（新增端口探测 / 临时 profile 拷贝 / 锁文件跳过 / 登录态完整性判定 / mcp.json 端口同步幂等用例）。本地门禁 `run_all.py --tier 0,1,2 --scope dir/chrome-devtools` 12 OK / 0 FATAL / 0 WARN；CI `scope-map` / `smoke` / `smoke-scoped` 三项全 pass。
-- **meta（AGENTS.md §7.2）：复采 chrome-devtools 副本映射实测值并登记部署方式**：部署态 `chrome-devtools/` 此前落后 main **14 个文件**（`SKILL.md` 18712 B vs 21596 B 等，含本轮 9 个修复文件 + 5 个历史未同步文件），本轮由 main 的 git blob 逐字节重建 26 个受跟踪文件（**不经工作树**——本仓库 `core.autocrlf=true` 且无 `.gitattributes`，直接拷工作树会让部署态带上 CRLF 而与 blob 产生字节分歧）。判等核验（§7.3 口径）：`git hash-object` 相等 = 26/26 字节完全一致（双侧均 LF，达最高一致等级）、`cmp` 零差异；**部署副本物理上为一份**——`C:\Users\Administrator\.workbuddy` 系 `C:\Users\15794\.workbuddy` 的 NTFS Junction（实测 LinkType=Junction，同 inode 3377699720781168），同一物理文件透传，无需单独同步。部署态实跑回归：单元测试 25/25 通过，`start.cjs` 非交互自动检测浏览器成功、端口探测 9223、临时 profile 完整继承、浏览器启动就绪，`cli_run.cjs list_pages` 成功列出页面。
-
-- **dir/github-personal-manager：修复 `sop_worktree_cleanup.sh` 的 squash 合并陷阱——squash 合并且内容已在主线时脚本误拒回收（PR #179，功能提交 `63a15a1`；本条为其成对 docs(meta) 登记，依 §5.5）**：原合并校验仅依赖 `git merge-base --is-ancestor $TIP HEAD`，squash 合并不建立祖先关系致该判据恒为假，脚本误拒已合并分支，无法回收（设计意图非故障，但阻断 squash 合并后的清理闭环，此前只能手工 `git branch -D` + `git push --delete`）。新增「squash 合并探测」双代理（采纳 MEMORY 手工回收协议「先比对内容确认已在 main，再回收」）：① 代理1 `gh pr list --head <branch> --state merged` 存在已合并 PR；② 代理2 `git log --format=%T HEAD | grep -qx "$TIP_TREE"` 分支 tip 树已存在于主线历史。任一命中即判定内容已在主线，改用 `git branch -D` 强制删本地分支并同步改删后校验为「TIP 树仍在主线历史」；两证据皆缺仍硬停止（exit 1），不误删未合并内容。安全闸门全部保留：未合并内容校验（祖先判据 或 squash 双代理）、开放 PR 告警、受保护分支/强推/推 upstream 红线不受影响；远端删除仍需独立 `--confirm`（遵循 AGENTS.md §4.2 全链路授权例外条款）。验证：`bash -n` 语法 OK；普通合并 dry-run / 错误路径（无证据硬停止）/ proxy2 兜底路径已验证可用；**squash 真实场景已实跑坐实**（PR #178/#179 合并后，用真实 squash 合并分支各跑一次）：`feat/github-personal-manager-squash-cleanup-20261104120930`（PR #179）与 `docs/meta-branch-cleanup-discipline-20261104120737`（PR #178）两次均输出「✅ squash 合并探测通过（存在已合并 PR（179 / 178））」→ 走 `git branch -D` 删本地分支 → `git push --delete` 删远端分支 → 删后校验「TIP 树仍存在于主线历史，提交内容未丢失」，两条分支均完成工作树 + 本地 + 远端三重复收，零提交丢失。
-  - **【2026-11-04 后续更正·必读】上述实跑结论只覆盖了「代理1（gh 已合并 PR）」路径**：第 3 次实跑（PR #180 合并后回收其 meta 分支 `docs/meta-gpm-deploy-sync-20261104124208`）实际命中了**假告警**「⛔ 删后校验异常：TIP 树不在主线历史」并 `exit 1`——经逐字节核验，主线 squash 提交树与分支尖端树**完全一致**（`65a5b9f0…`），内容零丢失，属**误报**而非数据事故。根因是本条所述「proxy2 兜底路径已验证可用」在脚本自身的 `set -uo pipefail` 环境下**不成立**：`git log | grep -qx` 触发 SIGPIPE 假阴性，**代理2 实为废码**（该结论此前系在脱离脚本环境的孤立命令中验证，方法有误）。修复与正确的验证方法见下条（PR #181）。
-- **meta（AGENTS.md §7.2）：github-personal-manager 部署态副本同步并补登记 §7.2 映射表**：PR #179 合并提交 `400fb3e` 后按 §7.1/§7.3 纪律把开发态同步到部署态 `C:\Users\15794\.workbuddy\skills\github-personal-manager\`——**由 main 的 git blob 逐字节重建 58 个受跟踪文件**（**不经工作树**：本仓库 `core.autocrlf=true` 且无 `.gitattributes`，直接拷工作树会让部署态带上 CRLF 而与 blob 产生字节分歧）。**同步前实测部署态落后**：57/58 文件为 CRLF 形态（内容同、行尾异），1 个文件（`scripts/sop_worktree_cleanup.sh`）为 **squash 合并前的旧版**（`SQUASH_MERGED` 0 处），两项偏差一并纠正。**同步后判等**：逐字节 == main blob **58/58**、`git hash-object --no-filters` == blob sha **58/58**、含 CR 文件 **0** → 达 §7.3 最高一致等级（字节完全一致，双侧均 LF）；部署态聚合 md5 `8f398114…`（路径+字节序，排序为相对路径），关键文件 `scripts/sop_worktree_cleanup.sh` 16992 B / md5 `41be5aeb…` / `SQUASH_MERGED` 6 处。**部署副本物理上为一份**：`C:\Users\Administrator\.workbuddy` 系指向 `C:\Users\15794\.workbuddy` 的 NTFS Junction（实测同 inode 3377699720789505），无需单独同步。**部署态专有物** `config/github-sop.config.sh`（本机运行配置，技能内 `.gitignore` 已登记）保留未动。**部署态实跑冒烟**：`--help` 退出码 0、传入不存在分支时退出码 1 并正确报「无法定位分支 Tip」。**§9.5 收尾打扫**：部署态 `smoke/tmp`（12163 文件）与 `regression/tmp`（5036 文件）两处「测试运行期产物」（技能内 `.gitignore` 明列为「冒烟/回归测试运行期产物」）已清除（仓库侧同名目录一并清空），部署态现仅余 58 受跟踪文件 + 1 本机配置；**遗留缺口**：仓库侧 `scripts/smoke/test_manifest.py` 的 `CLEANUP_DIRS` 尚未收录 `github-personal-manager/regression/tmp`（仅收了 `smoke/tmp`），该目录须手动清理。本条同时补齐 §7.2 映射表——github-personal-manager 此前已部署但未在映射表登记（§7.2 要求「落地部署前须先补登记」），本轮补登记实测值与部署方式。
-- **dir/github-personal-manager：修复树判据的 SIGPIPE 假阴性——squash 清理随机误报「疑似误删未合并提交」（PR #181，功能提交 `935515a`）**：PR #179 引入的树判据写作 `git log --format=%T HEAD | grep -qx "$TIP_TREE"`，`grep -q` 命中即退出 → 管道被关闭 → `git log` 收到 **SIGPIPE（退出码 141）** → 脚本 `set -uo pipefail` 传播该非零 → 判定被误判为「树不在主线历史」。两条后果：① 代理2（无 gh/网络兜底）**永远命中不了，等于废码**；② 删后校验**随机误报**并 `exit 1`。**实测**：Windows Git Bash 匿名管道缓冲 **4096 B**、本仓库 main 461 提交 / `git log --format=%T HEAD` 输出 **18901 B** → 旧判据 10 次有 **2 次返回 141**（= 20% 随机误报），新判据 **10/10 返回 0**（确定性）。**真实事故**：PR #180 合并后回收其 meta 分支即命中假告警；经逐字节核验主线 squash 提交树与分支尖端树完全一致（`65a5b9f0…`），内容零丢失，属误报非数据事故。**修复**：抽出 `tree_in_main_history()` 辅助函数，改用 `grep -Fx`（**无 `-q`：读尽输入不提前退出**）+ stdout 重定向 → `git log` 必然写完、无 SIGPIPE，判定恒为真值。**回归**：新增 2 条用例（`smoke/tests/test_worktree.sh`，该文件用例总数 15 → **17**）——`W5-cleanup: squash 合并可回收(代理2+删后校验)`（以 `cherry-pick --no-commit` + 另起提交模拟 squash 同构：主线树 == 分支尖端树、分支尖端非主线祖先；补 150 个同树空提交使 log 输出超过 4096 B 管道缓冲；断言代理2 命中、删后校验通过、无误报、工作树与分支均被回收）与 `W5-cleanup: 树判据无 SIGPIPE 短管道(确定性门禁)`（剥除整行注释后不得出现 grep 快速退出类写法，且 `tree_in_main_history` 须在位）。**平台差异**：SIGPIPE 误报依赖「管道缓冲 < log 输出量」——Windows Git Bash 缓冲 4096 B 必然触发、**Linux CI 缓冲 64 KB 不复现**，故行为用例负责功能覆盖与症状留痕，**跨平台拦截由确定性门禁承担**。**反向测试**（依 §D-2026-1023-02 反向测试纪律）：把脚本还原为已发布的 PR #179 版本后确定性门禁**必然 FAIL（100% 拦截）**，随后**逐字节**还原修复版（md5 一致、`cmp` 零差异）并复跑通过；本地冒烟 **PASS=109 / SKIP=2 / FAIL=0**，CI `scope-map` / `smoke` / `smoke-scoped (dir/github-personal-manager)` 三项全 pass。**部署态同步（第二轮）**：部署副本已由 main blob 逐字节重建，判等逐字节 == blob **58/58**、`hash-object --no-filters` == blob sha **58/58**、含 CR **0**（`scripts/sop_worktree_cleanup.sh` **17814 B** / md5 `2f8c5ee4…`；部署态聚合 md5 `51c6ca71…`、总字节 561859 B）；并以**部署态**脚本实跑回收本 PR 的 squash 合并分支 → 探测通过、工作树/本地/远端三重复收、删后校验「TIP 树仍存在于主线历史」**无假告警**（真实场景验证修复生效）。安全闸门无任何削弱：未合并内容校验、开放 PR 告警、受保护分支/强推/推 upstream 红线、远端删除独立 `--confirm` 全部保留。
+- **dir/chrome-devtools：修复「连不上 9223（ECONNREFUSED）」与「全新 --user-data-dir 丢登录态」两坐实问题（PR #176，`bb14d36`/`e50d7bb`）**：① 端口硬编码→自动探测（扫 9222~9240，跳过 WorkBuddy/Electron 自身 UA，兼容 Chrome/360Chromex/Edge/Brave）；② 新增 `prepareTempProfile` 把真实 User Data 全量拷贝到临时副本启动（继承登录态、隔离不污染真实 profile、避单实例锁；遇独占锁文件跳过继续，改手动递归拷贝替代 `fs.cpSync` 防 EBUSY）。登录态边界诚实标注（运行中浏览器独占 Cookies → 临时 profile 仅部分继承，推荐复用已开放端口）。CI smoke/scope-map/smoke-scoped 全 pass；单测 14→25；本地门禁 12 OK/0 FATAL/0 WARN。
+- **dir/github-personal-manager：修复 `sop_worktree_cleanup.sh` squash 合并陷阱——squash 合并且内容已在主线时原仅依赖祖先判据恒假、误拒回收（PR #179，`63a15a1`）**：新增 squash 双代理（① `gh pr list --head <b> --state merged` 存在已合并 PR；② `git log --format=%T HEAD | grep -qx` tip 树在主线历史），任一命中即走 `git branch -D`；删后校验改判「TIP 树仍在主线历史」；安全闸门全保留。squash 真实场景实跑坐实（PR #178/#179 回收分支，零提交丢失）。
+  - **【后续更正·必读】** PR #179「proxy2 兜底路径已验证可用」在脚本自身 `set -uo pipefail` 下不成立：`git log | grep -qx` 触发 SIGPIPE 假阴性、代理2 实为废码；PR #180 回收即命中假告警，逐字节核验内容零丢失（属误报非事故）。修复见下条（PR #181）。
+- **dir/github-personal-manager：修复树判据 SIGPIPE 假阴性（PR #181，`935515a`）**：`git log | grep -qx` 命中即退 → git log 收 SIGPIPE(141) → 删后校验随机误报 exit 1；抽出 `tree_in_main_history()` 改用 `grep -Fx`+stdout 重定向（读尽输入无 SIGPIPE）。实测 Windows Git Bash 管道缓冲 4096B（Linux CI 64KB 不复现）→ 旧判据 10 次 2 次误报、新判据 10/10 确定；新增 2 回归用例（共 17）；本地冒烟 PASS=109/SKIP=2/FAIL=0，CI 三项全 pass；部署态重建 58/58 一致、实跑回收本 PR squash 分支无假告警。
 
 ### Changed
-- **meta（AGENTS.md §4.2 / CHANGELOG.md）：登记本轮分支与工作树清理并澄清合并后清理授权模型**：本轮在「全链路授权」下清理 4 个本地 + 6 个远端冗余分支（对应已合并 PR #170–#177，其中 #176/#177 为 squash 合并），清理后工作树仅余主工作树、远端仅余 `origin/main`，main HEAD 完整保留 `c1c4eec`，提交零丢失（详见 PR #176/#177 的成对 meta 登记）。同步在 AGENTS.md §4.2 增补「全链路授权例外条款」：单条指令显式授予覆盖本地与远端清理的全链路授权时，本地+远端清理可经一次 `--confirm` 完成，无需分别授权；未合并内容校验（含 squash 合并探测）与开放 PR 告警仍强制保留，删除受保护分支 / 强推 / 推 upstream 等绝对红线不受此例外影响。该条款消除此前「squash 合并下清理须手工 `git branch -D` + `git push --delete`」的摩擦，同时不削弱默认安全闸门（见 PR #178 对应技能侧修复）。
-- **meta（AGENTS.md §7.3 / §7.2 / 根 `.gitattributes` / `scripts/smoke/test_manifest.py`）：副本判等口径由「去 CR 后一致」升级为「字节严格一致」，并全量重建部署态副本的 LF 行尾**：① **§7.3 改判据**——旧口径「去掉行尾回车后两侧 md5 相同 + `diff` 0 行」并明定「CRLF/LF 差异一律不计为实质差异」，**已废止**；新口径为**逐字节 == main blob**（`git show <ref>:<path>` 取字节 + `git hash-object --no-filters` == blob sha）且**两侧 CR = 0**。配套三项行尾纪律：入库即 LF（根 `.gitattributes` 新增 `* text=auto eol=lf`，跨平台检出亦保持 LF；`ref-material-writing/.gitattributes` 为先行示范）、部署即 blob（不经工作树）、判据唯一可信形式（Python 逐字节 `count`——`grep -c $'\r'` 在 Git Bash 下虚高/虚低失守）。**废止理由（2026-11-04 全量实测）**：20 个已部署 Skill 共 **90 个文件为 CRLF 形态**（内容与 blob 完全一致，仅每行多一个 CR 字节——如 `task-methodology-consolidation/SKILL.md` 部署态 26255 B vs blob 25989 B，差 266 B 恰等于 266 行），危害为 bash 脚本 shebang 带 `\r`、跨平台工具链行为漂移、字节级哈希校验与可复现构建失效。② **§7.2 映射表刷新**——补登记此前已部署但**从未登记**的 11 个 Skill（`code-review-combo` / `codebase-memory` / `deep-discuss` / `file-structure-organizer` / `open-medical-skills` 及其分发至用户级 skills 目录的 4 个临床子 Skill / `ref-material-writing` / `web-search`）；把 4 行旧判定「**实质一致**（仅 CRLF/LF 差异）」按新口径更正（重建前不成立、重建后消解）；表内「聚合 md5」统一口径（按部署态相对路径升序，序贯喂入 `相对路径 + \0 + 文件字节`）；更正 `memory-consolidate` 行「部署副本共两份」的记账口径——实测 `C:\Users\Administrator\.workbuddy` 系指向 `C:\Users\15794\.workbuddy` 的 NTFS Junction（同 inode），**部署副本物理上为一份、只需同步一份**。③ **根 `.gitattributes` 新增**（`* text=auto eol=lf`）——此前长期无 `.gitattributes` + `core.autocrlf=true` ⇒ Windows 检出为 CRLF，「拷工作树到部署态」必然带入 CRLF；本文件使开发态工作树本身即 LF。④ **`scripts/smoke/test_manifest.py` 的 `CLEANUP_DIRS` 补收录 `github-personal-manager/regression/tmp`**——该目录与 `smoke/tmp` 同为技能内 `.gitignore` 明列的「测试运行期产物」，此前仅收 `smoke/tmp` 致回归夹具残留须手工清理（实测部署态残留 5036 文件、仓库侧残留 59 个 `triple_*` 夹具目录）。⑤ 修正 `github-personal-manager` 行的 markdown 表格管道未转义缺陷（单元格内 `git log | grep -qx` 的管道会切断表格列，已改为 `git log \| grep -qx`）。⑥ **`.githooks/pre-commit` 的两处 meta 白名单补 `.gitattributes`**（主工作树纪律清单 + §2.3 meta scope 清单）——此前 `.gitattributes` 与 `.gitignore` 同为仓库级配置却未在放行之列，导致新增该文件被 hook 判「主工作树禁止直接修改非 meta 文件」而阻断；AGENTS.md §2.3 / §3.2 两处清单同步补登记（§2.3 属机器可重写段但 `sync-scope-manifest.py` 明定 2.3/2.4 不扫描不重写，故手改安全）。⑦ **更正 §3.2 关于密钥文件的表述与实现矛盾**——原文称密钥与敏感文件「**一律拒绝，不在放行之列**」，但 hook 的主工作树白名单自 PR #45 引入起即含 `ref-material-writing/.env`、`web-search/.env`、`code-review-combo/config/providers.json` 三项（供 §3.3 显式授权范围内的私有仓库提交所需，MEMORY 决策 D-2026-0811-01）；现表述改为「原则上不放行 + 三项受控例外 + 推入远端另受 §3.3 约束」，使文档与实现一致（**未改动任何密钥文件的实际处置口径**）。
+- **meta（AGENTS.md §4.2 / CHANGELOG.md）：清理 4 本地 + 6 远端冗余分支（对应已合并 PR #170–#177，#176/#177 为 squash 合并），提交零丢失**；§4.2 增补「全链路授权例外条款」——单条指令显式授予本地+远端清理全链路授权时经一次 `--confirm` 完成，未合并内容校验/开放 PR 告警/受保护分支红线不受影响。
+- **meta（AGENTS.md §7.3 / §7.2 / 根 `.gitattributes` / `test_manifest.py`，早前条目，已于本文件最新条目反转）**：副本判等口径由「去 CR 后一致」升级为「字节严格一致」并全量重建部署态 LF；① §7.3 改判据为逐字节==main blob 且两侧 CR=0（旧 CRLF 豁免口径废止）；② §7.2 补登记此前未登记的 11 个 Skill、聚合 md5 统一口径、更正「部署副本共两份」为「NTFS Junction 物理一份」；③ 根 `.gitattributes` 新增 `* text=auto eol=lf`；④ `test_manifest.py` 的 `CLEANUP_DIRS` 补收录 `github-personal-manager/regression/tmp`；⑤ 修正 markdown 表格管道转义；⑥ `.githooks/pre-commit` 两处 meta 白名单补 `.gitattributes`。（**本轮末已反转回 CRLF 豁免 + 强制 LF，见下方最新条目**）
+- **meta（AGENTS.md §7.3 反转 + §7.2 精简 + 纪律瘦身，本轮）**：副本判等口径**由「字节严格一致」回退为「单纯 CRLF 差异一律豁免」**（去 CR 后一致即视为一致），并新增强制 LF 两项：① 仓库内文件一律 LF（根 `.gitattributes` `* text=auto eol=lf`）；② 部署文件一律 LF（以本仓库文件为基部署到仓库外时，一律由 main git blob 逐字节重建、不经工作树；重建后须 `逐字节==blob(去CR)` + `hash-object --no-filters==blob sha` + `CR=0` 三项全过）。§7.2 映射表保留紧凑实测、删除叙述；`grep -c $'\r'` 失守、唯一可信判据改为 Python 逐字节 `count`。AGENTS.md 同步瘦身（删冗余、与功能/角色无关信息不内联复述）。
+- **meta（scripts/smoke/test_manifest.py / AGENTS.md §7.2）**：`CLEANUP_DIRS` 已收录 `github-personal-manager/regression/tmp`（PR #183），与 §7.2 记载一致；§7.2 该条目陈旧「须手动清理」注记已更正为「已收录、无需手动清理」。
+- **meta（CHANGELOG.md / README.md 瘦身，本轮）**：CHANGELOG 全量统一压缩（保留「改了什么 / PR 号 / 关键验证结论」，删重复实测证据与步骤流水）；README 删除与 AGENTS.md §2 重复元信息、压缩与 SKILL.md 重复备注、修正过时路径（`D:\Documents\AI_Work_Temp`→`D:\Documents\AI_MCP-Skill-CLI`）。
 
 ---
 
 ## [2026-11-02]
 
 ### Added
-- **dir/Workbuddy专属：新增 wechat-article-search 开发态副本（主副本）**（PR #156，功能提交 `2c7b08c`，合并提交 `5a0fc08`）：将「微信公众号文章搜索」技能纳入本仓库作为开发态（主副本），部署态副本位于用户级 skills 目录 `wechat-article-search/`。自此该技能的改动须先在本仓库归因分析并走 worktree + PR 闭环，部署副本由开发态同步生成，禁止直接修改部署副本（§7.1 副本纪律）。
-  - **纳入范围**：`SKILL.md`（技能主文件：角色与目标、能力边界、输入参数表、工作流、chrome-devtools 不可用时的回退方案、输出格式、3 个示例、边界与限制）、`README.md`（非执行必需信息：反爬三维模型、解耦选型理由「弃用 browser-skill」、方案演进与修改历史）、`scripts/search_wechat.js`（检索主脚本 + antispider 护栏 + `-c` Cookie 接口）、`scripts/get_sogou_cookie.js`（零依赖 CDP Cookie 提取一键脚本），以及可复用测试套件 `tests/run_tests.js`、`tests/cross_engine/`、`tests/fixtures/`（搜狗响应样本 3 例）。
-  - **刻意排除**：`tests/audit/`（市场安装时的审计过程产物，含 45KB `ocrA.json`，属 §8.3④ 过程文件 / §8.3⑤ 测试衍生文件）、`_skillhub_meta.json`（市场安装元数据，属部署态产物而非源码）。字节差账目：部署态 131414 B − 开发态 72468 B = 58946 B，恰等于 `tests/audit/` 58471 B + `_skillhub_meta.json` 475 B，无其它遗漏。
-  - **判等核验**（§7.3 口径）：`diff -r` 输出 0 行；去 CR 后 10 文件聚合 md5 双方同为 `09ca046d…`；`od -c` 确认 blob 首行纯 `\n` 无 `\r`——开发态 blob 与部署态**字节完全一致（双侧均 LF）**，属 §7.3 最高一致等级。
-  - **验证**：技能自带测试 `node tests/run_tests.js` → PASS=31 / FAIL=0（覆盖内容完整性、全场景矩阵、全边界矩阵、Cookie 注入集成路径、`getRealUrl` 多分支）；本地门禁 `--tier 0,1 --staged` 32 OK / 0 FATAL / 0 WARN、`--tier 2,5 --staged` 37 OK / 0 FATAL / 0 WARN；tier5 确认新嵌套目录未触发「目录存在但未登记」，符合 §7.5 `MANUAL_KEEP_DIRS` 豁免；pre-commit scope 校验「暂存文件全部属于 dir/Workbuddy专属」；tier0 密钥门禁扫描 10 文件未发现高危密钥（仓库为公开仓库，§3.3）。
-  - **CI 形态说明**：`Workbuddy专属` 无 SKILL.md（§2.1 合集目录），scope-map 判定落入「无法判定 scope → 保守全量」分支，故 CI 实跑 `run_all.py --tier 0,1,2,3,5,6` 全量门禁 → 77 OK / 0 FATAL / 3 WARN（3 条 WARN 均源于 runner 环境：`uv` 不在 PATH、`pytest` 未装、某沙箱无 git，与本变更无关）；`smoke-scoped` 按设计跳过。
-- **meta（AGENTS.md §7.2）：登记 wechat-article-search 副本映射**：新增「开发态 `Workbuddy专属/wechat-article-search/` → 部署态 `wechat-article-search/`」一行（合集目录内子 Skill（目录型）→ 目录），实测值 72468 B × 72468 B / 1751 行 / 去 CR 后聚合 md5 同 `09ca046d…`，判定「实质一致（字节完全一致）」，并留痕部署副本物理为一份（Administrator 路径为 Junction）。本条为 PR #156 的成对 docs(meta) 提交，依 §5.5「目录型 commit 与 docs(meta) commit 的成对模式」独立于功能 PR 走 meta 标准分支 + PR 闭环。
-
-- **dir/Workbuddy专属：新增 wechat-article-to-ima 开发态副本（主副本）并实施方案乙（v1.2.0）（PR #162，功能提交 `c06e532`，合并提交 `e73192e`）**：将「微信公众号文章抓取入 ima 库」技能纳入本仓库作为开发态（主副本），部署态副本位于用户级 skills 目录 `wechat-article-to-ima/`；自此该技能的改动须先在本仓库归因分析并走 worktree + PR 闭环，部署副本由开发态同步生成，禁止直接修改部署副本（§7.1 副本纪律）。
-  - **方案乙七项（v1.1.0 → v1.2.0）**：① 检索执行规则改为**优先 `-c` 接口**（经 `[search_script_dir]/get_sogou_cookie.js` 取 `weixin.sogou.com` Cookie 以 `-c` 传入 `search_wechat.js`），免 Cookie 为预期降级回退；② 新增**退出码 / `ANTI_SPIDER` 判据表**，按 wechat-article-search 契约分流（退出 0 解析 / 1+ANTI_SPIDER 反爬退避 / 1+无 ANTI_SPIDER 网络故障重试 / 2 参数非法中止），禁止一律当限流；③ **零结果细化**（反爬 / 网络故障 / 服务端零收录），服务端零收录不累加 attempts；④ 工作流第 4 步捕获检索脚本退出码并按判据表分流，`url_resolved=false` 的中转链接**不再静默丢弃**而纳入抓取降级链、最终以完整性闸门判定；⑤ 限流与断点续跑增加 **attempts 上限封顶**（防止无界累加，修复「attempts 超 max_attempts」缺陷）；⑥ 前置依赖检查补充 `search_wechat.js` / `get_sogou_cookie.js` 存在性校验；⑦ 修正 §7.2 双态映射（见本日 `### Changed` 条目）。搜狗微信锁 IP / IP 限速非技能可解，已排除为干扰因素；两技能相互独立，仅经 CLI `-c` 契约耦合。
-  - **验证**：本地门禁 `run_all.py --tier 0,1 --staged` 32 OK / 0 FATAL / 0 WARN（新嵌套目录属 `Workbuddy专属` 之 `MANUAL_KEEP_DIRS` 豁免，tier5 未触发「目录存在但未登记」）；pre-commit scope 校验「暂存文件全部属于 dir/Workbuddy专属」；tier0 密钥门禁扫描未发现高危密钥（仓库为公开仓库，§3.3）。
-- **dir/Workbuddy专属：新增 ima-skills 上游更新后全量修复重放指南（PR #170，功能提交 `c92c2e3`，合并提交 `9e7cf95`；本条为其成对 docs(meta) 登记，依 §5.5）**：本机部署态 `C:\Users\15794\.workbuddy\skills\ima-skills` 完成全量测试与凭证鉴权修复后（71+ 用例实测：离线回归 16/16 全绿、真实 API 成功路径 code=0），经核实其上游分发源为 SkillHub 企业源 `@tencent-adm/ima-skills`（腾讯 IMA 团队市场分发，**无公开 GitHub 仓库，外部 PR 路径不可行**），市场更新会覆盖本地修复。新增自包含指南《恢复指南-ima-skills上游更新重放修复.md》（317 行，纯文档）：§0 上游核实结论与本地版本覆盖检测方法；§1 凭证鉴权恢复先决流程（零明文，从 `~/.config/ima/` 凭证文件派生环境变量的 PowerShell 模板）；§2 九项代码修复重放清单（每项含精确锚点、改动内容、验证方式）；§3 十项文档修复对照表与四项「不修复」裁决（含误报撤销证据）；§4 验证闭环（附录 A 内嵌完整 16 条离线回归测试脚本，mkdtemp 夹具自清理，可独立执行）；§5 来源溯源。设计目标：上游更新覆盖本地修复后，**任一 Agent 阅读此文件即可自主闭环恢复全部修复项与凭证鉴权**。验证：pre-commit 门禁 Tier0/Tier1/scope 三关 PASS；隐私闸门 `sop_privacy_gate.sh` PASS（凭证明文零入库，§3.3）；CI `smoke`（required）/ `scope-map` 均 pass；§9.8 测试覆盖分析已在 PR 描述留痕（纯文档不适用三类测试，验证闭环由内嵌回归集承接，理由与判定过程见 PR #170 正文）。
+- **dir/Workbuddy专属：新增 wechat-article-search 开发态副本（PR #156，`2c7b08c`/`5a0fc08`）**：纳入「微信公众号文章搜索」技能为主副本，部署态 `wechat-article-search/`；刻意排除 `tests/audit/`、`_skillhub_meta.json`（字节差恰等于二者）。判等（§7.3 旧口径）字节完全一致；CI 全量门禁 77 OK/0 FATAL/3 WARN（环境项）。
+- **dir/Workbuddy专属：新增 wechat-article-to-ima 开发态副本并实施方案乙 v1.2.0（PR #162，`c06e532`/`e73192e`）**：七项（优先 `-c` Cookie 接口 / 退出码判据表 / 零结果细化 / url_resolved 降级链 / attempts 上限 / 前置依赖校验 / 双态映射修正）；CI smoke/scope-map pass。
+- **dir/Workbuddy专属：新增 ima-skills 上游更新重放修复指南（PR #170，`c92c2e3`/`9e7cf95`）**：上游分发源为 SkillHub 企业源 `@tencent-adm/ima-skills`（无公开 GitHub，外部 PR 不可行）；新增《恢复指南-ima-skills上游更新重放修复.md》（317 行，九项代码 + 十项文档修复重放清单）；隐私闸门 PASS、凭证零入库。
 
 ### Fixed
-- **dir/Workbuddy专属：wechat-article-search 首轮静态审计与缺陷修复（PR #158/#159/#160，合并提交 `e2a1efc`/`69f4dd2`/`8809220`）**：以 `code-review-combo` 三路交叉审计（OCR 原生 + delegate 宿主主审 + review-spd 五焦点）合并去重得 40 条发现，经 Stage3.5 确定性复现逐条坐实 **8 条缺陷成立、2 条判为误报**（误报：「getRealUrl 设置 Cookie 头」系对正确行为的描述；「硬编码 2024-01-15 会随时间失效」实测断言长期稳定）。修复项：① `isAntiSpider` 增加搜狗「合法空结果页」标记豁免——短小空页（实测 620 字符）原被误判为反爬并抛 `ANTI_SPIDER`，违反「合法空结果返回空列表」契约；② `datetime` 统一为北京时间（UTC+8）墙钟口径，相对时间分支不再用 `toISOString()`（UTC），新增 `parseChinaDateTime` 使时间窗过滤与运行机本地时区解耦；③ `parseRelativeTime` 支持「刚刚」（此前落空 → 该文章被 `-d` 计为 undated 丢弃）；④ `parseCliArgs` 改严格校验（`-n 0`／非数字／未知选项／多余位置参数一律报错退出码 2，不再静默回落默认值）；⑤ `url+=` 片段改单次遍历保持文档顺序（混合单双引号时原实现拼出错误 URL）；⑥ `connectWs` 增加非 101 响应与握手超时处理——原实现 Promise 永不落定、进程静默 exit 0 输出空 Cookie，用户误以为成功；⑦ WebSocket 127 分支帧长编码纠正为 RFC 6455 8 字节大端布局；⑧ `get_sogou_cookie.js` 改单一出口使 `finally` 的 `ws.close()` 必执行、提示不再硬编码 `360chromex.exe`；⑨ 删除死代码 `getSogouCookie()`/`extractCookies()`（无调用点，其自身注释已标明该路径会触发反爬）；⑩ Python 参考解析器补 HTML 实体解码与 `is_anti_spider`，跨引擎纳入 antispider 样本并新增判定层交叉校验；⑪ 新增 `scripts/deploy.js`（从 git blob 同步部署态）；⑫ 网络失败不再伪装成「无结果」空列表（首页失败且一篇未取到时显式抛错，退出码 1）。
-  - **三轮迭代均由部署态复测驱动**：#158 合并后的部署态复测抓出 #158 自身引入的新缺陷（`try` 内 `return` 跳过末尾 `process.exit`，错误路径退出码仍为 0）→ 由 #159 修正；#159 合并后的 E2E 复测抓出既有缺陷（首页 `ECONNRESET` 被伪装成 `total:0` 空列表）→ 由 #160 修正。**若仅在开发态跑单测，这两处均不会暴露**——双态闭环的价值所在。
-  - **新增回归用例**：共 17 条（Round1 R1~R7、G1~G5 及既有矩阵扩充），修复前 9 条失败、修复后全绿；`node tests/run_tests.js` PASS=47/FAIL=0、跨引擎 PASS=22/FAIL=0；本地门禁 `run_all.py --tier 0,1,2,3,5,6` 78 OK / 0 FATAL / 2 WARN（2 条为环境项：`uv` 不在 PATH、`pytest` 未装）；CI `smoke` / `scope-map` 均 pass（CI 实跑全量 tier，因 `Workbuddy专属` 无 SKILL.md 落入「无法判定 scope → 保守全量」）。
-  - **部署闭环**：每次合并后由 `scripts/deploy.js` 从 main 的 git blob 同步至部署态（写后逐文件字节校验 11/11 一致），再基于新部署态文件复测覆盖矩阵、跨引擎与端到端真实运行态。
-- **dir/deep-discuss：修正增强模块相对路径 CWD 漂移误判（PR #154，功能提交 `783b1ea`，合并提交 `840fa55`）**：部署态运行时以相对路径 `references/enhancements/*.md` 搜索增强模块，因执行时工作目录是对话工作区而非技能目录，Glob 解析到错误位置、报「未找到文件」并错误降级 Phase 2/3/5 的 consult/5Why/Premortem 增强；而 `references/enhancements/` 目录真实存在 4 个 md 增强模块（`jasminK11-5why` / `kimasplund-premortem` / `sequential-thinking-adapter` / `silvereWolf-consult`），属误判非真缺失。
-  - **根因（四证据坐实）**：技能内部资源以「技能根相对路径」记载，模型执行时 CWD 漂移，相对 Glob 0 命中、绝对路径 4 命中；① 报错文本非 selfcheck 输出（selfcheck 在技能目录内运行全部通过）；② `version-lock.md` 验证脚本原假设 `CWD=技能根`（`for f in references/enhancements/*.md`），同属 CWD 漂移隐患。
-  - **修复**：新增 `scripts/discover_resources.py`——以 `Path(__file__).resolve().parent.parent` 锚定技能根，输出全部增强模块（`ENHANCEMENT_LABELS`）与模板（`TEMPLATE_LABELS`）的绝对路径清单，与 CWD 无关；SKILL.md「模块化架构说明」新增「资源路径锚定（防 CWD 漂移，必读）」条目，并令「加载时启动自检」强制第 0 步（定位技能根与资源清单、运行发现器），第 1 项改为按绝对路径核对并严禁相对路径 Glob；`version-lock.md` 验证脚本去除 `CWD=技能根` 假设（改用 `$SKILL_ROOT` 绝对路径 + `git -C`）；README.md 故障排查改为「运行发现器取绝对路径」。
-  - **部署态同步**：从 main 的 git blob 逐字节同步至 `C:\Users\15794\.workbuddy\skills\deep-discuss\`（4 个变更文件 `git hash-object` 与开发态逐一相等，字节一致）；`C:\Users\Administrator\.workbuddy` 系 `C:\Users\15794\.workbuddy` 的 NTFS Junction，同一物理文件透传，无需单独同步。从错误工作目录调用发现器仍正确解析，selfcheck 通过。
+- **dir/Workbuddy专属：wechat-article-search 首轮静态审计与缺陷修复（PR #158/#159/#160，`e2a1efc`/`69f4dd2`/`8809220`）**：code-review-combo 三路交叉审计得 40 发现，坐实 8 缺陷 + 2 误报；三轮迭代均由部署态复测驱动（#158→#159→#160 逐轮抓出新缺陷）。修复含 `isAntiSpider` 合法空结果豁免、北京时间口径、`parseRelativeTime` 支持「刚刚」、严格参数校验、WebSocket 帧长 RFC 6455 修正、`get_sogou_cookie.js` 单一出口、删死代码、新增 `scripts/deploy.js` 等。新增 17 回归用例，`node tests/run_tests.js` PASS=47；CI 全量 pass。
+- **dir/deep-discuss：修正增强模块相对路径 CWD 漂移误判（PR #154，`783b1ea`/`840fa55`）**：部署态以相对路径搜 `references/enhancements/*.md` 因 CWD 漂移 0 命中、错误降级；新增 `scripts/discover_resources.py` 以 `__file__` 锚定技能根，SKILL.md/version-lock.md/README 同步；部署态逐字节同步 4 文件一致。
 
 ### Changed
-
-- **dir/Workbuddy专属：更新 ima-skills 恢复指南——沉淀加固批次 H1/H2/D11/D12 并清理临时工作区引用（PR #172，功能提交 `bdaaf6b`，合并提交 `6392c87`，本条为其成对 docs(meta) 登记）**：① §2 代码重放清单 9→11 项——H1 `cos-upload.cjs` shell 传参引号防线（包裹引号剥离自愈 + bucket/region 主机名白名单兜底，防「变量中转传参引号变字面字符 → 主机名带引号 → ENOTFOUND」实测坑）、H2 `ima_api.cjs` 凭证缺失报错列出 `os.homedir()` 实际探测路径 + Git Bash HOME 虚拟化警示；② §3 文档重放清单 10→12 项——D11 根 `SKILL.md` 凭证检查桩由 shell `~` 口径改 node `os.homedir()` 口径（本机虚拟化环境下旧桩必现误报，实测 `~`→`/HOME`）+ 写入指引双版本、D12 `knowledge-base/SKILL.md` bash 传参陷阱规则；③ §0.3/§0.4 覆盖后果与检测判据同步（三条→四条，补 H1 特征 `stripWrappingQuotes`）；④ §4.3 新增加固防线验证（假凭证零数据：A1 剥离自愈判定 / A2 参数层拦截 / H2 重定向 USERPROFILE 验证报错路径）；⑤ 删除 `ima-skills测试报告.md` 详档引用与 `ima-test/` 临时工作区全部路径引用，指南保持自包含（317→411 行）。技能本体加固已于同日在部署态实施并验证（`tests/run_regression.cjs` 16/16 + 假凭证对照五组证据），加固批次与授权表述差异（+1 代码项 vs 实际 2 个代码文件）已在 PR 描述说明。
-- **dir/Workbuddy专属：wechat-article-to-ima 双态 QA 闭环首轮缺陷修复（v1.2.0 → v1.2.1）（PR #166，功能提交 `4fcacd7`，合并提交 `69bc6c2`）**：依 `Memory-代码纪律与Git操作.md` §2-5 双态闭环，对开发态源文件做静态审计（`code-review-combo`）+ 完整性核验 + 动态矩阵 + 跨引擎 + E2E 组件验证，逐条归因（A 开发态根植 / B 部署引入 / C 误报）后修复：① **P1 收尾清扫数据丢失**——原「删除所有其他文件含 `*.md`」会无差别删除入库未成功的本地文章副本，改为保留未成功入库的 `.md`（移至 `failed_quarantine/`），仅清检索中间 JSON/日志；② **P2 `search_script_dir` 默认值为文本描述非可解析路径**，改为明确解析契约 `<技能基址>/wechat-article-search/scripts`；③ **P2 前置依赖检查未验证 ima-mcp 连接器连通性**，新增第 6 项告警（不阻断，显式提示用户确认 ima-mcp 已连接再入库）；④ P3 进度文件模板仅列 A 卡→注明由任务卡配置表动态生成 A/B/C；⑤ P3 示例一「父目录」术语误用→「目标子目录（folder_id）」；⑥ P3 增加 `[关键词]` 文件名安全化与 Cookie 凭据安全提示。基线差异（开发态工作树 CRLF / 部署态 LF）经 `cmp` 逐字节坐实为**行尾配置差异（内容完全一致）**，归 C 类误报，非缺陷。遗留环境约束：本环境 `ima-mcp` 连接器 disabled 且搜狗反爬（ANTISPIDER）导致 E2E「入库」与「抓取真实正文」暂不可执行，已通过第 ③ 项告警缓解，非源码缺陷。
-- **dir/Workbuddy专属：wechat-article-to-ima ima 凭据配置固化与 knowledge_base_id 实测更新（v1.2.1 → v1.2.2）（PR #168，功能提交 `408b491`，合并提交 `ee97e40`；成对 meta 即本条目）**：用户提供 ima client_id/api_key 后完成三层固化，实测中发现并连带修复知识库标识过时缺陷。① **凭据三层固化**（凭据明文一律不入库，遵 §3.3）：Windows 用户级环境变量 `IMA_CLIENT_ID`/`IMA_API_KEY` 持久化（注册表 User 域写入并回验）；双副本（开发态/部署态）各置 `ima_credentials.json`，由新增子目录 `.gitignore` + 仓库 `.git/info/exclude` 双重隔离确保绝不入库；`~/.config/ima/` 兜底文件与用户提供值逐字符核验一致。② **SKILL.md 前置依赖检查新增第 7 项「ima 凭据可用性探测（告警项，非阻断）」**：定义三层解析优先级（环境变量 → 技能目录内 ima_credentials.json → ~/.config/ima/）、敏感处置约束（禁止入库/回显/写进度或日志）与有效性判据（开放接口业务码 0）；缺失处置编号 7→8 顺延。③ **knowledge_base_id 实测更新**：旧值 `eGuTHK4Ve1i9wX7bE4Sj7n2B_Jb1WnOdqYlGRo91RQM=` 经 ima 开放接口实测已失效（code 220004，服务端要求 `ima_kb_` + 8 位字母数字格式），经 `get_addable_knowledge_base_list` 实测取得唯一可添加知识库并更新为 `ima_kb_QFSIbCma`；`get_knowledge_base`（code=0）与 `get_knowledge_list` 双验通过，A/B/C 三卡 folder_id 全部在列（工程总承包EPC / 城市更新 / 全域土地和生态修复），入库链路凭据与目标双重就绪。④ **环境事实坐实并写入 SKILL.md**：本沙箱 Git Bash `$HOME` 虚拟化为 `D:\Tools\Assembly\git\HOME` 而 Node `os.homedir()` 为真实用户目录，`~/.config/ima/` 兜底文件必须落在后者。验证：凭据链路 `openapi/note/v1/list_notebook` 与 `openapi/wiki/v1/get_addable_knowledge_base_list` 均 code=0；部署态由 main blob `7a0eac0`（28314 B / 304 行 / 0 CR，纯 LF）逐字节重建，双态一致（§7.3 最高一致等级）；tier0 密钥门禁确认凭据文件零入库面。
-- **dir/Workbuddy专属：E2E 真实入库测试问题下沉修复（wechat-article-to-ima v1.2.2 → v1.2.3；wechat-article-search v0.1.4 → v0.1.5）（PR #174，功能提交 `b7be914`/`e134405`，合并提交 `441e336`；成对 meta 即本条目）**：部署态 E2E 真实入库全链路打通（Cookie 突破反爬 → 检索 27 条 → 抓取 1 篇过完整性闸门 → 笔记模式入库 note_id `7522992359756340` → 独立复验命中目标子目录且 media_type=11）后，对过程暴露问题逐项归因下沉。**wechat-article-search（v0.1.5）**：① `get_sogou_cookie.js` 成功分支新增关键键（`SNUID`/`SUID`）齐全性校验——残缺时 stderr 告警并给首页补救建议、退出码 3（Cookie 串仍输出保持管道兼容），头部注释同步退出码表；② `search_wechat.js` 对 `-c` 残缺 Cookie 在 stderr 告警（不阻断，向后兼容）；③ SKILL.md 补「先访问首页完成正常浏览再进搜索页」指引（实测仅结果页直提只得访客标识 `SUV`）与退出码 3 登记。**wechat-article-to-ima（v1.2.3）**：④ 检索执行规则新增「Cookie 齐全性校验」子项；⑤ 抓取降级链一级补「中转链接先解析」口径（`weixin.sogou.com/link` 形态先经浏览器自动化跳转取最终 `location.href`，失败降级原链接尝试、以完整性闸门兜底）；⑥ 入库流程固化 2026-11-02 实测完整路径（`openapi/wiki/v1/check_repeated_names`、`openapi/note/v1/import_doc`、`openapi/wiki/v1/add_knowledge`），新增知识库有效性预检（`get_knowledge_base` 失效时经 `get_addable_knowledge_base_list` 自愈取新 ID，仅本轮生效）、第四步入库复验（`get_knowledge_list` 命中且 `media_type=11`，未命中计失败）与「`ima_api.cjs` 空响应」调用层陷阱警示（其 HTTP 封装不查状态码，404/401 表现为退出码 0+空输出，须 curl 重放定位；主文档 `openapi/list_docs` 为过时示例禁用）。**验证**：`node --check` 语法全过；残缺 Cookie 点测告警生效、键名齐全不误报；既有测试套件 PASS=47 / FAIL=0 零回归；CI smoke/scope-map pass。**部署闭环**：wechat-article-to-ima 由 main blob `a4df9da5`（31677 B / 316 行 / 0 CR）逐字节重建；wechat-article-search 经 `scripts/deploy.js --repo … --skill-path Workbuddy专属/wechat-article-search` 同步，写后校验 11/11 逐字节一致；部署态复测（告警点测 + 5 项新增内容点验）全过。遗留：`ima_api.cjs` 状态码缺陷属外部技能 ima-skills（非本仓库开发态、有自动更新机制），不在本仓库修，已以调用层防御消化。
-
-- **meta / dir/Workbuddy专属：修正 wechat-article-to-ima 副本映射并退役根级旧文件，闭环 PR #164（本提交，合并提交 `4b2b64b`）**：① §2.1/§2.2 此前已摘除根级单文件 `Skill-微信公众号文章抓取入iam库.md` 的 `file/wechat-article-to-ima` 登记（根级 Skill 文件计数 9 → 8），其开发态已整体收拢至 `Workbuddy专属/wechat-article-to-ima/` 目录型副本（PR #162，v1.2.0）；② 本提交**实际执行**根级旧文件的 `git rm` 退役——原拟由 PR #163 单独承担，但因 tier5 双向校验「已登记缺失 / 新增未登记」死锁而未能合并，故收拢进本 PR 一并闭环（PR #163 关闭不合并），消除 §7.2 原本「无部署态副本 / 双开发态」的误登记漂移；③ §7.2 已登记「开发态 `Workbuddy专属/wechat-article-to-ima/` → 部署态 `wechat-article-to-ima/`」映射行（合集目录内子 Skill（目录型）→ 目录），实测值于合并后由 main blob 同步复采（开发态单一 SKILL.md，LF 25285 B / 295 行 / md5 `bd420c35…`，部署态同步后与开发态字节完全一致，§7.3 最高一致等级）；④ 同步放宽 `.githooks/pre-commit` 主工作树放行清单（新增 `Skill-*.md`），使 meta/docs 分支可合法承载根级 Skill 文件的结构性增删，破除 tier5 双向校验与 pre-commit scope 校验的死锁（沿用 §7.4 门禁联动范式：删文件 + 摘登记同支）；全程未使用 `--no-verify` 绕过门禁。本提交另同步更新 README.md 总览表（#18 形态 单文件→目录型、版本 1.1.0→1.2.0、位置指向 `Workbuddy专属/wechat-article-to-ima/`）与 AGENTS.md §1.2 根级 Skill 文件计数（9→8），保持文档一致。
-
-- **meta（AGENTS.md §7.2）：复采 wechat-article-to-ima 双态实测值，闭环同步收尾（PR #165，合并提交待补）**：部署态 `wechat-article-to-ima/`（用户级 skills 目录）已于 2026-11-02 由 main blob（`git show main:Workbuddy专属/wechat-article-to-ima/SKILL.md`）逐字节同步（LF），与开发态字节完全一致——`git hash-object` 相等 = `ddf07e49…`、`cmp` 零差异、0 个 CR、25285 B / 295 行 / 去 CR 后 md5 `bd420c35…`，达 §7.3 最高一致等级；§7.2 该映射行「预测」措辞更新为「实测」，并消除「待任务 18 复采数值」占位（部署态此前为旧版 v1.1.0，本次已升 v1.2.0）。
-- **meta（AGENTS.md §7.2）：更新 wechat-article-search 副本映射表实测值与部署方式**：首轮审计修复后复采——11 文件 / 102928 B × 102928 B / 2216 行 / 去 CR 后聚合 md5 同 `ab8a876e…`（原 10 文件 / 72468 B / 1751 行 / `09ca046d…` 已失效），判定仍为「实质一致（字节完全一致）」；并补记**部署方式**：统一由技能内 `scripts/deploy.js` 从 main 的 git blob 同步（**不经工作树**），因本仓库 `core.autocrlf=true` 且无 `.gitattributes`，直接拷工作树会让部署态带上 CRLF 而与 blob 产生字节分歧；部署态专有物 `tests/audit/`、`_skillhub_meta.json` 既不入库也不由部署脚本删除或覆盖。本条为 PR #158/#159/#160 的成对 docs(meta) 提交，依 §5.5 独立于功能 PR 走 meta 标准分支 + PR 闭环。
-- **meta（AGENTS.md §5.5）：补目录型 PR #154 的成对 docs(meta) 提交**：依据 §5.5「目录型 commit 与 docs(meta) commit 的成对模式」，本条目为 `dir/deep-discuss` 资源路径修复（PR #154 / 功能提交 `783b1ea`）合并后补写的仓库级 CHANGELOG 同步；遵循「不得用 PR 描述代替实际 meta commit（PR 合并后描述即丢失）」纪律，独立于功能 PR 走 meta 标准分支 + PR 闭环。
+- **dir/Workbuddy专属：更新 ima-skills 恢复指南（H1/H2/D11/D12 加固批次，PR #172，`bdaaf6b`/`6392c87`）**：§2 代码重放 9→11 项、§3 文档 10→12 项、§0.3/§0.4 检测判据同步、§4.3 加固防线验证；指南 317→411 行自包含。
+- **dir/Workbuddy专属：wechat-article-to-ima 双态 QA 首轮修复（v1.2.0→v1.2.1，PR #166，`4fcacd7`/`69bc6c2`）**：收尾清扫数据丢失（改保留未成功 `.md` 至 `failed_quarantine/`）、`search_script_dir` 默认路径、ima-mcp 连通性告警、进度模板/Cookie 安全等；基线 CRLF/LF 差异归误报。
+- **dir/Workbuddy专属：wechat-article-to-ima 凭据固化与 knowledge_base_id 更新（v1.2.1→v1.2.2，PR #168，`408b491`/`ee97e40`）**：凭据三层固化（环境变量 + 双副本 `ima_credentials.json` + `~/.config/ima/` 兜底，明文零入库）；SKILL.md 第 7 项凭据探测；knowledge_base_id 实测更新 `ima_kb_QFSIbCma`；部署态由 main blob 逐字节重建一致。
+- **dir/Workbuddy专属：E2E 真实入库测试问题下沉修复（wechat-article-to-ima v1.2.2→v1.2.3；wechat-article-search v0.1.4→v0.1.5，PR #174，`b7be914`/`e134405`/`441e336`）**：打通 E2E 全链路（Cookie 突破反爬→检索 27→抓取 1→入库 note_id→复验命中子目录）；逐项归因下沉：Cookie 齐全性校验（`SNUID`/`SUID`）、`-c` 残缺告警、中转链接先解析、入库流程固化 2026-11-02 实测路径、第四步入库复验、`ima_api.cjs` 空响应陷阱警示。部署闭环一致；CI pass。
+- **meta / dir/Workbuddy专属：修正 wechat-article-to-ima 副本映射并退役根级旧文件，闭环 PR #164（`4b2b64b`）**：`git rm` 根级单文件 `Skill-微信公众号文章抓取入iam库.md`（原拟 PR #163 因 tier5 死锁未合并，收拢本 PR 一并闭环）；§7.2 补登记映射行；放宽 pre-commit 主工作树放行清单新增 `Skill-*.md` 破除死锁；同步 README/AGENTS.md 计数。
+- **meta（AGENTS.md §7.2）：复采 wechat-article-to-ima 双态实测值，闭环同步收尾（PR #165）**：部署态由 main blob 逐字节同步、0 CR、一致；§7.2 该映射行「预测」更「实测」。
+- **meta（AGENTS.md §7.2）：更新 wechat-article-search 副本映射表实测值与部署方式**：首轮审计修复后复采 11 文件/102928 B、判定实质一致；补记部署方式（统一由 `scripts/deploy.js` 从 main blob 同步，不经工作树）。
+- **meta（AGENTS.md §5.5）：补 dir/deep-discuss PR #154 的成对 docs(meta) 提交**：依 §5.5 目录型 commit 与 docs(meta) commit 成对模式，独立于功能 PR 走 meta 分支。
 
 ---
 
 ## [2026-10-26]
 
 ### Changed
-- **dir/Workbuddy专属：memory-consolidate 技能 v2.4.0 → v2.5.0「开发态→部署态」标准闭环审计与重构**（PR #148，合并提交 `15ff006`）：按「基线取证 → 静态审计 → 内容完整性 → 覆盖矩阵 → 跨引擎 → E2E → 归因 → 回归」8 步闭环流程审计部署态 v2.4.0，共识别 **32 条 canonical findings**，归因为 **A 类（开发态根植）32 条 / B 类（部署引入）0 条 / C 类（误报）0 条**——B 类为 0 是因部署态与 main blob 字节完全一致，C 类为 0 是因 32 条全部实读坐实（含手册行 898/91/271/204/1070、SOUL.md 行 27-29、`memory-mgr.py` 源码 2412-2424/2438-2444/2474-2482/2530-2536、v2.3.0 行 296-301）。正文 234 → 364 行。
-  - **结构恢复**：新增 `### 4.12 文件结构化组织规范（12 条强制要求·产出验收硬约束）`——恢复 v2.3.0 第八章被整章删除的规范（v2.4.0 丢失，C-01），并明确本机体系下第 1/2/4/5/9/10/12 条让位说明手册 §10 的对应维度；`4.3` 重构为「本机体系路径要点表 + 归属判定两用规则表（写前/读前口径不同，混用即错）+ 工具调用模板（8 条可复制命令）+ 写后维护说明手册 5 条判定 + 手册缺失处置」；`4.7` 拆为四步通用 + 两步索引表；`4.8` 恢复体系分流判定依据表、核实命令与适用性前置；`4.9` 补「越界禁令三个出口（链接/写入路径/工具调用）」与「工具安全条款 6 子项」。
-  - **条款恢复**：`2.1` 门控豁免与自动化接入契约、`4.2` 全局每日日志「不存在此形态」、`4.4` 清理三级粒度、`4.5` 可选输入源耦合、`4.6` 投毒防御、`4.11` 避坑红线十条、`5` 产出验收 4 条判据；`7` 新增第 8 条并发限制（无互斥原语，须由调用方串行化）；`6` 新增示例 4（手册缺失）。
-  - **合规修正**：`4.12` 第 9 条禁用词清单改为**指针引用**说明手册 §10 第 9 条（消除「同一规则两处定义」的双源漂移与自指命中）；`4.1`「一般性突破」改「普遍性突破」（避开手册 §10 第 9 条禁用词「一般」）；绝对路径收敛至 `4.3`/`4.5` 两个用户授权例外节内（示例 4 改相对引用）；消除全部嵌套列表（`4.9` 与 `5` 改表格化，符合 skill-forge 嵌套列表规则）；全文统一 LF 行尾、UTF-8 无 BOM。
-  - **静态审计**：`code-review-combo` 编排（路径核验 → provider 探测 → 三路并行主审 → `merge_reports` 确定性合并 → 裁决器复核）。**OCR 引擎扩展名硬边界已坐实**（`ocr review --preview` / `ocr scan --preview` 实测 `.md`/`.txt` 均 `unsupported_ext`，`.go`/`.py` 支持），故 Markdown 目标按 code-review-combo 明示的「.md 边界」路径走宿主直读审查（delegate 平等主审）+ review-spd 五焦点，不伪造 OCR findings。合并结果 32 条（both 8 / review-spd-only 24 / disputed 0），其中 7 条单源 high/critical 逐条实读核实全部成立。
-  - **验证**：部署态 skill-forge 11 维自检 **60 项 / PASS 60 / FAIL 0 / WARN 0**；覆盖矩阵 **74 项 / PASS 74 / FAIL 0**（含 3.7「部署态 == main blob」）；跨引擎交叉验证（commonmark vs markdown-it-py）**10/10 PASS**；门禁**反向测试 GATE_VERIFIED**（matrix 6/6 + skill_check 3/3 如期翻转，逐字节还原 PASS）；仓库 smoke `run_all.py --tier 0,1,2,3,5,6` **78 OK / 0 FATAL / 2 WARN**；E2E `skill_management list` 返回的 description 与部署态逐字一致（WorkBuddy 已实际加载新版本）；CI `smoke` / `scope-map` 均 pass。
-  - **部署态同步**：从 main 的 git blob 逐字节同步至**两份**部署副本（`C:\Users\15794\` 与 `C:\Users\Administrator\`），三方 md5 对列一致（blob / 15794 / Administrator 同为 `3ef2e91e…`，47533 B / 364 行 / CR=0），`cmp` 零差异；部署前已备份为 `SKILL.md.bak.20261026194632`。
-- **meta（AGENTS.md §7.2）：更新 memory-consolidate 副本映射表实测绘载值**：v2.4.0（28400 B / 234 行 / md5 `0c348c34…`）→ v2.5.0（47533 B / 364 行 / md5 `3ef2e91e…`），并补记「部署副本共两份、本轮两份同更」事实；历史更正记录全部保留留痕。
+- **dir/Workbuddy专属：memory-consolidate v2.4.0→v2.5.0「开发态→部署态」标准闭环审计与重构（PR #148，`15ff006`）**：8 步闭环审计识别 32 条 canonical findings，归因 A 类 32 / B 类 0 / C 类 0（B=0 因部署态与 blob 字节完全一致，C=0 因全实读坐实）；结构恢复 4.12 规范、条款恢复、合规修正（禁用词指针引用手册 §10.9 消除双源漂移、嵌套列表表格化、统一 LF/UTF-8 无 BOM）；正文 234→364 行。验证：skill-forge 11 维自检 60/60、矩阵 74/74、跨引擎 10/10、反向测试 GATE_VERIFIED、仓库 smoke 78 OK/0 FATAL/2 WARN、CI pass；部署态同步双副本一致。
 
 ### Fixed
-- **门禁判据自身缺陷 7 处（本次审计发现并当场修正，非技能缺陷）**：门禁只读表格条目、判据空转无人察觉，本轮在修复技能的同时发现并修正了判据侧缺陷，全部以反向测试验证「修正后判据仍具检出力」——
-  - `mc_skill_check` 标题统计**未剥离代码围栏** → 围栏内 bash 注释被误计为 H1 并造成假越级（修正：先剥离围栏再统计层级）；
-  - `mc_skill_check` 有序序号判据**遇任何非有序项即重置** → 表格行/缩进子项造成假「跳号」（修正：仅标题与段落结束列表块）；
-  - `mc_skill_check` 禁用词清单**未与权威工具对齐**（`memory-mgr.py` 的 `FORMAT_BANNED_WORDS` 为 10 词：视情况/一般/通常/酌情/尽量/尽可能/适当/必要时/原则上/建议）→ 补齐「建议」「一般」；
-  - `mc_matrix` 3.10 正则**把全局 flag `--no-interactive` 当子命令名**比对 → 假 FAIL（修正：先剥离 flag 再取子命令名）；
-  - `mc_matrix` 4.C1 以**「绝对路径总数 ≤ 3」魔数**判定，无法区分授权/未授权 → 改为按节切分，仅 4.3/4.5 授权例外节内允许出现绝对路径；
-  - `mc_matrix` 4.X1 用**全文黑名单「不含静默跳过」** → 误伤「工作空间枚举时路径不存在→静默跳过」等合法用法（修正：定位 4.3 节「手册缺失」语境，要求写明暂停+报告）；
-  - `mc_matrix` 4.X2 / 4.B2 的 **`or` 双分支**使单点失效被另一分支掩盖 → 收敛为单一必要条件链并以条目为锚点。
+- **门禁判据自身缺陷 7 处（审计中发现并当场修正）**：`mc_skill_check` 标题统计未剥离代码围栏 / 有序序号遇非有序项重置 / 禁用词清单未与 `FORMAT_BANNED_WORDS` 对齐；`mc_matrix` 3.10 把 `--no-interactive` 当子命令 / 4.C1 绝对路径「≤3」魔数 / 4.X1 全文黑名单误伤合法用法 / 4.X2·4.B2 `or` 双分支单点失效；全部以反向测试验证「修正后判据仍具检出力」。
 
 ### Changed（v2.4.0，前序条目）
-- **dir/Workbuddy专属：memory-consolidate 技能按元技能 skill-forge 的 11 维度规范全量重构（v2.3.0 → v2.4.0）**（PR #145，合并提交 `81656d5`）：以 skill-forge 标准模块结构替换原自创的「〇/一/…/十四」章节体系——角色与目标 / 触发条件与适用范围 / 工作流 / 规则与知识库 / 输出格式约束 / 示例 / 边界与限制；`description` 补齐五要素（核心功能、业务关键词、触发条件多形式、适用场景、不适用场景）；正文由 379 行压缩至 234 行，保留全部核心执行逻辑（12 步工作流、交叉引用六步专项、六连验证门禁、触发门控、记忆投毒防御、保守修剪三级粒度、信任但验证、避坑红线十条）。
-  - **要求 1（写后维护说明手册）**：命中本机 Memory-Data 体系时，新增「写后维护 `WorkBuddy记忆文件说明.md`」强制条款，并单列为工作流第 12 步——写操作涉及新增/删除/重定位子记忆文件时，同步说明手册 §2.1 路径地图、§2.2 四要素与正文速查索引；任何写操作均在 §11 版本与维护记录追加一条维护记录（时间、动作、影响文件）；说明手册纪律章节（§0~§10）除非规则确有变更否则禁止改写。
-  - **要求 2（统一简体字）**：全文繁体残留清零（說明書→说明手册、記憶體系→记忆体系、本機→本机 等）；行尾由 CRLF 统一为 LF（skill-forge 语法规范第 3 条），UTF-8 无 BOM。
-  - **要求 3（清理冗余）**：压缩原「本机 Memory-Data 体系门禁感知」分支中对说明手册内容的内联复述（越界引用、归属判定、插章路径、格式要求等），改为「读说明手册 + 维护说明手册」指针，消除同一规则两处定义；精简版本沿革表与重复表述。同步消除嵌套有序列表（拆为 2.1/2.2/2.3 子节），规避「skill-forge 规定的 2 空格缩进」与「CommonMark 嵌套需 3 空格」的渲染歧义。
-  - **验证**：skill-forge 11 维自检 **60 项 / PASS 59 / FAIL 0 / WARN 1**（唯一 WARN 为「合集目录内单文件形态，name 与父目录名天然不同」的不可检查项，部署态目录名恰为 `memory-consolidate`）；门禁**反向测试**注入 CRLF、繁体字、嵌套有序列表、HTML 标签、非法 name 五类缺陷均如期报错且文件逐字节还原一致；仓库 smoke 门禁 `tier 0,1,2,3,5 --staged` **76 OK / 0 FATAL / 2 WARN**（既有 INFO 项）；CI `smoke` / `scope-map` 均 pass。
-  - **部署态同步**：部署副本 `C:\Users\15794\.workbuddy\skills\memory-consolidate\SKILL.md` 自 main 的 git blob 逐字节同步（blob 恒为 LF，避开 `core.autocrlf=true` 把工作树转成 CRLF 的干扰），与开发态 blob **字节完全一致**（28400 B / 234 行 / md5 `0c348c34…` / CR=0）。
-- **meta（AGENTS.md §7.2）：更正 memory-consolidate 副本映射表的实测绘载值**：原「2026-10-13 采集值 51036 B × 51036 B / 原始 md5 同 `b5f62e02…` / 字节完全一致」**有误**——经历史 blob 反算，`b5f62e02…`（51036 B）实为该版本 **CRLF 形态**指纹（开发态 blob 为 LF 50657 B / md5 `3ec5f70a…`），故当时两侧实为 LF↔CRLF、字节差 379 恰等于行数（正是 §7.3 描述的形态），并非字节完全一致。实测新值并写入 28400 B × 28400 B / 234 行 / md5 `0c348c34…`，同时保留历史更正值以留痕。
+- **dir/Workbuddy专属：memory-consolidate 按 skill-forge 11 维度规范全量重构（v2.3.0→v2.4.0，PR #145，`81656d5`）**：替换自创章节体系为标准模块；description 补五要素；正文 379→234 行；要求 1 写后维护手册条款、要求 2 统一简体+LF、要求 3 清理冗余（内联复述改指针）；验证 11 维 60/59/1 WARN、反向测试全翻、CI pass；部署态逐字节同步一致。
+- **meta（AGENTS.md §7.2）：更正 memory-consolidate 副本映射实测值**：原「v2.4.0 51036 B / md5 `b5f62e02…`」有误——实为 CRLF 形态指纹，LF blob 为 50657 B / `3ec5f70a…`；实测新值 28400 B / `0c348c34…` 并保留历史更正值。
 
 ### Fixed
-- **行尾判据失效（本次自检过程中发现并当场纠正）**：本次修订中一度以 `grep -c $'\r'` 判定行尾，得出「无 CR」的错误结论，实为 Git Bash 参数被吞成空模式导致的**行尾假阳性**（与既有教训一致）。改用 Python 逐字节统计后才发现工作树副本实为 CRLF，且该状态违反 skill-forge「换行符 LF，禁 CRLF」规范。据此把开发态 blob 与部署副本统一改为 LF，并将字节级行尾检测写入门禁脚本（新增维度 0「编码与行尾」），同时为该门禁补做反向测试（注入 CRLF → 如期 FAIL → 逐字节还原一致）。
+- **行尾判据失效（自检中发现并纠正）**：一度以 `grep -c $'\r'` 判行尾得出「无 CR」假阳性（Git Bash 参数被吞），改 Python 逐字节统计发现工作树为 CRLF；据此统一 LF 并写入门禁维度 0「编码与行尾」+ 反向测试。
 
 ---
 
 ## [2026-10-23]
 
 ### Changed
-- **dir/code-review-combo：同步 `open-code-review-delegate` 至上游 `alibaba/open-code-review` v1.13.3 纯镜像**（PR #139，合并提交 `373b710`）：上游自 v1.12.11 演进至 v1.13.3（含 2026-10-20 提交 `375f64c`；本地 `ocr --version` 实测亦为 v1.13.3），按 combo README 7.5-A 整文件覆盖流程跟随。
-  - **上游实质变更**：delegate `SKILL.md` Step 3 取 diff 命令全面硬化为 `git --no-pager diff --no-ext-diff --no-textconv --no-color`（禁用外部 diff 程序 / textconv / 颜色，输出纯补丁）且路径统一加引号；新增「读上下文」指引（`git log --oneline` / `git blame` / `git show "<ref>:<path>"`）；新增大 diff 落盘机制（`--output="<absolute-diff-file>"` + 分块读全文 + 读后删除 + 失败或超时记 `skipped` + 空输出须回查 preview）。JSON Schema（8 类 `category` / 4 类 `severity`）与 `ocr delegate preview/rule --format json` 命令参数均未变化，对 combo Stage1（ocr 调用）/ Stage3（裁决）与 delegate 第三源改造**无破坏影响**。
-  - **本地增强保全**：覆盖上游正文后补回顶部 HTML 镜像声明、frontmatter `disable-model-invocation: true`、`version` 注释中的 CLI 实测值；经 `diff` 确认与上游 v1.13.3 逐字一致，仅 2 处本地增强偏离。文件换行符保持 CRLF（与 combo 内其余 `SKILL.md` 一致，避免整文件行尾抖动）。
-  - **文档版本引用同步**：README 6.6 新增 2026-10-23 同步记录；6.7 ①、6.4 取基线、6.1 CLI 实测版本、7.1 目录树、7.x 解耦说明、7.5-A 样例，以及 `SKILL.md` 一句话地图、`local/setup.md` 头注释同步更新为 v1.13.3；6.6 历史行与经验性结论（v1.9.5 背景注入等）保留原样不改写。
-  - **未跟随项复核**：review-spd 真上游 `zhu1090093659/spec_driven_develop` 仍冻结 `d5d3477`、combo 副本（fork `zhangweildlh/spec_driven_develop` @ `35cc1e8`）仍领先上游；S.U.P.E.R / 裁决契约 / 守卫三项融合范式 blob SHA（`3eb0550` / `37e2c6c` / `ca48847`）复核一致，均无需变更。
-  - **回归与部署**：`tests/guard.sh` PASS、`tests/test_merge_reports.sh`（两报告向后兼容 + 三报告 delegate 第三源）PASS、`tests/verify_combo.sh` guard PASS；部署态两份副本经 `cp -f` 同步后 md5 三方（开发态 / 部署态）一致，部署态实跑回归全绿。
+- **dir/code-review-combo：同步 `open-code-review-delegate` 至上游 `alibaba/open-code-review` v1.13.3 纯镜像（PR #139，`373b710`）**：上游 Step 3 取 diff 硬化为 `git --no-pager diff --no-ext-diff --no-textconv --no-color`、新增读上下文指引、大 diff 落盘机制；JSON Schema/命令参数未变；本地增强（HTML 镜像声明 / `disable-model-invocation: true` / version 注释 CLI 实测值）保全，与上游逐字一致仅 2 处偏离；换行符保持 CRLF 与 combo 内一致；回归 `guard.sh`/`test_merge_reports.sh`/`verify_combo.sh` 全 pass、部署态双副本 md5 一致。
 
 ### Fixed
-- **meta（AGENTS.md + scripts/smoke）：修 scope 清单计数漂移与 tier6 版本锁假阳性，并补两处门禁缺口**（巡检发现，PR 待建）：
-  - **AGENTS.md §2.2 计数漂移（真实缺陷，静默存活至今）**——标题写「根级 Skill 文件（8 个）」而表格实为 **9 行**，与同文件 §1.2 的「9」自相矛盾。根因：提交 `1642e93`（背靠背审计整改）把标题由「9 个」**误改**为「8 个」，此后表格未变故一直无人察觉。修法：按 §2.5/§6.2 用 `scripts/sync-scope-manifest.py --update` **机器重写** §2.1/§2.2（标题纠正为 9、表格行按文件名规范化排序），**不手改机器可重写数据段**。
-  - **tier6 版本锁假阳性（检查器与技能自身契约冲突）**——`deep-discuss/references/enhancements/sequential-thinking-adapter.md` 被报「首行缺少版本标记」WARN，但 `version-lock.md`「运行时探测依赖（非版本锁定）」段与 SKILL.md「版本锁定与模块依赖」节均**显式声明**该适配层是运行时按能力特征动态探测接入的自有适配层、非 git 上游模块、**无固定 commit 可锁**。修法：tier6 以 `version-lock.md` 的**显式声明为唯一依据**豁免首行标记要求（INFO 而非 WARN）；**不给该文件硬塞伪版本锁**（那会与 version-lock.md 声明冲突并违反单一事实源）。豁免仅对「声明在非版本锁定段内、且以 `references/enhancements/` 路径登记」的模块生效，不在段内声明的模块仍按原规则校验，豁免不被泛化。
-  - **两处门禁缺口（缺陷得以长期存活的成因）**——① tier5 只比对第 2 章**表格条目**与实际结构，**从不读取标题里的数字**，故「标题计数与表格脱节」这一类漂移无任何门禁可检出；② `scripts/sync-scope-manifest.py --check` 本身具备该检出能力却**未被任何门禁调用**（`sop_docs_sync_check.sh` 不涉及 scope 清单，tier5 不调该脚本）。修法：tier5 新增**检查项 E「§2.1/§2.2 标题声明计数 ↔ 该节实际登记条目数」**（漂移 → FATAL，附 `sync-scope-manifest.py --update` 修复指令），且该检查**始终执行**（§2 标题计数属仓库级口径，不随 scope 过滤收窄）；AGENTS.md §5.4 同步补记两项检查语义。
-  - **反向测试（证明检查有效而非恰好通过）**——① 注入 §2.2 标题「8 个」→ tier5 如期 FATAL；② 撤销 `version-lock.md` 的非版本锁定段声明 → tier6 如期恢复 WARN（证明豁免由声明驱动而非硬编码）；③ 在 `--scope dir/code-review-combo` 过滤下注入 §2.1 计数漂移 → tier5 仍如期 FATAL。三项均「备份 → 注入 → 验证 → 逐字节还原」。
-  - 回归：本地全量 `run_all.py --tier 0,1,2,3,5,6` 通过（**78 OK / 0 FATAL / 2 WARN**，较修复前 76/0/3 减少 1 条假阳性；余 2 条为本机环境事实——`python3` 未在 PATH、`pytest` 未安装）。
+- **meta（AGENTS.md + scripts/smoke）：修 scope 清单计数漂移与 tier6 版本锁假阳性**：① §2.2 标题「8 个」与表格 9 行自相矛盾（提交 `1642e93` 误改），改用 `sync-scope-manifest.py --update` 机器重写（不手改）；② tier6 以 `version-lock.md` 显式声明为唯一依据豁免 `references/enhancements/` 动态探测模块的首行标记要求（不硬塞伪版本锁）；③ 补两处门禁缺口——tier5 新增检查项 E「§2.1/§2.2 标题计数↔实际条目数」（漂移→FATAL，始终执行）、`sync-scope-manifest.py --check` 接入 tier5；④ 反向测试三项均如期 FATAL/恢复。本地全量 78 OK/0 FATAL/2 WARN。
 
 ---
 
 ## [2026-10-13]
 
 ### Added
-- **dir/code-review-combo：guard.sh 新增 (e) Schema 双向一致性守卫**：实跑 `merge_reports` 读真实产出的键 ↔ SKILL.md「输出：唯一审计报告格式」小节 Schema 块声明的键，要求**双向相等**（实现有而文档无 = 文档漏写；文档有而实现无 = 文档声称存在但实际不存在）；另校验 `verified_by`/`cross_check`/`category`/`severity` 四字段枚举取值一致。比对逻辑独立成 `tests/schema_parity.js`（内联进 `bash -c '...'` 会因 JS 反引号与 bash 单引号嵌套冲突而报 `unexpected EOF`）。依赖 node + bash，缺 node / merge_reports / fixtures 时判 SKIP 而非失败。
-  - **动机**：既有守卫 (a) 引用存在 / (c) 版本一致 / (d) JSON 合法**均不覆盖字段级不一致**——同日修复的 SKILL.md「扁平别名字段」问题正是靠人工实跑读产出才暴露，grep 源码无法发现。
-  - **实现要点**：枚举字典（`by_source`/`severity_dist`/`verified_by`/`category_dist`）的键是**取值**而非字段名，须白名单排除否则产生 14 项假阳性；CRLF 仓库的围栏正则须用 `\r?\n`（`new RegExp("...\\n")` 的 `\\n` 会被解析成字面反斜杠+n）。
-  - **注入式验证**：注入 `critical_phantom`（复刻真实 finding 形态）→ 检出 RC=1；注入 `zzz_extra` → 检出；未注入 → PASS（双向 24 键一致）。
-- **dir/github-personal-manager：新增 `references/push-diagnosis-and-cli-pitfalls.md`（167 行）**：承载推送通道分层判诊（网络层 / 认证层 / 本地错误三类判据 + 双通路独立探测 + `Test-NetConnection` 端口级判据 + 持续阻断 vs 间歇抖动修正）、Bash 管道退出码陷阱（`${PIPESTATUS[0]}`）与**假绿家族三种形态**、`gh search` 词法与同名镜像仓库还原血缘四步法、无 `.git` 副本的 `hash-object` vs blob sha 版本锁定法、跨 shell 正斜杠纪律、调度入口凭证输出审查。
+- **dir/code-review-combo：guard.sh 新增 (e) Schema 双向一致性守卫**：实跑 `merge_reports` 产出键 ↔ SKILL.md Schema 块声明键双向相等（实现有文档无=漏写、文档有实现无=声称不存在），校验四字段枚举一致；比对逻辑独立 `tests/schema_parity.js`；缺依赖判 SKIP。
+- **dir/github-personal-manager：新增 `references/push-diagnosis-and-cli-pitfalls.md`（167 行）**：推送通道分层判诊、Bash 管道退出码陷阱与假绿家族、gh 词法与同名镜像还原、无 `.git` 副本 hash-object 版本锁定、跨 shell 正斜杠纪律。
 
 ### Changed
-- **dir/github-personal-manager：SKILL.md 沉淀 13 条 git/GitHub 纪律（+55 行）**：工作流八新增第 6 步「合并后清理的顺序三步序列」（`gh pr merge` → `git pull --ff-only origin main` → `sop_worktree_cleanup.sh`，并显式标注「合并校验失败」是正确行为非故障、禁改脚本禁 `--force` 绕过）、第 7 步「脚本拒清时的手工回收路径」、第 8 步「终态七项复核清单」；工作流五补「`--branch` 禁重复写单元名 + 建树前必须干跑」；工作流九补「审查走 git 原生命令而非 `gh --json`」、「CI 黏性红结果不可重跑」、「合并参数冲突」、「CI 覆盖边界须本地补验收」、「双向校验 × scope 校验死锁（带四条适用前提）」。
-  - **去重纪律**：沉淀前与既有工作流八/九逐条比对，3 条已覆盖（open PR 核对 / ruleset 绕过 / `--no-ff`）不重复写入。
-- **dir/code-review-combo：修正 3 处文档-实现不一致（自审发现）**：
-  - **SKILL.md 声称不存在的扁平别名字段**——原称「summary 顶层同时存在扁平 `critical/high/medium/low`（由 `merge_reports` 同值回填）」，但 Schema 代码块未列、脚本回填语句 grep 计数 0、实跑 summary 实际 13 键不含该别名，三项证据表明从不存在。改为显式告知「顶层不含扁平别名、下游必须读 `severity_dist`」；**不改 `merge_reports`**——实现侧本就自洽，补别名会引入双源字段违反单一事源。
-  - **`select-provider list` 写盘副作用未披露**——配置同步写在 `run_node` 公共加载路径，名义只读的 `list` 亦写 ocr 全局配置。补写盘副作用警示块 + 「不可凭命令名推断副作用」纪律。
-  - **README §7.1 目录树漏列 4 个实际文件**——补 `tests/fixtures/` 三个 fixture 与 `review-spd/tests/test_review_context.py`；顺带修正 `test_merge_reports.sh` 标注「11/11」失真（实跑为 16/16）。
-
----
-
-### Added
-- **file/wechat-article-to-ima：新增根级单文件 Skill `Skill-微信公众号文章抓取入iam库.md`（v1.1.0）**：按关键词检索微信公众号文章、抓取正文、批量入库腾讯 ima 知识库指定子目录并复验完整性；含参数配置区（全部带默认值、零输入可执行）、任务卡 A/B/C 轮转（主词簇/变体词簇跨轮覆盖）、前置依赖检查四项（wechat-article-search / ima-skills / web-search / firecrawl）、完整性闸门（≥800 字且 ≥5 句号）、判重（带 `.md` 后缀）、四类过滤词族、三级抓取降级链、限流退避与断点续跑。部署态为「无，WorkBuddy 直接调用开发态副本」。
-
-### Changed
-- **meta/AGENTS.md 纪律补强**：§1.3 目录型与根级 Skill 一律走 worktree（其他根级文件走标准分支+PR）；§3.5 worktree 为并发隔离主要手段；§2.2 与 §7.2 登记 `wechat-article-to-ima`（无部署态，直接调用开发态副本）；§9.8 新增文件三类测试覆盖分析门禁（排除项含 .workbuddy / _gsdata_）。
+- **dir/github-personal-manager：SKILL.md 沉淀 13 条 git/GitHub 纪律（+55 行）**：工作流八新增合并后清理三步序列 / 脚本拒清手工回收 / 终态七项复核；工作流五/九补多项；去重 3 条已覆盖不重复写入。
+- **dir/code-review-combo：修正 3 处文档-实现不一致**：① SKILL.md 声称存在的扁平别名字段实从未有（改显式告知读 `severity_dist`，不改 `merge_reports`）；② `select-provider list` 写盘副作用未披露（补警示）；③ README §7.1 目录树漏列 4 文件（补 + 修正 `test_merge_reports.sh` 标注「11/11」失真实 16/16）。
 
 ---
 
 ## [2026-09-30]
 
 ### Fixed
-- **meta/Memory-Data：记忆体系维护工具链 v5.3.2 修复（code-review-combo 三路审计收敛）**：
-  - **F-1（remove 非交互 EOFError 守卫）**：`remove()` 在 `sys.stdin.isatty()` 为真但 stdin 已关闭的 Agent / 管道环境，`input()` 会抛 `EOFError`。现显式 `try/except EOFError: confirm='n'`，捕获后视为取消删除，避免堆栈上冒泡中断调用方（review-spd 与 ocr review 均报 medium，both/confirmed）。
-  - **F-2（`index --force` 死参数修复）**：`index()` 声明 `force` 却从未在 body 读取，主索引 / 路由卡 / 子文件头索引三处"未变更不写盘"守卫也不接收 `force`，`--force` 实为死参数。现 `force` 真正透传并绕过三处守卫，强制重新生成索引表与写前路由卡。
-  - **子文件头索引幂等缺陷（F-2 测试设计中发现并修复，前置必备）**：`index()` 将 `content` 重赋为"剥离索引后的版本"，写盘守卫却以"含索引的 new_content"对比"已剥离的 content"——两者恒不等，致每个子文件头索引每次都写盘、`changed` 恒为 True、changelog 每次新增记录；F-4「零 churn」此前仅对主文件成立、对子文件失效。现改为剥离前保留 `orig_content` 作幂等基准，普通 `index` 对已收敛体系为真正空操作（`--force` 才强制写盘 + 记录）。
-  - **Added（测试）**：`test_memory_system.py` 新增 `index --force` 命令级集成用例——判别量：对已收敛体系，普通 `index` 不新增 changelog、`index --force` 强制新增 1 条；覆盖矩阵 28 → 29 项，全量 29/29 PASS、无回归。
-  - **meta/scripts/smoke：修复 `test_manifest.py` 的 `--list-tests` 输出列宽粘连**：SCOPE 列原固定宽度 26，最长 scope `dir/github-personal-manager`（26 字符）恰好填满后与 KIND 列无间隔粘连（如误显 `dir/github-personal-managersmoke`）。现 SCOPE 列宽改为按最长 scope 动态取值（+2 留间隔），分隔线长度随列宽计算；已用 `--list-tests` 确认列对齐、用 `--tier 0` 确认主路径无回归（11 OK / 0 FATAL）。
+- **meta/Memory-Data：记忆体系维护工具链 v5.3.2 修复（code-review-combo 三路审计收敛）**：F-1 `remove` 非交互 EOFError 守卫（`try/except` 捕获视为取消）；F-2 `index --force` 死参数修复（真正透传 + 绕过三处守卫）；子文件头索引幂等缺陷修复（`orig_content` 作基准，普通 `index` 对已收敛体系为空操作）；`test_memory_system.py` 新增 `index --force` 用例（覆盖矩阵 28→29，全 PASS）；`test_manifest.py` 的 `--list-tests` 列宽粘连修复（按最长 scope 动态）。
 
 ### Added
-- **meta/AGENTS.md + scripts/smoke：建立测试资产「唯一测试源」纪律与调度（deep-discuss + codebase-memory 双技能分析结论）**：
-  - **新增 `scripts/smoke/test_manifest.py`（唯一清单）**：登记全仓测试资产（仓库级冒烟 + 14 个目录型 / 根级 Skill + Memory-Data），每项含 scope / 入口路径 / 调用命令 / 类型(smoke|regression|real-state) / 风险(offline|needs-binary|needs-api)；提供 `list_tests()` / `run_project_tests()` / `cleanup()` / `scan_unregistered()` 四能力，作为"测试在哪、入口、怎么调用"的唯一事实源。
-  - **扩展 `scripts/smoke/run_all.py`（仅加性 flag，既有 CLI 契约不变）**：新增 `--list-tests`（列清单）、`--project-tests [--allow-real]`（按 scope 跑项目级测试，needs-api 默认门控）、`--cleanup`（清测试临时目录）；`test_manifest` 惰性导入，CI 默认路径零影响。
-  - **AGENTS.md 新增第 9 章「测试资产纪律」**：定义唯一测试源、四类测试入口（冒烟 / CI / 回归 / 真实态）与调用方式、扫描优先 / 复用优先纪律、收尾打扫纪律、测试资产管理规则（各 Skill 测试随 dir scope 走 worktree+PR；仓库级测试基建随 meta 走标准分支+PR；增删改须同步清单）；§5.4 与 §0.3 同步指向第 9 章。
-  - **决策**：项目级测试刻意不接入远端 required CI（异构环境 / 需本地工具 / 真实态风险），保留为本地预推送门禁 + 真实态显式 `--allow-real` 门控，与既有 `SMOKE_PROBE_API` 门控哲学一致。
+- **meta/AGENTS.md + scripts/smoke：建立测试资产「唯一测试源」纪律与调度**：新增 `scripts/smoke/test_manifest.py`（全仓测试资产唯一清单，四能力 `list_tests`/`run_project_tests`/`cleanup`/`scan_unregistered`）；扩展 `run_all.py`（`--list-tests`/`--project-tests [--allow-real]`/`--cleanup`，仅加性 flag）；AGENTS.md 新增第 9 章「测试资产纪律」（唯一测试源 / 四类入口 / 扫描复用优先 / 收尾打扫 / 资产管理）；决策：项目级测试不接入远端 required CI。
 
 ### Changed
-- **meta/AGENTS.md 第 9 章「测试资产纪律」体系化补强（承接同章初版）**：将初版 §9.1–§9.6 补强为 §9.1–§9.7，达成"层级关系 / 调度纪律 / 统一入口 / 维护修改更新"完整系统化：
-  - **新增 §9.1 层级关系**：显式"仓库级调度中枢 + 项目级执行单元"两层架构，附调度树（run_all.py → test_manifest.py 按 scope 派发 → 各 Skill 测试），明确单向引用、禁止项目级反向依赖入口。
-  - **新增 §9.2 统一入口与调度纪律**：单列强纪律——任何测试必须经 `run_all.py` 或其登记子命令调用，禁止散落 ad-hoc 测试调用；列明 `--list-tests` / `--project-tests [--allow-real]` / `--cleanup` 三个调度子命令。
-  - **§9.6 测试资产管理拆分为分步流程**：9.6.1 新增 / 9.6.2 修改 / 9.6.3 删除退役 / 9.6.4 编写纪律，每步明确"登记清单 + 走哪个 scope PR + 验证"，覆盖整个测试体系的维护、修改、更新。
-  - **新增 §9.7 清单与 CI 协同维护**：`TEST_ENTRIES` 唯一事实源 + `scan_unregistered()` 口径对齐 + CI 与本地门禁同源同口径。
-
-### Changed
-- **file/task-methodology-consolidation：升级「任务方法论沉淀」单文件 Skill 至 v3.2.1**：
-  - 撤回 `Workbuddy专属/Skill-task-methodology-consolidation.md` 开发态副本（该文件为未跟踪本地文件、已删除、未入库），统一以根级单文件 `Skill-对当前对话会话做经验沉淀和方法论固化.md`（AGENTS.md §2.2 登记 `file/task-methodology-consolidation`）作为唯一开发态副本；部署态 `C:/Users/15794/.workbuddy/skills/task-methodology-consolidation/SKILL.md` 与开发态已核验字节一致。
-  - 版本 `3.1.0 → 3.2.1`：脱敏闸门、双前缀命名（p1-/p2-）、落盘位置等章节细化，对外行为契约不变。
+- **meta/AGENTS.md 第 9 章体系化补强**：初版 §9.1–§9.6 补强为 §9.1–§9.7（层级关系 / 统一入口调度 / §9.6 分步流程 / §9.7 清单与 CI 协同）。
+- **file/task-methodology-consolidation：升级至 v3.2.1**：撤回 `Workbuddy专属/Skill-task-methodology-consolidation.md` 未跟踪副本，统一以根级单文件为唯一开发态；版本 3.1.0→3.2.1（脱敏闸门/双前缀/落盘位置细化，对外契约不变）。
 
 ---
 
 ## [2026-10-01]
 
 ### Changed
-- **file/task-methodology-consolidation：升级「任务方法论沉淀」单文件 Skill 至 v3.4.0（deep-discuss 七阶段深度调研后的 B+ 增强方案）**：
-  - **第七节由「经验提炼三原则」升级为「三问闸门」**：写产物前必过「问一 价值（三个月后忘了会再踩坑吗）→ 问二 可移植（去专有名词后仍成立即 P2）→ 问三 查重（固定目录是否已有同主题/同根因产物）」，三问全过才落笔；任一问 skip 即不写新产物，归并路径收敛到第十七节。
-  - **第十节自检清单同步**：新增 `c. 过第七节三问闸门`、`e. 第六段过可复用产物六项强制校验`、`h. 过第十七节产物级查重与 See Also`，并规定汇报须写明「查重结论：命中 <文件名> → 并入/补指针/新建」，无痕视为未查重。
-  - **版本 `3.2.1 → 3.4.0`**：对外触发契约不变（同一组触发词），仅内部工序强化；`description` 增补触发词「经验固化」「任务复盘」「方法论归档」「把上一轮任务沉淀一下」。
+- **file/task-methodology-consolidation：升级至 v3.4.0（deep-discuss 七阶段调研后 B+ 方案，`3.2.1→3.4.0`）**：第七节「经验提炼三原则」升级「三问闸门」（价值/可移植/查重）；第十节自检清单同步；description 补触发词；对外契约不变。
 
 ### Added
-- **file/task-methodology-consolidation：第十七节「产物级查重与 See Also」**：把三问中的「问三」落成可执行工序——列目录（`ls -1` / `Get-ChildItem`）→ 比对主题与根因 → 三处置按优先级「并入既有（首选）/ 只补 See Also 双向指针（次选）/ 新建（末选，须注明与被归并产物的关系）」；与第十五节跨轮 `pattern-rule` 检测、第十二节反例⑤的边界显式划清（本项只管单轮写前去重）。
-- **file/task-methodology-consolidation：第十八节「交付前部署态核验」**：收尾硬关门动作——开发态（仓库根）与部署态（`%USERPROFILE%\.workbuddy\skills\<name>\SKILL.md`）须 `md5sum` 哈希一致 + `cmp` 零差异；明确「字节数不同且 md5 相近」的根因通常是部署态是旧副本而非换行符差异，一律 `cp -f` 原样复制纠偏后复验；纯经验沉淀（未改 Skill 本体）场景本节不触发。
-- **file/task-methodology-consolidation：第八节补充「可复用产物六项强制校验」**：针对模板第六段（可复用产物片段）立规矩——可复制 / 可验证（带退出码或输出信号）/ 已实测（未实测须降置信度）/ 带环境前提（OS、工具链、版本）/ 无明文凭证 / 可独立使用。
-- **部署态路径事实更正**：上版条目记的部署态路径 `C:/Users/15794/.workbuddy/skills/...` 与本机实际不符；实测当前会话 `%USERPROFILE% = C:\Users\Administrator`、`C:\Users\15794` 不存在，本轮以 `C:/Users/Administrator/.workbuddy/skills/task-methodology-consolidation/SKILL.md` 为部署态，同步后 md5 `c1fb59285d007b17156f53d0ed96d15c`、26255 字节、`cmp` 零差异。
+- **file/task-methodology-consolidation：第十七节「产物级查重与 See Also」**（三处置：并入/补指针/新建）、**第十八节「交付前部署态核验」**（开发态与部署态 md5+cmp 一致，字节不同根因通常为部署态旧副本）、**第八节「可复用产物六项强制校验」**；部署态路径事实更正（实测 `%USERPROFILE%=C:\Users\Administrator`，md5 `c1fb5928…`/26255 B 一致）。
 
 ### Fixed
-- **dir/code-review-combo：开发态 → 部署态双态审查与 BUG 修复闭环（PR #115，6 项缺陷 + 1 项加固）**：
-  - **F-1（P1，根植开发态源文件）：`scripts/select-provider` 四个子命令（`list`/`probe`/`mark`/`clear`）在部署态 100% 崩溃**。选路判据用 `[ -f "$CFG" ]`（config 文件是否存在），当 `USERPROFILE/.opencodereview/` 目录已存在但 `config.json` 尚未生成时回退到一条父目录根本不存在的悬空路径，同步写盘 `writeFileSync` 抛 `ENOENT`，Node 堆栈直接使整脚本退出 1、Stage0 provider 选择入口整体失效。修复：选路判据由「文件存在」改为「目录存在」；写前 `fs.mkdirSync(path.dirname(ocrCfg), { recursive: true })` 根治父目录缺失。修复后部署态 `list` 输出 8 个真实 provider、`probe` 返回真实延迟数据且 rc=0。
-  - **F-2（P1，根植开发态源文件）：`tests/verify_combo.sh` 在部署态恒 `exit 3`（无法解析仓库 HEAD）**。旧实现硬假设「脚本上两级 = 仓库根」，该假设只在开发态成立（`<repo>/code-review-combo/tests`）；部署态路径为 `~/.workbuddy/skills/code-review-combo/tests`，上两级是 `~/.workbuddy`（非 git 库），验收流程在部署态完全不可用。修复：自脚本位置逐级向上探测最近的 `.git` 根，并支持 `OCR_REPO_DIR` 显式指定靶子仓库。
-  - **F-3（P2，部署过程引入的脏产物）：`tests/guard.sh` 的 `py_compile` 校验后残留 `__pycache__/*.pyc` 进入交付目录**（实测部署态残留 2 个）。修复：`py_compile` 成功后即时清理 `__pycache__`，修复后部署态 `__pycache__` 数量为 0。
-  - **F-4（P2，根植开发态源文件，假绿）：`tests/test_merge_reports.sh` 误用 `select-provider` 充当「node 是否可用」探针**，叠加 `|| true` 会吞掉业务脚本崩溃，形成「测试绿、工具链已坏」的假绿（正是掩盖 F-1 全崩缺陷的遮蔽层）。修复：改为 `command -v node` 判定，与业务脚本彻底解耦。
-  - **F-5（P2，根植开发态源文件，高危假绿）：`scripts/merge_reports` 在「有效报告 0 份」时仍以 0 findings 正常退出**，下游 `report-narrative` 会把工具故障（路径写错 / 上游报告未生成）伪装成「无问题」并给出 `APPROVED`。修复：`readReport` 返回值改为 `{items, usable}` 以区分解析能力，`usableReports === 0` 时向 stderr 输出「这不是「无缺陷」结论，请核对报告路径后重试」并 `exit 1`，把「输入故障」与「干净结论」彻底分开。
-  - **F-6（P3，加固）：`tests/verify_combo.sh` 在 `comments` 为 0 时仍判 PASS，构成「没审出东西 = 没问题」的假绿**。原结构校验只验字段齐备与枚举合规，ocr 因 provider 失效静默返回空 `comments[]` 时照样 PASS。修复：对 `n === 0` 单独打印 WARN，明示「结构合规但未产生审查结论，不可当作「代码无缺陷」使用」；**退出码语义不变**（靶子本身无变更时 comments 为 0 是合法结论）。
-  - **验证矩阵**：部署态全场景回归覆盖 `guard.sh`（a–f 全项）、`merge_reports`（全有效 / 全无效 / 三源交叉）、`test_merge_reports.sh`、单测 19/19、静态断链扫描（3 处 broken reference 清零）、`verify_combo.sh` 靶子解析，以及 E2E 真实运行态（`select-provider` 四子命令、`review-context.py --path`、三源 `merge_reports` + `tri-cross-validation`）；双态 5 个修复文件经逐字节 `cmp` 核验一致。本轮无 P0/P1/P2 未关项。
-  - **遗留（非源码可修，仅记录）**：上游 `ocr scan` 在最小临时目录即 100s 无输出、rc=124、产物 0 字节（无 combo 参与），致 `verify_combo` 的 [2/2] 非 git 靶子阶段本环境无法跑完，属上游 CLI 行为，缓解方案为以 `OCR_REPO_DIR` 指定 git 靶子仓库完成验收。
+- **dir/code-review-combo：开发态→部署态双态审查与 BUG 修复闭环（PR #115，6 缺陷 + 1 加固）**：F-1 `select-provider` 选路「文件存在」→「目录存在」+ 写前 `mkdirSync`，修复部署态 100% 崩溃；F-2 `verify_combo.sh` 硬假设「上两级=仓库根」→ 逐级探测 `.git` + `OCR_REPO_DIR`；F-3 `guard.sh` `py_compile` 残留 `__pycache__` → 即时清理；F-4 `test_merge_reports.sh` 误用 `select-provider` 当 node 探针（假绿）→ 改 `command -v node`；F-5 `merge_reports` 有效报告 0 份仍正常退出（假绿）→ `usableReports===0` 时 exit 1；F-6 `verify_combo.sh` comments 为 0 仍 PASS（假绿）→ 单独 WARN。部署态 5 修复文件逐字节 `cmp` 一致；无 P0/P1/P2 未关项。
 
 ### Added
-- **meta/AGENTS.md 第 7 章新增 §7.2「开发态副本 ↔ 部署态副本映射表」（唯一映射登记处）**：一次坐实 7 组双态映射（`chrome-devtools` / `skill-forge` / `memory-consolidate` / `workflow-distill` / `task-methodology-consolidation` / `workbuddy-workspace-migration` / `self-improvement`），每条附实测字节数、行数、去 CR 后 md5 与判定结论；规定任何 Skill 落地部署前须先在本表补登记再执行，防止「开发态有、部署态缺失 / 错位 / 被同名外部体占用」三种漂移。§7.5 明确本表为人工维护段，不写入 §2.2 机器可重写数据段——`Workbuddy专属/` 属 `sync-scope-manifest.py` 的 `MANUAL_KEEP_DIRS` 人工豁免合集目录，其内 `Skill-*.md` 不在 scope 清单扫描口径内，其部署映射由本表承接。
+- **meta/AGENTS.md 第 7 章新增 §7.2「开发态↔部署态映射表」（唯一映射登记处）**：一次坐实 7 组双态映射，每条附实测字节/行数/去 CR 后 md5 与判定；规定落地部署前须先补登记防三种漂移；§7.5 明确本表为人工维护段。
 
 ### Fixed
-- **meta/AGENTS.md §7.3 新增「副本判等口径」硬规则（本轮主要纠错）**：原纪律只表述「md5 一致即一致」，未定义 CRLF/LF 情形，易把换行符差异误判为版本分叉。实测坐实 3 组副本的字节差恰等于文件行数——`memory-consolidate` 237 行 / 30060 B × 29823 B、`workflow-distill` 185 行 / 17990 B × 17805 B、`skill-forge` 809 行 / 44029 B × 43220 B——即每行仅多一个 CR 字节；去掉回车后两侧 md5 完全相同（分别同为 `29c0f524…` / `46b490b7…` / `59e67db6…`）、`diff` 输出 0 行 ⇒ **三者实质一致，零内容差异**。判等口径已补正为：以「`tr -d '\r'` 后 md5 相同 且 `diff` 输出 0 行」为唯一标准，CRLF/LF 差异不计为实质差异。
-- **meta/AGENTS.md §7.4 记录 `self-improvement` 同名占用事实（待用户裁决）**：部署态 `self-improvement-system__skillhub/` 系外部（SkillHub）安装的运行态副本（含 `references/`、`lessons.md`、`mistakes.md`、`playbook.md`、`soul.md`、`session-log.md`、`_meta.json`、`_icon.png`），与仓库 `self-improvement/SKILL.md` 的 name / description / author / version 完全一致（均 OpenClaw v1.2.0）但正文不同（外部版为增强版：新增响应前三问自检、mistakes 归档轮换、外置 `references/protocol.md`）；后果是仓库 `dir/self-improvement` scope 的部署目录（用户级 `self-improvement/`）不存在，该 Skill 实际处于未部署状态。已在纪律文件标注「须经用户显式裁决，Agent 不得自行覆盖或替换」。**用户 2026-10-01 已裁决：保留部署态增强版 `self-improvement-system__skillhub`（不迁回、不新建同名部署目录），仓库开发态 `dir/self-improvement` 判定为未部署冗余副本并移除**；删除后不影响任何已部署技能，运行时功能零退化。§7.4 已据裁决改写为「已裁决并执行」，并补记门禁联动硬约束（目录型删除与摘登记必须拆成两条 PR，先 meta 摘登记、再目录型删目录）。
-- **meta/AGENTS.md §7 章标题修正**：由「以 chrome-devtools 为唯一定义对象」改为「chrome-devtools 为典型定义对象，副本映射见 §7.2」，与表中多 Skill 映射的既有事实对齐。
-- **fix(.githooks/pre-commit)（必修，门禁假拦截）：§2.3 meta 特例的 case glob `*/\*` 把星号转义为字面量**，实际匹配「文件名含斜杠与星号」的路径，对任何正常路径（如 `dir/SKILL.md`）永不命中——该特例自引入起从未生效。后果是与 smoke Tier5 的双向 dir 校验耦合成死锁：删目录与摘 `AGENTS.md` 登记无论如何拆分成两条 PR 都必有一条 CI 红（Tier5 既判「已登记但目录缺失」也判「目录存在但未登记」）。修正为 `*/*` 后，meta 分支可合法承载「已登记目录内容」的增删，死锁破除。**未使用 `--no-verify` 绕过任何门禁**；修前已用实测提交验证过拦截为真、修后验证过放行为真。
+- **meta/AGENTS.md §7.3 新增「副本判等口径」硬规则（本轮主要纠错）**：原仅「md5 一致即一致」未定义 CRLF/LF，易误判版本分叉；实测 3 组副本字节差恰等于行数（每行多一 CR），去 CR 后 md5 相同、diff 0 行 ⇒ 实质一致；判等口径补正为「`tr -d '\r'` 后 md5 相同 且 diff 0 行」，CRLF/LF 差异不计实质差异。（**注：此口径已于 2026-11-04 先升级为字节严格一致、后再回退为 CRLF 豁免，见本文件最新条目**）
+- **meta/AGENTS.md §7.4 记录 `self-improvement` 同名占用（用户 2026-10-01 裁决：保留部署态增强版 `self-improvement-system__skillhub`，移除未部署冗余仓库副本 `dir/self-improvement`）**：删除不影响运行时；§7.4 改写为「已裁决并执行」+ 门禁联动硬约束（目录型删除与摘登记拆两条 PR）。
+- **meta/AGENTS.md §7 章标题修正**：由「以 chrome-devtools 为唯一定义对象」改为「chrome-devtools 为典型定义对象，映射见 §7.2」。
+- **fix(.githooks/pre-commit)：§2.3 meta 特例 case glob `*/\*` 把星号转义为字面量（永不命中正常路径）→ 修正为 `*/*`，破除与 smoke Tier5 双向 dir 校验的死锁；未用 `--no-verify`**。
 
 ### Removed
-- **dir/self-improvement（PR 删除）：移除从未部署的目录型 Skill 副本**。该 Skill（scope `dir/self-improvement`，含 `SKILL.md` / `_icon.png` / `_meta.json` / `_skillhub_meta.json` / `references/protocol.md`，共 5 文件 -353 行）从未部署到用户级 `skills/` 目录，其 name 由外部安装的 `self-improvement-system__skillhub`（增强版：响应前三问自检、mistakes 归档轮换、外置 `references/protocol.md`）承担，仓库内副本属未部署冗余。删除不影响任何运行时功能；`AGENTS.md` §2.1 同步摘除该 dir 登记，避免 smoke Tier5「已登记但目录缺失」判 FATAL。删除前已做仓外备份 `.workbuddy/backup-self-improvement-20261001175854/`，5 个文件 md5 逐一对齐，可随时取回。
+- **dir/self-improvement（PR 删除）：移除从未部署的目录型 Skill 副本**（5 文件 -353 行），删除前仓外备份 `.workbuddy/backup-self-improvement-20261001175854/`，md5 对齐可取回。
 
 ---
 
 ## [2026-09-24]
 
 ### Changed
-- **meta/Memory-Data：维护工具链升级至 v5.2.3（豆包 + DeepSeek 第二轮双背靠背审计的质证修复）**：对两份 V2 报告逐项质证——**成立项改代码、不成立项实测否决**（否决：循环检测漏报、CRLF frontmatter 边界、`add --content` 路径歧义、`_sync_cross_file_anchors` 子串匹配、子进程输出限制/进程组 kill、时间解析宽捕获、Markdown 链接 `\]` 转义与锚点后随字符）。
-  - **Fixed（原子写）**：`_write_file` 由就地 `open(path,'w')` 覆写改为「落 `<文件>.tmp` + `os.replace`」——原实现在写入中途崩溃 / 磁盘满时会把文件截成半截，而 `.bak` 只在写入**前**生成，挡不住中途损坏。实测：失败路径返回 False、原文件一字不动、无 `.tmp` 残留。
-  - **Fixed**：`verify` 第 5 项在非 git 环境判 **SKIP**（原：`_git_repo_root()` 失败时返回 `sub_files_dir` 非空 → `or` 右侧回退永不生效 → git 缺失被误标 ERROR）。
-  - **Fixed**：`validate --auto-fix` 与 `check --fix` 同源**停用**（原打印"已尝试修复"属虚假陈述，且会 `sync(force=True)` 写盘，与手册 §0.2「严禁盲修」冲突）。
-  - **Fixed**：§10 第10条 引用方向——`§X` 是本手册条目编号标记，对主文件 / 子记忆文件恒为**跨文件引用**，按 §10 第13条不受方向约束；工具不再误报（实测消除子文件2 的 4 处「依 §10 第5条」假阳性）。该条目由 §5 步骤4 B 段移至 C 段（Agent 判读）。
-  - **Fixed（单一事源）**：抽出 `MANUAL_FILE_NAME` / `MAIN_FILE_NAME` / `ALLOWED_EXTRA_TARGETS`，`check` 维度3 / 维度14 与 `断链检测.py` 的 `ALLOWED_TARGETS` 三处复用（原为三份互不联动的字面量）。
-  - **Refactor**：循环检测收敛为迭代式 `find_cycles` + `_build_sub_ref_graph`（单一图构建 + 单一判环，无递归深度上限）。审计称的"长环 / 双独立环漏报"经实测**否决**——原 `rec_stack` 即当前 DFS 路径，判据完备。
-  - **Fixed（YAML / 容错）**：行内 `#` 注释按 YAML 规范剥离（未加引号遇「空格+`#`」截断、加引号以闭合引号为界）；`unescape_yaml_scalar` 去掉 NUL 占位符改单趟 `re.sub`；`_parse_num_tail` 编号后无空格不再返 None（改用负向预查 `(?![-.\d])`）；`add` 取最大 N 的异常捕获拓宽到 `OSError` / `UnicodeDecodeError`；时间戳解析异常收窄为 `ValueError` / `TypeError`（重扫动作移出 try，避免异常时重复重扫）；`strip_inline_code` 支持双反引号；越界检查主文件改用真值判定。
-  - **Added**：`selftest` 子命令——27 项核心纯函数回归断言（锚点换算 / YAML 反转义与行内注释 / 越界判定 / 编号尾段 / 环检测 / scope 切分 / 内联代码剥离），零依赖、不读写任何业务文件。
-  - **Docs**：手册同步至 v5.2.3（§0.3 原子写 / §4.1 子命令表 +`selftest`、`--auto-fix` 停用 / §5 步骤4 第10条 移至 C 段 / §6.1 新增 D-14、D-15 / §10 对应关系表 / §11）。
-- **meta/AGENTS.md：沉淀两条 P\*.md 方法论的高价值信息**（不引用 P\*.md 文件本身，内容内聚入纪律）：
-  - **§5.5 新增「docs-sync gate 与目录型提交的交互」操作指引**：覆盖 `sop_docs_sync_check.sh` 对文件删除等无法归类的变更标为 `UNKNOWN`、保守触发全部 Tier 检查的行为；明确目录型 commit 与 `docs(meta)` commit 的成对模式（目录型 PR 合并后走独立 meta commit 补齐 CHANGELOG/README）；给出提交被拦截时的诊断顺序（区分 docs-sync gate 拦截 vs scope 校验拦截）；列明禁忌（不得 `--no-verify` 绕过 hook、不得以 PR 描述代替 meta commit）。
-  - **meta/Memory-Data：维护工具链升级至 v5.2.2（豆包 + DeepSeek 双背靠背审计的质证修复）**：对两份审计报告逐项质证——**成立项改代码、不成立项留痕否决**（否决：递归 DFS 栈溢出、H4 归入 H3 范围、verify 改用 returncode 主判、GFM 锚点对齐、行内 `#` 截断）。
-    - **Fixed（P0-1）**：`index --file X` 原会把主索引表②与写前路由卡表①**整区重写为只剩 X 一条**（数据破坏级，手册 §4.1 却把该用法列为典型用法）。改为 `--file` 只决定刷新哪个文件的头部速查索引，两个工具写入区恒按全量生成。实测：执行前后主文件**零差异**，主索引仍含全部 6 个子文件。
-    - **Fixed（P0-2）**：`check --fix` 原在「移除链接后该行变空」时**整行删除**，同行其它链接与正文一并丢失。按手册 §0.2「严禁盲修」**停用自动修复**，改为只打印待核清单供人工按 §7 处置。
-    - **Fixed（P0-3）**：`_sync_cross_file_anchors` 的同文件锚点替换正则缺少上下文约束，正文中形态相同的 `(#锚点` 会被篡改；改为仅在 `[文本](#锚点)` 内替换并跳过代码围栏。
-    - **Fixed**：YAML 读取侧补齐对称反转义（`unescape_yaml_scalar`），多行字符串指示符 `|` / `>` 由静默丢内容改为显式报错中止（零依赖取舍，不引入 pyyaml）。
-    - **Fixed**：`route` 的 `scope_in` / `scope_out` 按手册 §2.2 的 `；` 逐条切分（原整段当一条，逐条匹配失效）；短查询（< 4 字）抬高命中阈值。
-    - **Fixed**：`add` 的 `file_number` 改以**磁盘全部子文件 YAML** 为准（原只读 state 缓存，会分配到重复 N）并写入 state；`--start-number` **停用**（§0.12 禁止手工指定）。
-    - **Refactor / 其它**：`check` 维度3 改为白名单内校验（越界统一交维度14）；维度7 用精确文件名判定；维度6 与 `validate` 纪律2 合并为 `_find_duplicate_paragraphs`（消除双源）；`_collect_headings_for_anchor` 收敛为 `_scan_headings_ordered` 的适配层；主索引「大文件降级指向」去硬编码文件名改按行数阈值；`remove` 只删链接 token 不整行丢弃；备份失败**阻断**写入/删除（§0.3）；`_strip_local_index` 改按哨兵定界（防索引叠加）；`verify` 用 `git rev-parse` 定仓库根；`_list_sub_files` 过滤目录。
-    - **Docs**：手册同步至 v5.2.2（§0.12 / §0.17 / §4.1 / §6.1 新增 D-12、D-13 / §11）；修正 §0.17「check 检测不到越界」的旧表述（v5.2.1 维度14 已覆盖）。
-  - **meta/Memory-Data：记忆体系维护工具链升级至 v5.2.1（P0 缺陷修复 + 三项能力补齐）**：
-    - **Fixed（P0）**：`memory-mgr.py` 的 `_collect_headings_for_anchor` 原按 H2/H3/H4 分组收集，与「按文档顺序一一对应」的契约矛盾，导致 `rewrite` 前后按位置配对**错配**、跨文件锚点被静默改写为错误目标（即"插章后章节消失"的真实根因）。改为单遍扫描按文档顺序收集 + 跳过代码围栏，并新增「标题文本序列不一致」显式告警。同步修正手册 §3.4 的事实定性（原表述"静默丢弃整章正文"不准确，实测正文一行不丢，真实故障是编号位移 + 锚点错配）。
-    - **Added**：`route`（归属判定 / 读前精判，四要素打分 + 定位链下一步）、`next-num`（下一个可用编号 + 插章路径 A/B 判定）、`verify`（五项验收一键化）三个子命令；`check` 新增维度13 主文件必备结构（含「规则三：记忆读取纪律」强制项）与维度14 体系外越界引用（白名单制，消解手册 §6 D-8 盲区）。
-    - **Refactor**：`heading_to_anchor` / `strip_heading_number` / `extract_target_filename` 收归 `memory-mgr.py` 为单一事源，`断链检测.py` 改为 import 复用（导入失败回退内置），消除两脚本间的实现漂移风险。
-    - **手册 `WorkBuddy记忆文件说明.md`** 同步至 v5.2.1（§3.4 / §4.1 / §4.2 / §5 / §6.1 / §7.5 / 速查索引 / §11）。
-  - **§8.5 新增「删除测试 fixture 的配套改造」**：删除五类文件之⑤（测试衍生文件/二进制 fixture）时，若测试硬依赖该文件，须同步改造测试链路——加入「fixture 缺失 → 自动调生成脚本现场合成」的降级逻辑；生成脚本须确定性（无随机种子/实时 API/外部服务）、合成产物须被 `.gitignore` 排除不入库；历史反向忽略规则注释保留备查。
+- **meta/Memory-Data：维护工具链 v5.2.1→v5.2.2→v5.2.3 双背靠背审计质证修复（豆包 + DeepSeek）**：成立项改代码、不成立项实测否决。要点——v5.2.3 原子写（落 `.tmp`+`os.replace`，中途崩溃原文件不动）、verify 第5项非 git 环境判 SKIP、`check/validate --auto-fix` 停用（禁盲修）、§10.10 引用方向改 Agent 判读、单一事源抽出 `MANUAL/MAIN/ALLOWED` 常量、循环检测收敛迭代式、YAML 行内 `#` 按规范剥离、`selftest` 27 项核心回归；手册同步至 v5.2.3。v5.2.2 修 P0-1 `index --file X` 整区重写破坏（改只刷新该文件头索引）、P0-2 `check --fix` 整行删除（停用自动修复）、P0-3 同文件锚点正则缺上下文约束、YAML 对称反转义、`route` scope 逐条切分、`add` 以磁盘子文件为准；手册同步 v5.2.2。v5.2.1 修 P0 `_collect_headings_for_anchor` 按组收集致 rewrite 错配（改单遍顺序+跳围栏+告警），新增 `route`/`next-num`/`verify` 子命令、`check` 维度13/14，手册同步 v5.2.1。§8.5 新增「删除测试 fixture 的配套改造」。
 
 ---
 
 ## [2026-09-18]
 
 ### Changed
-- **dir/web-search：升级 anysearch 上游 vendored 副本至 v3.1.1**（上游 commit 9b91ee21），经 PR #81 合并回 main（merge commit ef2a19aa）。同步上游变更：删除 `anysearch-skill/runtime.conf.example`、新增 `anysearch-skill/LICENSE` 与 `anysearch-skill/scripts/test_cli.py`、根级 `.upstream_sha.json` 及 `tests/*`；纯副本一致性（vendoring 不变量）维持。
+- **dir/web-search：升级 anysearch 上游 vendored 副本至 v3.1.1（上游 commit 9b91ee21，PR #81，`ef2a19aa`）**：同步上游删除/新增文件，纯副本一致性维持。
 
 ### Fixed
-- **dir/web-search / F1 孤儿文件剪枝**：`sync_anysearch.py` 新增 `_compute_orphans` 与 `--prune`（默认 report-only，向后兼容），清理 ALLOWLIST 之外的本地孤儿文件（如上游已删而本地残留的 `runtime.conf.example`）；新增 `tests/test_sync.py` 回归测试覆盖（F3 测试缺口一并覆盖）。
-- **dir/web-search / F2 `check_anysearch` 标注遗留单文件视角**：`check_upstream_drift.py` 的 `check_anysearch`（单文件 sha256 比对）与 `check_anysearch_subtree`（全子树比对）结论可能不一致、易误导；已在 docstring 与 `main` 人类可读报告中标注其为遗留/单文件视角，统一以 `anysearch_subtree` 为漂移判定准绳。最小作用域，不移除功能、不改返回值契约（`res["check"]` 仍为 `"anysearch"`），现有测试不受影响。
+- **dir/web-search：F1 孤儿文件剪枝**（`sync_anysearch.py` 新增 `_compute_orphans`/`--prune`，清理 ALLOWLIST 外孤儿，report-only 默认向后兼容）+ 回归测试；**F2 `check_anysearch` 标注遗留单文件视角**（与 `check_anysearch_subtree` 结论可能不一致，统一以 subtree 为准，不移除功能/不改契约）。
+
+---
 
 ## [2026-09-17]
 
 ### Added
-- **meta：新增 AGENTS.md 第 8 章「开发态目录型 Skill 最小化纪律」**。约束全部目录型 Skill（含 `Workbuddy专属` 合集）保持最小/可移植/通用：五类文件（可下载 / 可派生 / 编译（含 >100MB 二进制程序）/ 过程临时垃圾 / 测试衍生）禁止纳入版本控制；允许本地（含工作树/分支）下载·编译·测试·衍生但不跟踪，提交/推送前询问用户是否删除；`.gitignore` 补 `build/`、`dist/`。
+- **meta：新增 AGENTS.md 第 8 章「开发态目录型 Skill 最小化纪律」**：约束全部目录型 Skill 保持最小/可移植/通用，五类文件（可下载/可派生/编译>100MB/过程垃圾/测试衍生）禁纳入版本控制；`.gitignore` 补 `build/`、`dist/`。
 
 ### Changed
-- **meta/AGENTS.md §7.1：最小化原则改为引用第 8 章**（单一事实源，避免两处重复定义；引用方向 AGENTS.md → SOUL.md）。
+- **meta/AGENTS.md §7.1：最小化原则改为引用第 8 章**（单一事实源）。
 
 ### Removed
-- **meta：删除 `Workbuddy专属/workbuddy-workspace-migration/scripts/__pycache__/purge.cpython-314.pyc`**（编译+派生产物，违反第 8 章；该路径已由 `.gitignore` 忽略，删除仅为本地卫生）。
+- **meta：删除 `Workbuddy专属/workbuddy-workspace-migration/scripts/__pycache__/purge.cpython-314.pyc`**（编译派生产物，违反第 8 章）。
 
 ### Changed
-- **meta/AGENTS.md：背靠背审计报告（Deepseek H1–H12、豆包 P01–P18）质证整改，采纳成立项并落地 23 处修订**：修正根级 Skill 数量误报（9→8，§1.2/§2.2）；消除"主副本 vs worktree"冲突（§7.1 改为走第 4 章 worktree）；收紧 pre-commit 放行清单表述（§3.2 移除"隐藏文件"泛化、明确密钥拒绝，与 §2.3 meta 清单对齐）；一般根级文件 `@*.md`/`mimo_mcp.py` 明确归入 meta（§1.2/§1.3/§2.2/§2.3）；统一 scope 标识（§4.1/§4.2 明确"对目录型 Skill，name 即目录名"）；CI 触发改为矩阵并明确 required 集合（§5.3）；区分"授权"与脚本 `--confirm` 闸门（§3.4）；厘清"单一事实源"层级（§6.1 限定本仓库 git 纪律权威、外部引用恒定向）；修正悬空引用 §5.5→§2.4/§3.2（§8.6）；§8.5 明确 `.gitignore` 改动走 meta 分支；细化 §8.3 五类文件判定标准、§8.1 计数口径、§0.3 阅读顺序与外部文件索引、§7 标题单复数等。
+- **meta/AGENTS.md：背靠背审计报告（Deepseek H1–H12、豆包 P01–P18）质证整改，23 处修订**：根级 Skill 数量误报 9→8、消除主副本 vs worktree 冲突、收紧 pre-commit 放行清单（移除「隐藏文件」泛化、密钥拒绝生效）、根级文件归入 meta、统一 scope 标识、CI 触发改矩阵+required 集合、区分授权与 `--confirm` 闸门、厘清单一事实源层级、修正悬空引用 §5.5→§2.4/§3.2、§8.5 `.gitignore` 走 meta、细化 §8.3/§8.1/§0.3 等。
 
 ### Fixed
-- **pre-commit 安全缺口修复（真实风险）**：`.githooks/pre-commit` 主工作树放行清单含 `\.*`（隐藏文件通配），且排在密钥拒绝行之前，导致 `.env` 等密钥文件被隐性放行。移除 `\.*` 通配并补全 `@*.md`/`mimo_mcp.py`，使 hook 放行清单与 §2.3/§3.2 meta 清单完全一致，密钥拒绝行（含 `ref-material-writing/.env` 等）真正生效。`bash -n` 语法校验通过。
+- **pre-commit 安全缺口修复（真实风险）**：主工作树放行清单含 `\.*`（隐藏文件通配）且排在密钥拒绝行前，致 `.env` 等密钥被隐性放行；移除 `\.*` 并补全 `@*.md`/`mimo_mcp.py`，与 §2.3/§3.2 meta 清单一致，密钥拒绝真正生效。
+
+---
 
 ## [2026-09-15]
 
 ### Changed
-- **meta/`dir/Workbuddy专属`/`dir/github-personal-manager`：放宽目录名 ASCII-only 阻断至简体中文白名单**。分支正则、scope 解析、smoke scope 校验、sync-scope-manifest 文件表正则均从纯 ASCII 放宽至 `[\u4e00-\u9fa5A-Za-z0-9 _-]`（简体中文 + 字母 + 数字 + 空格 + 连字符 + 下划线），向后兼容原有 ASCII scope。`Workbuddy专属` 目录（合集目录、无 SKILL.md）纳入 `sync-scope-manifest.py` 的 `MANUAL_KEEP_DIRS` 人工豁免，AGENTS.md §2.1 登记得以保留。
+- **meta/`dir/Workbuddy专属`/`dir/github-personal-manager：放宽目录名 ASCII-only 阻断至简体中文白名单**（`[\u4e00-\u9fa5A-Za-z0-9 _-]`，向后兼容；`Workbuddy专属` 纳入 `MANUAL_KEEP_DIRS` 豁免，§2.1 登记保留）。
 
 ### Fixed
-- **pre-commit 分支正则 `\u4e00-\u9fa5` 转义序列失效**：在 `LANG=C.UTF-8` 下 `grep -Eq` 不识别该转义为中文范围，中文分支名（如 `feat/Workbuddy专属-...`）被误判为「非 worktree 纪律分支」，落入主工作树纪律校验并拦截目录型 Skill 文件提交。修复：改为字面量 `一-龥`（与 `scripts/sop_scope_check.sh` 保持一致），实测 `MATCH_OK`。
+- **pre-commit 分支正则 `\u4e00-\u9fa5` 转义失效**（`LANG=C.UTF-8` 下 `grep -Eq` 不识别，中文分支名被误判非 worktree 纪律分支）；改字面量 `一-龥`（与 `sop_scope_check.sh` 一致），实测 `MATCH_OK`。
+
+---
 
 ## [2026-09-03]
+
 ### Added
-- **open-medical-skills/**：新增目录型 Skill（中文医学分析编排助手，父编排 + 子 vendored 副本，离线确定性部署）；AGENTS.md §2.1 登记 `dir/open-medical-skills`（目录型 Skill 12 → 13）。
+- **open-medical-skills/：新增目录型 Skill（中文医学分析编排，父编排+子 vendored 副本，离线确定性部署）；AGENTS.md §2.1 登记（目录型 12→13）**。
+
+---
 
 ## [2026-08-28]
+
 - fix(dir/self-improvement): 完善 self-improvement SKILL.md 格式规范
 - docs(Memory-Data): 更新 WorkBuddy 记忆文件说明
-
 - feat(dir/self-improvement-system__skillhub): 新增 self-improvement 目录型 Skill
 - feat(file/external-tool-onboarding): 新增外部工具引入评估根级 Skill
 - refactor: 记忆体系重构，拆分 MEMORY.md 为多个子文件
 - chore: 清理重复 Skill 文件
-
-
-格式参考 [Keep a Changelog](https://keepachangelog.com/)，条目按时间倒序排列。分类约定：
-**Added**（新增能力）/ **Changed**（行为或实现变更）/ **Removed**（移除）/ **Fixed**（缺陷修复）/ **Docs**（文档）。
-
-> 本文件由 git 历史汇编，每条对应实际提交主题；最新一条即最近一次推送的提交。
 
 ---
 
 ## [2026-08-21]
 
 ### Fixed
-- **CI/ruleset 矛盾修复**：main 规则集 required_status_checks 原要求 `smoke` + `smoke-scoped`，但 smoke.yml 对非 meta 变更设计为跳过 `smoke`、对 meta 变更跳过 `smoke-scoped`，导致任何 PR 都有一条 required check 为 skipping、永远无法正常合并（只能 `--admin` 绕过）。修复：`smoke` 改为**恒运行基础门禁**（meta/无可判定 scope 升级全量 tier0-3+5，其余跑 tier0 密钥/忽略门禁），`smoke-scoped` 保持按 scope 深化但**不列入规则集**；规则集 required checks 仅保留 `smoke`；顺带清理 smoke-scoped 的 `!= '[]'` 死条件。
+- **CI/ruleset 矛盾修复**：main 规则集 required_status_checks 要求 `smoke`+`smoke-scoped`，但 smoke.yml 对非 meta 跳过 `smoke`、对 meta 跳过 `smoke-scoped`，致任何 PR 都有一条 skipping 无法合并；修复：`smoke` 恒运行基础门禁、`smoke-scoped` 不列入规则集、required 仅留 `smoke`。
 
 ### Changed
-- **main 分支保护机制切换（ruleset → classic）**：实证发现 GitHub **ruleset 的 `required_status_checks` 评估存在平台缺陷**——required check `smoke` 已 success 且 context/integration 完全匹配，PR 仍 `mergeable_state=blocked`（#30-#34 多轮：改 strict、重建规则集、去 integration_id 均无效；禁用规则集后普通合并立即成功）。切换为 classic branch protection（`branches/main/protection`：required checks 仅 `smoke`、strict=false、enforce_admins=true），普通合并恢复正常、无需 `--admin`；ruleset 已删除，`smoke` 恒运行门禁不变。
+- **main 分支保护机制切换（ruleset→classic）**：实证 ruleset `required_status_checks` 存在平台缺陷（#30-#34 多轮无效），切换 classic branch protection（required `smoke`、strict=false、enforce_admins=true），普通合并恢复正常无需 `--admin`。
 
 ### Added
-- **github-personal-manager**：新增 `workflows/wf_branch_clean.sh`（一键回收已合入 main 的本地分支，SourceGit / Git Extensions 图形客户端封装）；补齐 `workflows/README.md` 已声明但缺失的脚本断链。
+- **github-personal-manager：新增 `workflows/wf_branch_clean.sh`**（一键回收已合入 main 本地分支）+ 补齐 `workflows/README.md` 断链。
+
 ---
 
 ## [2026-08-20]
 
 ### Docs
-- **Memory-Data/**：系统提示词文档整理，将 `Deepseek++系统提示词-2.md` 重命名为 `Deepseek++系统提示词.md`（内容合并为新文件名，便于统一引用）；清理 `codebase-memory/codebase-memory-mcp/data/logs/.gitkeep` 空占位文件。
-- **AGENTS.md / README.md**：修复纪律文档断链——AGENTS.md 4.2 worktree 脚本引用路径补 `github-personal-manager/scripts/` 前缀（原 `scripts/` 在仓库根不存在，陌生 Agent 按字面执行必失败）、`--branch` 参数统一为 `feat/<topic>` 写法、5.4 本地冒烟命令改为 `uv run`（本机禁裸 python）；README 移除已不存在的 `md-crossref-audit`（`Skill-文档引用调用有效性检验.md`）条目，活跃技能数更正为 17（9 目录型 + 8 根级单文件型）。
+- **Memory-Data/**：`Deepseek++系统提示词-2.md` 重命名为 `Deepseek++系统提示词.md`（合并）；清理 `codebase-memory/.../logs/.gitkeep` 空占位。
+- **AGENTS.md / README.md**：修复纪律文档断链——AGENTS.md 4.2 worktree 脚本引用补 `github-personal-manager/scripts/` 前缀、`--branch` 统一 `feat/<topic>`、`uv run`；README 移除已不存在的 `md-crossref-audit` 条目，活跃技能数更正 17（9 目录型+8 根级单文件）。
 
 ---
 
 ## [2026-08-19]
 
 ### Added
-- **codebase-memory/**：将此前被 .gitignore 整体忽略的目录骨架、文档与脚本纳入仓库跟踪（顶层 README/SKILL + codebase-memory-mcp 的 Readme/权限修复脚本/下载说明，以及 data/logs 空目录 .gitkeep 占位）；codebase-memory-mcp.exe 真实体积约 282MB，超过 GitHub 单文件 100MB 硬上限，未入库，改以占位文件（文件名提示自行下载）+ 下载说明.md 替代；.gitignore 同步忽略该 exe 与 code-review-combo/config/providers.json（含真实 API key，仅本地保留、绝不上库）。
+- **codebase-memory/：纳入仓库跟踪**（此前被 .gitignore 整体忽略；codebase-memory-mcp.exe 约 282MB 超 100MB 硬上限未入库，改占位+下载说明；.gitignore 同步忽略 exe 与 `code-review-combo/config/providers.json`（含真实 API key，仅本地））。
 
 ---
 
 ## [2026-08-14]
 
 ### Fixed
-- **github-personal-manager/scripts/**：收敛 P-GPM 系列缺陷——P-GPM-1/2（`gh` 调用缺 `--repo`，5 个脚本补显式 `--repo` 传递，消除 fork 内部 PR / 跨目录调用误判）、P-GPM-3（`_sop_resolve_remotes` 改用 `git config --get` 替代 `git remote -v`，避免 insteadOf 重写污染 owner/repo 解析）、P-GPM-4（`sop_worktree_add.sh` 补 worktree 路径 Windows 形态归一化 `cygpath -m`，与 cleanup 一致，修复 Git Bash 下错建到 `D:/d/...`）；**github-personal-manager/workflows/wf_branch_clean.sh**：`gh pr list` 越层直调缺 `--repo` 已补显式 `--repo`（与 scripts 统一约定一致，修复一致性缺口）。
+- **github-personal-manager/scripts/：收敛 P-GPM 系列缺陷**——P-GPM-1/2（`gh` 缺 `--repo`，5 脚本补显式传递）、P-GPM-3（`_sop_resolve_remotes` 改 `git config --get` 替代 `git remote -v` 防 insteadOf 污染）、P-GPM-4（`sop_worktree_add.sh` 补 `cygpath -m` Windows 路径归一化）；`wf_branch_clean.sh` 越层 `gh pr list` 缺 `--repo` 已补。
 
 ### Added
-- **github-personal-manager/regression/**：离线回归框架纳入技能仓库（三层夹具 upstream/origin/local + fake gh 对抗桩，67 用例覆盖 17 个脚本）；`run.sh` 自定位化（按「框架与 scripts/ 平级」解析技能根，不写死安装路径）+ `TEST_TMP` 可写性断言；`fakebin/gh` 未覆盖子命令改防御性告警并默认放行；`.gitignore` 加 `regression/tmp/`；`github-personal-manager/.github/workflows/regression.yml` 作为技能独立仓库的便携 CI 门禁参考（GitHub 仅扫描仓库根 `.github/workflows/`，子目录不触发，monorepo 内仅作参考）。
-- **github-personal-manager/workflows/**：补全 GUI 工作流脚本通道（`wf_common.sh` 公共库 + `wf_ci.sh`/`wf_pr.sh`/`wf_release.sh`/`wf_sync.sh`/`wf_worktree.sh`/`wf_workspace_clean.sh` 7 个父脚本，均为 SourceGit / Git Extensions 图形客户端「点一下就办」的按钮，统一 `--confirm` 二次授权 + 只推 origin/绝不碰 upstream 安全边界）；`workflows/README.md` 同步给出目录地图、挂接配置与 Windows 环境约束（与 `scripts/` 平行双通道，落点同为 `scripts/` 底层 SOP）。
+- **github-personal-manager/regression/：离线回归框架纳入**（三层夹具 + fake gh 对抗桩，67 用例覆盖 17 脚本；`run.sh` 自定位 + `TEST_TMP` 断言；`.gitignore` 加 `regression/tmp/`；`regression.yml` 便携 CI 参考）。
+- **github-personal-manager/workflows/：补全 GUI 工作流脚本通道**（`wf_common.sh` + 7 父脚本，统一 `--confirm` + 只推 origin/绝不碰 upstream）。
 
 ### Docs
-- **github-personal-manager/SKILL.md**：补「⚠️ Windows 环境约束」注记（worktree 路径归一化依赖 Git Bash `cygpath`）。
-- **github-personal-manager/workflows/README.md**：补「⚠️ 工作树 Windows 环境约束」段。
+- **github-personal-manager/SKILL.md / workflows/README.md：补 Windows 环境约束注记**。
 
 ---
 
 ## [2026-08-12]
 
 ### Fixed
-- **ref-material-writing**：迭代收敛修复——定义层消除 5.3 自相矛盾（禁止硬编码绝对目录却写死字面路径）、清除 8.2/8.3 机器/项目专属路径硬编码、7.1 模糊词（合理性/必要时/等场景）替换为客观判据、10.2 补 description 独立「适用于」陈述；代码层修复 F1（constants.json 缺失时 SAFE_DOMAINS 兜底 + stderr 告警，消除垂直搜索静默全失效）、F2（_call_api 对 200 非 JSON 响应容错）、F3（_load_env 仅注入白名单 ANYSEARCH_API_KEY，不再全盘覆盖 os.environ/PATH）、F4（脚本默认路径增加可读报错）、F6（max_results 校验 1–10）、F7（key=value 分支去引号）、F8（上游比对 SHA 归一化）、F9（_render_doc 容错）；复审计新增 N1（_render_doc 缺键兜底）、N2（batch_search per-item max_results 边界校验）；新增全场景+边界回归测试 `scripts/smoke/test_anysearch_cli.py`（unittest + mock，33 例全过）。双层复审计（skill-forge 11 维度 / code-review-combo 五焦点）均 0 致命/0 严重。
+- **ref-material-writing：迭代收敛修复**：定义层消除 5.3 自相矛盾、清除机器/项目专属路径硬编码、模糊词改客观判据、补 description「适用于」；代码层 F1（constants.json 缺失 SAFE_DOMAINS 兜底）、F2（`_call_api` 200 非 JSON 容错）、F3（`_load_env` 仅注入白名单）、F4（默认路径可读报错）、F6（max_results 1–10）、F7（key=value 去引号）、F8（SHA 归一化）、F9（`_render_doc` 容错）、复审计 N1/N2；新增回归测试 `test_anysearch_cli.py`（33 例全过）；双层复审计 0 致命/0 严重。
 
 ### Added
-- **根级单文件技能（新增 3 个）**：`Skill-外部工具引入评估与落地.md`（external-tool-onboarding）、`Skill-对当前对话会话做经验沉淀和方法论固化.md`（task-methodology-consolidation）、`Skill-文档引用调用有效性检验.md`（md-crossref-audit）；新增调研报告 `github-personal-manager-同类项目调研_20260812.md`（github-personal-manager 全站同类项目调研，工作区文件、未改动技能源）。
-- **chrome-devtools 双端部署**：新增 `sync_and_deploy.cjs`、`mirror_to_target.cjs` 与 `localization/{apply_localize,cli_run,deploy,start,upstream}.cjs` 本地化/同步部署脚本，支持 master → WorkBuddy 安装副本双端部署；`package.json` / `.npmrc` / `README.md` / `SKILL.md` 同步更新。
+- **根级单文件技能新增 3 个**：`Skill-外部工具引入评估与落地.md`、`Skill-对当前对话会话做经验沉淀和方法论固化.md`、`Skill-文档引用调用有效性检验.md`；新增调研报告 `github-personal-manager-同类项目调研_20260812.md`。
+- **chrome-devtools 双端部署**：新增 `sync_and_deploy.cjs`/`mirror_to_target.cjs` 与 `localization/*.cjs` 本地化/同步部署脚本（master→WorkBuddy 安装副本）；package.json/.npmrc/README/SKILL 同步。
 
 ### Changed
-- **chrome-devtools/SKILL.md**：补充双端部署（master → WorkBuddy）工作流与脚本用法。
-- **Workbuddy专属/Skill-memory-consolidate.md**、**Workbuddy专属/Skill-workflow-distill.md**：技能文档内容更新。
-- **mimo-code-collab/SKILL.md**：协同技能定义更新。
-- **Skill-元技能，Skill创建校验器.md**（skill-forge）：元技能双模定义更新。
+- **chrome-devtools/SKILL.md**：补双端部署工作流与脚本用法。
+- **Workbuddy专属/Skill-memory-consolidate.md、Skill-workflow-distill.md、mimo-code-collab/SKILL.md、Skill-元技能(Skill创建校验器).md**：文档/定义更新。
 
 ### Removed
-- **Skill-文件内容整理重组.md**（file-structure-organizer）：技能文件删除。
-- **Skill-多代码审计报告归一收敛.md**（code-audit-consolidation）：技能文件删除，由 `Skill-多源代码审查整合收敛.md` 承接同名能力（疑似重命名）。
-- **tender-review-kit/.github/workflows/ci.yml**：移除该子项目 GitHub Actions CI 配置。
+- **Skill-文件内容整理重组.md、Skill-多代码审计报告归一收敛.md**（由 `Skill-多源代码审查整合收敛.md` 承接）、**tender-review-kit/.github/workflows/ci.yml**。
 
 ### Docs
-- **README.md**：技能总览由 16 → 18 个活跃技能（9 目录型 + 9 根级单文件）；移除已删 file-structure-organizer，更新 code-audit-consolidation 指向新文件 `Skill-多源代码审查整合收敛.md`，新增 3 个根级单文件技能说明；`Memory-Data/` 辅助说明补充 `MEMORY.md` 索引文件。
+- **README.md**：技能总览 16→18（9 目录型+9 根级），移除 file-structure-organizer、更新 code-audit-consolidation 指向、新增 3 根级。
+
+---
 
 ## [2026-08-08]
 
 ### Changed
-- **github-personal-manager/SKILL.md**：技能主文档重写，补充阶段 0 工具探测、脚本调用约定与结构化报告规范。
-- **github-personal-manager/scripts/sop_worktree_*.sh**：worktree 三件套（add/cleanup/merge）增强，扩充冲突与合并守卫逻辑。
-- **mimo_mcp.py**：工具逻辑更新（+392 行），完善双形态（dmcp.exe 中继 / 宿主直连）实现与可观测性。
-- **Memory-Data/GitHub_Deepseek++.md**、**Skill-文件内容整理重组.md**、**Workbuddy专属/Skill-memory-consolidate.md**：技能文档内容同步更新。
-- **.github/workflows/smoke.yml**：CI 配置微调。
+- **github-personal-manager/SKILL.md**：主文档重写（阶段 0 工具探测、脚本调用约定、结构化报告规范）。
+- **github-personal-manager/scripts/sop_worktree_*.sh**：worktree 三件套增强（冲突/合并守卫）。
+- **mimo_mcp.py**：工具逻辑更新（+392 行），完善双形态（dmcp.exe 中继/宿主直连）与可观测性。
+- **Memory-Data/*.md、Skill-文件内容整理重组.md、Workbuddy专属/Skill-memory-consolidate.md**：同步更新。
+- **.github/workflows/smoke.yml**：CI 微调。
 
 ### Docs
-- **github-personal-manager/references/**：fork-ci-pitfalls.md、gh-capability.md 同步更新；smoke/README.md 与 smoke/tests/test_worktree.sh 对齐新脚本行为。
+- **github-personal-manager/references/**：fork-ci-pitfalls.md/gh-capability.md 同步；smoke/README.md 与 test_worktree.sh 对齐。
+
+---
 
 ## [2026-08-06]
 
 ### Added
-- **chrome-devtools/**：新增目录型技能（Chrome DevTools MCP 驱动本地浏览器调试/自动化/性能/Lighthouse/网络检查，全局安装 `chrome-devtools-mcp`，禁用 `npx -y`）。
-- **skill-forge**（合并）：原根级单文件 `Skill-元技能，Skill创建助手.md`（skill-creator）与 `Skill-元技能，Skill校验器.md`（skill-checker）合并为 `Skill-元技能，Skill创建校验器.md`（v3.0.0，创建+校验双模）。
-- **file-structure-organizer**：新增 `Skill-文件内容整理重组.md`（依据「文件结构化组织规范 12 条强制要求」整理重组 Markdown）。
-- **code-audit-consolidation**：新增 `Skill-多代码审计报告归一收敛.md`（多源审计报告去重归因、交叉分析、根因分析，产出唯一根治报告）。
-- **Memory-Data/**：新增 `协作方式约定_四象限_定制版.md`、`协作方式约定_四象限_通用版.md`；`用户画像分析报告_土木工程主业版.md` 重命名为 `用户画像分析报告.md`。
+- **chrome-devtools/**：新增目录型技能（Chrome DevTools MCP 驱动本地浏览器调试/自动化/性能/Lighthouse/网络，全局安装 `chrome-devtools-mcp`，禁用 `npx -y`）。
+- **skill-forge（合并）**：原 `Skill-元技能，Skill创建助手.md`+`Skill-元技能，Skill校验器.md` 合并为 `Skill-元技能，Skill创建校验器.md`（v3.0.0）。
+- **file-structure-organizer、code-audit-consolidation**：新增根级单文件技能。
+- **Memory-Data/**：新增协作方式约定（四象限定制/通用版）、用户画像分析报告（土木工程主业版→重命名）。
 
 ### Changed
-- **web-search/SKILL.md**：新增「中文政策/国标检索特别规则」（HJ/GB/国发令等走通用 `search` 而非垂直域）；`web-search/firecrawl/SKILL.md`：新增「访问形态（Dynamic-mcp 中继 / 直连）」探测选用说明。
-- **Workbuddy专属/Skill-memory-consolidate.md**：整合条款升级为「文件结构化组织规范」十二项强制要求。
-- **Workbuddy专属/Skill-workflow-distill.md**：升 v1.1.0，新增「相异任务数优先」「跨轮次台账」「门禁达标≠应创建」等规则。
-- **Memory-Data/长期记忆_Deepseek++.md**：补充 Node/npm/npx 全局安装铁律等第 13–18 条。
+- **web-search/SKILL.md**：新增中文政策/国标检索特别规则；`web-search/firecrawl/SKILL.md` 访问形态探测说明。
+- **Workbuddy专属/Skill-memory-consolidate.md**：整合「文件结构化组织规范」十二项。
+- **Workbuddy专属/Skill-workflow-distill.md**：升 v1.1.0。
+- **Memory-Data/长期记忆_Deepseek++.md**：补 Node/npm/npx 全局安装铁律。
 
 ### Removed
-- **Skill-元技能，Skill创建助手.md**、**Skill-元技能，Skill校验器.md**：并入 skill-forge。
-- **multi-worktree-parallel-merge-sop.md**：顶层方案文档移除，能力内聚至 `github-personal-manager` 的 `sop_worktree_*.sh` 三件套。
-- **Memory-Data/用户画像分析报告_土木工程主业版.md**：重命名为 `用户画像分析报告.md`。
+- **Skill-元技能，Skill创建助手.md、Skill-元技能，Skill校验器.md**（并入 skill-forge）；**multi-worktree-parallel-merge-sop.md**（能力内聚 `sop_worktree_*.sh`）；**Memory-Data/用户画像分析报告_土木工程主业版.md**（重命名）。
 
 ### Docs
-- **README.md**：同步更新技能总览（14 → 16 个：9 目录型 + 7 根级单文件），合并 skill-creator/skill-checker 为 skill-forge，新增 chrome-devtools/file-structure-organizer/code-audit-consolidation，更新外部依赖归类表与辅助体系说明。
+- **README.md**：技能总览 14→16（9 目录型+7 根级），合并 skill-creator/checker 为 skill-forge，新增 chrome-devtools/file-structure-organizer/code-audit-consolidation。
 
 ---
 
 ## [2026-08-04]
 
 ### Fixed
-- **github-personal-manager**：修复 5 个脚本 `--help` 输出仅显示 7 行且泄漏 `HELP-START` 标记的问题；`-h` 分支统一改为 `_sop_print_help` 标记块提取（新增 `scripts/lib/sop-common.sh` 公共函数）。
+- **github-personal-manager**：修复 5 脚本 `--help` 仅显 7 行且泄漏 `HELP-START` 标记（`-h` 改 `_sop_print_help` 标记块提取，新增 `scripts/lib/sop-common.sh`）。
 
 ### Docs
-- **github-personal-manager**：为全量 25 个脚本/配置/冒烟文件补充头部注释（功能 / 用途·使用场景 / 详细用法 / 注意事项），统一 `HELP-START` / `HELP-END` 标记块约定。
+- **github-personal-manager**：全量 25 脚本/配置/冒烟文件补头部注释（功能/场景/用法/注意事项），统一 `HELP-START`/`HELP-END` 标记约定。
 
 ---
 
 ## [2026-08-03]
 
 ### Added
-- **playwright-360chrome/**：新增浏览器自动化技能（Playwright + 360Chromex 内核，v2.0.0），含 SKILL.md 与 scraping/selectors/testing/debugging/ci-cd 参考文档，附 `pw_launch.mjs` / `test_pw_userdata.mjs` 启动与用户态(userDataDir)复用示例。
-- **github-personal-manager 多工作树并行开发 SOP**：新增 `scripts/sop_worktree_add.sh` / `sop_worktree_cleanup.sh` / `sop_worktree_merge.sh` 三件套；新增顶层方案文档 `multi-worktree-parallel-merge-sop.md`；冒烟测试新增 `smoke/tests/test_worktree.sh`。
-- **Memory-Data/**：新增 `GitHub_Deepseek++.md`、`长期记忆_Deepseek++.md`、`用户画像分析报告_土木工程主业版.md`；`Deepseek++系统提示词-2.md` 由根目录移入本目录。
+- **playwright-360chrome/**：新增浏览器自动化技能（Playwright+360Chromex 内核 v2.0.0）。
+- **github-personal-manager 多工作树并行开发 SOP**：`sop_worktree_add/cleanup/merge.sh` 三件套 + 顶层 `multi-worktree-parallel-merge-sop.md`（后 2026-08-06 移除）+ 冒烟 `test_worktree.sh`。
+- **Memory-Data/**：新增 GitHub_Deepseek++.md/长期记忆_Deepseek++.md/用户画像分析报告_土木工程主业版.md。
 
 ### Changed
-- **.gitignore**：调整 `Memory-Data` 忽略策略为「仅排除非 `.md` 文件」（`.md` 保留入库），撤销 2026-08-02 的"整体排除"。
-- **github-personal-manager**：SKILL.md / `scripts/lib/sop-common.sh` / `sop_fetch_prune.sh` / `sop_resolve_repo.sh` / `references/fork-ci-pitfalls.md` / `references/gh-capability.md` / `config/github-sop.config.template.sh` 多处调整；`smoke/tests/test_contracts.sh` 修订、`test_contracts_extra.sh` 重建；文档同步门禁明确"禁止本地编译"硬约束。
-- **.github/workflows/smoke.yml**：升级 actions 至 v7（消除 Node.js 20 弃用警告）。
-- **Memory-Data/GitHub_Deepseek++.md**：内容扩充。
-- **ref-material-writing**：自包含改造收口——将内部所有 AnySearch CLI 调用/引用/加载由 `[Skill技能根目录]/scripts/anysearch_cli.py` 占位符统一改为基于技能目录的相对路径 `scripts/anysearch_cli.py`（与脚本自生成 `doc` 输出一致；运行时按技能目录拼接绝对路径、不依赖 CWD）；同步修正自包含后已不准确的"固定外部命令/硬编码路径"措辞，并更新 `references/02`、`references/13`、`_router/*`、`compatibility.md`、`SKILL.md`、`assets/_流水线状态.md` 等镜像与路径解析说明；`README.md` 消除"内部引用路径待对齐"标注。Tier0+Tier1 门禁通过（ref-material-writing 结构合法、0 断链 WARN）。
-
-- **web-search**：解耦重构为「父 Skill 双轨架构」——父 `web-search/SKILL.md` + `web-search/README.md` 持有全部本地化/私有化约束与五级裁决逻辑（双轨并行 → 多来源印证 → 双工具补台 → 原生 `web_search`/`web_fetch` 兜底 → 父复审裁决）；AnySearch 轨道改为并入上游 `anysearch-ai/anysearch-skill`（`web-search/anysearch-skill/`；**实际为扁平并入、无嵌套 `.git`，不能 `git pull` 升级**——本条原表述"克隆纯净版、`git pull` 即升级"有误，已于同日审计修复中更正）；Firecrawl 轨道由「MCP/Dynamic-mcp」改为全局官方 CLI（`firecrawl` v1.19.27，npm 全局落 `D:\Tools\Assembly\nodejs\node_global`），新增 `web-search/firecrawl/SKILL.md` 适配层封装，经 `gh api` 追踪 `firecrawl/firecrawl` 的 `openapi.json` 跟进上游 API 演进；删除冗余 `web-search/references/`（anysearch.md/firecrawl.md/orchestration.md，知识已并入父 SKILL.md 与子 Skill）；AnySearch 调用严格走 `uv run --with requests python`（原 `uv run --project D:/Tools/Assembly/python/myenv python` 已于同日审计修复中废弃）。
+- **.gitignore**：Memory-Data 忽略策略改为「仅排除非 .md」，撤销 2026-08-02 整体排除。
+- **github-personal-manager**：SKILL.md/`sop-common.sh`/`sop_fetch_prune.sh`/`sop_resolve_repo.sh`/references/config 多处调整；smoke 测试修订；文档同步门禁明确「禁止本地编译」。
+- **.github/workflows/smoke.yml**：升级 actions 至 v7。
+- **Memory-Data/GitHub_Deepseek++.md**：扩充。
+- **ref-material-writing**：自包含改造收口——AnySearch CLI 调用统一改基于技能目录相对路径 `scripts/anysearch_cli.py`（不依赖 CWD）；修正"硬编码路径"措辞，Tier0+Tier1 通过。
+- **web-search**：解耦重构为「父 Skill 双轨架构」——父 web-search 持有本地化/私有化约束与五级裁决；AnySearch 轨道并入上游 `anysearch-ai/anysearch-skill`（扁平并入、非 clone、不能 `git pull`）；Firecrawl 轨道改全局官方 CLI（v1.19.27）+ `web-search/firecrawl/SKILL.md` 适配层；删冗余 references；AnySearch 调用严格 `uv run --with requests python`。
 
 ### Moved
-- **workbuddy-workspace-migration/** → `Workbuddy专属/workbuddy-workspace-migration/`（整体迁移至专属子目录）。
-- **Skill-memory-consolidate.md** → `Workbuddy专属/Skill-memory-consolidate.md`。
-- **Skill-workflow-distill.md** → `Workbuddy专属/Skill-workflow-distill.md`。
+- **workbuddy-workspace-migration/、Skill-memory-consolidate.md、Skill-workflow-distill.md** → `Workbuddy专属/`。
 
 ### Removed
-- **Skill-代码审查.md**（根级单文件技能）：能力已并入 `code-review-combo`，不再独立维护。
+- **Skill-代码审查.md**（能力并入 code-review-combo）。
 
 ### Fixed
-- **web-search 解耦回归修复（code-review-combo 多轮交叉审计）**：
-  - **密钥加载回归（F2，high）**：`anysearch-skill/scripts/anysearch_cli.py` 的 `_load_env` 在脚本移入子目录后探测不到父级 `web-search/.env`，补第三级探测（脚本同目录 → `anysearch-skill/` → `web-search/`），修复轨道1 无密钥直接失效。
-  - **密钥落盘风险（C8，high）**：`firecrawl/SKILL.md` 原「方式A `firecrawl env` 写入本地 .env」会把 `FIRECRAWL_API_KEY` 明文写进已入库的 `web-search/.env`，已删除该路径并加硬约束（仅进程内注入、禁落盘、禁回显）。
-  - **调用契约与文档一致性（F3/F4/F5/F7/F9/F10/F11/B10/B11/C3/C13）**：统一为 `uv run --with requests python {SKILL_ROOT}/anysearch-skill/scripts/anysearch_cli.py`；清除 `D:\Tools\Assembly` 本机硬编码；`interact` 的 `--task` 更正为 `--prompt`；`extract` 标注为仅 REST `/v2/extract`（CLI 无该子命令）；父/子 SKILL.md、`web-search/README.md` 与仓库根 `README.md` 对「扁平并入非 clone」「密钥位于父级 `.env`」的描述全部对齐。
-  - **回归测试与门禁（F8/B12/B13/B14/C6/C7/C9/C10/C11/C12/C14）**：新增 `web-search/tests/test_fixes.py`（6 用例，含真实执行 `firecrawl interact --help` 的 CLI 契约校验）；接入冒烟门禁 Tier 3；`scripts/smoke/tier3_runtime.py` 的 `uv run --project`（`web-search` 无 `pyproject.toml`，自检空转）改为 `uv run --with requests`。
-  - **说明**：`web-search/.env` 明文持有 `ANYSEARCH_API_KEY` 并入库，为用户显式授权的既定豁免（F1），本轮不作变更；豁免仅覆盖该单一密钥。
+- **web-search 解耦回归修复（code-review-combo 多轮交叉审计）**：F2 密钥加载回归（补第三级探测）、C8 密钥落盘风险（删 `firecrawl env` 写 .env 路径、禁落盘）、F3/F4/F5/F7/F9/F10/F11/B10/B11/C3/C13 调用契约与文档一致性（统一 `uv run --with requests python`、清 `D:\Tools\Assembly` 硬编码）、回归测试 `test_fixes.py`（6 用例）+ Tier3 接入；说明 `web-search/.env` 明文持 ANYSEARCH_API_KEY 为用户授权豁免（仅覆盖该密钥）。
 
 ### Docs
-- **README.md**：技能总览由"12 个"重写为"14 个活跃技能"，移除已退役的 `github-repo-sync` 与已删除的 `anysearch-skill`，新增 `code-review-combo` / `mimo-code-collab` / `playwright-360chrome`（新增）及移入 `Workbuddy专属/` 的 `workbuddy-workspace-migration`；同步更新各技能详细说明、外部依赖归类与辅助体系章节。
+- **README.md**：技能总览「12 个」→「14 个」，移除 github-repo-sync/anysearch-skill、新增 code-review-combo/mimo-code-collab/playwright-360chrome/Workbuddy专属 迁移项。
 
 ---
 
 ## [2026-08-02] · 发版 v2.2.1
 
 ### Fixed
-- **github-personal-manager**：修复 `_sop_resolve_remotes` 远端三元组解析中 `UPSTREAM_REPO` 漏填（M1）；`sop_branch_merged_status.sh` 在 `GH_USER` 未解析时干净跳过 open PR 查询段、强化 `_sop_pr_open_list` 守卫避免畸形 `gh pr list --repo /`（M2/M3）；`sop_fetch_prune.sh` dry-run 改用 `git fetch --prune --dry-run` 与 confirm 模式范围一致（L1）；`sop_resolve_repo.sh`/`sop_sync_upstream.sh` 解析失败时优雅降级并给出明确告警、消除"静默空 GH_USER"误导（L2）；`sop_resolve_repo.sh` 补 `-h/--help` 解决风格不一致（L5，附带）。
+- **github-personal-manager**：修复 `_sop_resolve_remotes` UPSTREAM_REPO 漏填（M1）、`sop_branch_merged_status.sh` GH_USER 未解析干净跳过（M2/M3）、`sop_fetch_prune.sh` dry-run 与 confirm 范围一致（L1）、`sop_resolve_repo.sh`/`sop_sync_upstream.sh` 解析失败优雅降级（L2）、`sop_resolve_repo.sh` 补 `-h/--help`（L5）。
 
 ### Added
-- **github-personal-manager 冒烟测试**：新增 `smoke/tests/test_contracts_extra.sh` 契约测试（M4），覆盖 open PR 反向识别、GH_USER 未解析干净跳过、sync_upstream M>0 PR 核查三处边界；冒烟用例总数 +3（PASS=59 SKIP=1）。
+- **github-personal-manager 冒烟测试**：新增 `test_contracts_extra.sh`（M4，覆盖 open PR 反向识别/GH_USER 跳过/sync_upstream 核查），用例 +3（PASS=59 SKIP=1）。
 
 ---
 
 ## [2026-07-31]
 
 ### Added
-- **github-personal-manager**：新增「提交前文档同步门禁」——`scripts/sop_docs_sync_check.sh`（按 Tier 1/2/3 分层检查清单，dry-run 只读、阻断类未同步时退出码 2）+ `references/docs-sync-checklist.md`（分层定义与免触发边界）；新增 `scripts/sop_resolve_repo.sh`，从 `git remote -v` 确定性提取「仓库三元组」`GH_USER`/`REPO_NAME`/`UPSTREAM`，供全任务复用。
-- **仓库新增技能**：`code-review-combo/`（review-spd + open-code-review-delegate 双子技能交叉验证，产出唯一合并审计报告）；`workbuddy-workspace-migration/`（工作区迁移技能）；根级新增 `Skill-memory-consolidate.md`、`Skill-workflow-distill.md`、`Skill-代码审查.md` 三个技能文件。
-- **github-personal-manager 冒烟测试**：新增 `smoke/tests/test_contracts.sh` 契约测试。
+- **github-personal-manager：新增「提交前文档同步门禁」**——`sop_docs_sync_check.sh`（Tier1/2/3 分层，dry-run 只读、未同步退出 2）+ `references/docs-sync-checklist.md`；新增 `sop_resolve_repo.sh` 提取仓库三元组。
+- **仓库新增技能**：`code-review-combo/`（review-spd + open-code-review-delegate 双子技能）、`workbuddy-workspace-migration/`、根级 `Skill-memory-consolidate.md`/`Skill-workflow-distill.md`/`Skill-代码审查.md`。
+- **github-personal-manager 冒烟测试**：新增 `test_contracts.sh`。
 
 ### Changed
-- **github-personal-manager**：SKILL.md 重写——阶段 0 改用 `where.exe` 探测 git/gh 真实路径（路径不硬编码）；新增「二次显式授权铁律」第 6 条；新增「仓库目录解析与三元组提取」节；环境硬约束放宽（默认远程 CI，允许本机已装且在 PATH 的工具本地编译）；`scripts/lib/sop-common.sh` 新增 `_sop_resolve_remotes` 中央解析、被 `sop_sync_upstream.sh` 复用；配置模板 `github-sop.config.template.sh` 同步更新。
-- **tender-review-kit**：SKILL.md / SKILL-zw.md / FOR_AI / INSTALL / QUICKSTART / README 及多个 scripts（build_excel / check_* / cross_doc / export_contribution / extract_text / harvest_ai_words / promote_candidates / scan_* / run_pipeline）与 tests（generate_fixture / test_qa_full / test_smoke）全面更新。
-- **Memory-Data/GitHub_Deepseek++.md**：知识库内容大幅扩充（约 225 行）。
-- **mimo_mcp.py**：小幅调整（默认超时与形态说明等配套修订）。
-- **README.md / @文件读写通用模块.md / @Skill 调用子 Skill 和外部工具的范式.md / web-search/scripts/anysearch_cli.py**：配套微调。
+- **github-personal-manager**：SKILL.md 重写（where.exe 探真实路径、二次显式授权第 6 条、三元组提取节）；`sop-common.sh` 新增 `_sop_resolve_remotes`；config 模板同步。
+- **tender-review-kit**：SKILL.md/SKILL-zw/FOR_AI/INSTALL/QUICKSTART/README + 多个 scripts/tests 全面更新。
+- **Memory-Data/GitHub_Deepseek++.md**：大幅扩充。
+- **mimo_mcp.py**：小幅调整。
+- **README.md/@文件读写通用模块.md/@Skill 调用子 Skill 和外部工具的范式.md/web-search/scripts/anysearch_cli.py**：配套微调。
 
 ### Removed
-- **github-personal-manager/docs**：删除 `gitextensions-integration.md`、`scripts-catalog.md`、`sop-plan.md` 三份旧文档（能力已并入 SKILL.md 或转为脚本自文档化）。
-- **test_mimo_mcp_smoke.py**：离线冒烟测试文件退役（相关能力由新增冒烟测试体系承接）。
+- **github-personal-manager/docs**：删除 gitextensions-integration.md/scripts-catalog.md/sop-plan.md 三份旧文档。
+- **test_mimo_mcp_smoke.py**：离线冒烟退役（由新增冒烟体系承接）。
 
 ### Docs
 - CHANGELOG 新增本条，记录本次仓库全量更新（含文档同步门禁能力落地）。
@@ -489,57 +356,61 @@
 ## [2026-07-24]
 
 ### Removed
-- **github-repo-sync（Skill-GitHub仓库同步助手.md）**：删除该独立技能文件。其"六步同步流程"中步骤 1–5 与 `github-personal-manager` 的「日常同步巡检」工作流高度重复，且两技能均含"同步"触发词存在双触发歧义，故退役（原文件备份留存于 `_skill_backup/`）。
+- **github-repo-sync（Skill-GitHub仓库同步助手.md）**：删除独立技能（六步同步中 1–5 与 github-personal-manager 重复且双触发歧义，备份留存 `_skill_backup/`）。
 
 ### Added
-- **github-personal-manager**：新增 `scripts/sop_sync_report.sh`，以"合并前本地 tip"为基准生成结构化的上游更新分析报告（新增功能 / 改进与优化 / Bug 修复 / 破坏性变更 / 其他 + 详细提交记录表），吸收自 github-repo-sync 的独有能力。
-- **mimo_mcp.py**：新增 `mimo.metrics` 可观测性工具（进程级调用计数 + 成功/失败/超时/错误分类 + 累计与最大耗时 + 上次错误），落实协同稳定性监控盲区；新增「形态A（dmcp.exe 中继）/ 形态B（宿主直连）」双形态说明块，底层同一脚本、跨平台可移植。
-- **mimo-code-collab**：新增离线冒烟测试 `test_mimo_mcp_smoke.py`，校验 v2.2.0 关键契约（版本号、`get_code_timeout` 默认 900、`mimo.metrics` 注册与分类计数守恒）。
+- **github-personal-manager**：新增 `scripts/sop_sync_report.sh`（合并前本地 tip 为基准的上游更新分析报告）；**mimo_mcp.py** 新增 `mimo.metrics` 可观测性 + 形态A/B 双形态说明。
+- **mimo-code-collab**：新增离线冒烟 `test_mimo_mcp_smoke.py`（校验 v2.2.0 关键契约）。
 
 ### Changed
-- **github-personal-manager**：工作流一新增「第四步：生成上游更新分析报告」，合并 upstream 前先记录"合并前本地 tip"作为报告基准（严禁用合并后 HEAD，否则差异为空）；「输出格式约束」新增第 5 条"各工作流结构化报告硬规则"，要求所有工作流执行完毕输出结构化、大白话结果报告（操作对象 / 执行了什么 / 结果 / 风险与异常 / 下一步建议）。
-- **mimo_mcp.py**：默认任务超时 300s → 900s（匹配真实任务普遍 100–200s+ 耗时）；mcp.json 模板 `command` 改用绝对 venv python 路径以规避中继/连接器冷启动握手超时强杀；版本 v2.1.0 → v2.2.0。
-- **mimo-code-collab（v5 → v6）**：能力边界明确「mimo 可在 `working_dir` 内生成/修改文件（实测落盘）」纠正旧误区；形态A 具体化 `dmcp.exe` 中继并补充「中继侧超时/保活须随 `MIMO_CODE_TIMEOUT` 同步上调」「宿主改 mcp.json 后哈希信任需重载」两条跨平台部署要点；`invocation.md` 泛化 health 样本超时、`test-matrix.md` 新增 T-BND-09 可观测性用例、`cases-and-pitfalls.md` 补充 7 条测试实证陷阱（超时只阻断响应回传不丢产出→先读 `working_dir` 兜底 / 缺可观测性 / 中继超时未同步 / 宿主配置未重载信任 / 文件读写误区 / 上下文回灌自动化 / 显式收敛标准）。
+- **github-personal-manager**：工作流一新增「第四步生成上游更新分析报告」、输出格式约束第 5 条结构化报告硬规则。
+- **mimo_mcp.py**：默认超时 300s→900s、mcp.json 改绝对 venv python 路径；版本 v2.1.0→v2.2.0。
+- **mimo-code-collab（v5→v6）**：能力边界明确「mimo 可在 working_dir 内生成/修改文件」；形态A 具体化 dmcp.exe 中继 + 两条跨平台部署要点；invocation/test-matrix/cases-and-pitfalls 增补。
 
 ---
 
 ## [2026-07-23]
 
 ### Added
-- **mimo-code-collab**：新增「强制连接韧性约束」（★ 最高优先级元规则）。MiMo code / Dynamic-mcp 连接超时或失联时，必须原样重试 2 次；仅连续 3 次连接失败才允许主 Agent 单独工作（降级而非甩锅，连接恢复后重新协同）。同步更新 `SKILL.md` 关键边界、`invocation` / `cases-and-pitfalls` / `test-matrix` / `collab-workflow` 五处引用，并新增可验证用例 `T-BND-08`。
-- **github-personal-manager**：补充冒烟测试用例（qa-fixes 验证）。
+- **mimo-code-collab**：新增「强制连接韧性约束」（★ 最高优先级，超时/失联原样重试 2 次，连续 3 次失败才降级）；github-personal-manager 补冒烟用例。
 
 ### Changed
-- **mimo_mcp.py**：将 `openai` 包改为首次调用时懒加载并缓存，避免 MCP Server 冷启动期加载重型 `openai` 依赖链，缩短 `dmcp` 冷启动窗口；`mimo.chat` / `mimo.health` 延迟构造 OpenAI 客户端。
-- **github-personal-manager**：修复 `ci_rerun` 调用错误，统一脚本与文案表述。
+- **mimo_mcp.py**：`openai` 包首次调用懒加载缓存，缩短 dmcp 冷启动窗口。
+- **github-personal-manager**：修复 `ci_rerun` 调用错误、统一文案。
 
 ### Removed
-- 清理 `anysearch-skill` 子技能目录（含 `.env` 与脚本）及仓库规划草案文档 `仓库规划与冒烟测试方案（草案v0.1）.md`。
+- 清理 `anysearch-skill` 子技能目录及仓库规划草案 `仓库规划与冒烟测试方案（草案v0.1）.md`。
 
 ---
 
 ## [2026-07-22]
 
 ### Fixed
-- **ref-material-writing**：全量审核 12 项修复，新增 4 份自检标准档；`officecli` 空白 docx 实测坐实 G1b 通过路径。
+- **ref-material-writing**：全量审核 12 项修复，新增 4 份自检标准档；officecli 空白 docx 实测 G1b 通过。
 
 ---
 
 ## [2026-07-19]
 
 ### Fixed
-- **ref-material-writing**：补齐状态文件「工具能力映射表 / 访问形态」并同步 compatibility 计数。
+- **ref-material-writing**：补齐状态文件「工具能力映射表/访问形态」并同步 compatibility 计数。
 
 ### Changed
-- 将 `MCP-MemPalace-memory-data` 目录中的记忆宫殿产物（数据库文件）加入忽略，不再上传到远端仓库。
-- 完善 Deepseek 记忆模块 MCP 工具执行硬约束。
+- 将 `MCP-MemPalace-memory-data` 记忆宫殿产物（数据库）加入忽略，不上传远端；完善 Deepseek 记忆模块 MCP 工具执行硬约束。
 
 ---
 
 ## [2026-07-17]
 
 ### Docs
-- 新增仓库 `README.md`，逐技能说明用途与外部依赖；准备 `v1.0.0` 发布。
+- 新增仓库 `README.md`，逐技能说明用途与外部依赖；准备 v1.0.0 发布。
 
 ### Added
-- 仓库初始化与首批私有技能集合落地（`github-personal-manager`、`mimo-code-collab`、`ref-material-writing`、`web-search` 等）。
+- 仓库初始化与首批私有技能集合落地（github-personal-manager、mimo-code-collab、ref-material-writing、web-search 等）。
+
+---
+
+格式参考 [Keep a Changelog](https://keepachangelog.com/)，条目按时间倒序排列。分类约定：
+**Added**（新增能力）/ **Changed**（行为或实现变更）/ **Removed**（移除）/ **Fixed**（缺陷修复）/ **Docs**（文档）。
+
+> 本文件由 git 历史汇编，每条对应实际提交主题；最新一条即最近一次推送的提交。
