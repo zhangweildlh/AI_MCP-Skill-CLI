@@ -34,8 +34,22 @@ if (!fs.existsSync(bin)) {
     process.exit(1);
   }
 }
-const cfg = fs.existsSync(path.join(REPO, 'local-config.json'))
-  ? JSON.parse(fs.readFileSync(path.join(REPO, 'local-config.json'), 'utf8'))
+const cfgPath = path.join(REPO, 'local-config.json');
+
+// 问题1修复：先确保浏览器已启动并自动探测到真实 CDP 端口（复用或新启），写入 local-config.json，
+// 再读取实际端口连接——不再盲连硬编码的 9223（本机真实调试浏览器可能运行在 9222/9224/... 任意端口）。
+// start.cjs 默认以临时 profile 拷贝启动（继承登录态且不污染真实 profile，问题2修复）。
+console.log('[*] 确保本地浏览器以远程调试端口运行（自动探测端口）...');
+try {
+  execSync('node "' + path.join(__dirname, 'start.cjs') + '"', { cwd: REPO, stdio: 'inherit' });
+} catch (e) {
+  console.error('[失败] 浏览器启动/端口探测失败，无法继续。请检查 localization/start.cjs 输出。');
+  process.exit(1);
+}
+
+// 重新读取探测后的端口（start.cjs 已写入 cfg.debugPort）
+const cfg = fs.existsSync(cfgPath)
+  ? JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
   : {};
 const port = cfg.debugPort || 9223;
 const userArgs = process.argv.slice(2);
