@@ -1,32 +1,33 @@
 /**
  * S3 过滤规则回归验证：用 2026-11-05 实测的 29 条「被过滤」样本，
- * 断言修复后的规则不再误杀（27 条应为「不拦截」），且 2 条真命中仍被拦截。
+ * 断言修复后的规则不再误杀（27 条应为「不拦截」），且真命中仍被拦截。
  * 同时覆盖子串边界用例（推动/召开 不得触发 动工/开工）。
+ *
+ * 运行：node scripts/test_filter_rules.js（零依赖，仅用 Node 内置模块）
+ * 样本来源：tests/fixtures/filter_false_positives.json（技能自包含，不依赖任何本机绝对路径）
  */
 const fs = require('fs');
 const path = require('path');
-const WT = 'D:/Documents/AI_MCP-Skill-CLI/worktrees/Workbuddy专属-sink-defect-fixes-20261105151349/Workbuddy专属/wechat-article-to-ima/scripts';
-const { matchFilter } = require(path.join(WT, 'pipeline.js'));
+const SKILL_DIR = path.resolve(__dirname, '..');
+const { matchFilter } = require(path.join(SKILL_DIR, 'scripts', 'pipeline.js'));
 
-const EV = 'D:/Documents/AI_Work_Temp/ima+WorkBuddy/.workbuddy/evidence/_filter_analysis.json';
-const samples = JSON.parse(fs.readFileSync(EV, 'utf8'));
+const FIXTURE = path.join(SKILL_DIR, 'tests', 'fixtures', 'filter_false_positives.json');
+if (!fs.existsSync(FIXTURE)) {
+  console.error('[错误] 缺少测试样本文件：' + FIXTURE);
+  process.exit(2);
+}
+const fixture = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
+const samples = fixture.samples || [];
 
-// 真命中（应为 true）：标题含「项目开工」/「顺利开工」的开工类标题
-const TRUE_POSITIVE = [
-  '天辰总承包EPC项目开工',
-  '工程纵览|中国化学工程东华公司总承包的碳鑫科技醇基高端化学品项目一期工程项目现场顺利开工',
-];
-// 真命中（应为 true）：确为招标公告
-const TRUE_POSITIVE_2 = [
-  '之寓·保税区人才公寓项目二标段工程总承包(EPC)专电工程专业分包招标公告',
-];
+// 真命中（应为 true）：标题含「项目开工」/「顺利开工」的开工类标题，以及确为招标公告者
+const TRUE_POSITIVE = fixture.truePositive || [];
 
 let pass = 0, fail = 0;
 const bad = [];
 
 console.log('=== ① 29 条历史被过滤样本：断言「不再误杀」===');
 for (const s of samples) {
-  const isTP = TRUE_POSITIVE.includes(s.title) || TRUE_POSITIVE_2.includes(s.title);
+  const isTP = TRUE_POSITIVE.includes(s.title);
   // 标题层判定（历史样本的 layer 字段指命中层；正文层命中一律不拦截）
   const hitTitle = matchFilter(s.title, 'title');
   // 正文层：样本只保留了命中上下文片段，用片段模拟正文（片段必然含命中词）
@@ -40,7 +41,7 @@ console.log(`  通过 ${pass} / 失败 ${fail}`);
 
 console.log('\n=== ② 真命中样例：断言「仍被拦截」===');
 let tp = 0, tpf = 0;
-for (const t of [...TRUE_POSITIVE, ...TRUE_POSITIVE_2]) {
+for (const t of TRUE_POSITIVE) {
   const hit = matchFilter(t, 'title');
   if (hit) tp++; else { tpf++; bad.push({ title: t, expect: '拦截', got: '不拦截', hitTitle: null }); }
 }
