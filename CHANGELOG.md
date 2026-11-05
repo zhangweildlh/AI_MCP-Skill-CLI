@@ -1,5 +1,14 @@
 ---
 
+## [2026-11-05]
+
+### Fixed
+- **dir/Workbuddy专属：wechat-article-search F1 端口自动探测兜底 + F2 残缺/空 Cookie 文案澄清（PR #186，`af1cfc3`）**：F1 消除「默认 9223」误导——`get_sogou_cookie.js` 改候选端口探测数组（9222~9240，按 UA 过滤跳过 WorkBuddy/Electron 自身）+ 读 `SOGOU_CDP_PORT`，未命中再报全候选不可达；错误提示改为「本机实测常为 9222 而非默认 9223」。F2 冷 profile 无 Cookie 退出码 2 文案点明「当前调试浏览器 profile 尚未访问过 weixin.sogou.com」。SKILL.md 去 9223 硬编码、补退出码 3 语义与回退段 `SOGOU_CDP_PORT` 说明。CI smoke/scope-map pass；部署态经 `scripts/deploy.js` 从 main blob 逐字节同步一致。
+- **dir/Workbuddy专属：wechat-article-to-ima 问题3上升前置契约 + F4 即停试/会话级熔断 + F5 两段式 + F8 笔记去重 + F9 state.js + F12/F13/F14 文档修正（PR #187，`f052de7`）**：① 问题3上升前置契约（chrome-devtools 调试浏览器就绪 + `SOGOU_CDP_PORT` 契约，与 wechat-article-search 呼应）；② F4 退出码 1+ANTI_SPIDER 仅记 1 次尝试不累加 attempts + 会话级反爬熔断（连续 ≥2 关键词命中即整体终止）；③ F5 提取与检索两段式范式（严禁 `&&` 串联）；④ F8 笔记类（media_type=11）去重改 `get_knowledge_list` 按 title 比对；⑤ F9 新增零依赖 `scripts/state.js` 作 `_progress.json` 唯一读写入口（强约束：failed 严禁标 ingested、mark-ingested 须复核 media_type===11）；⑥ F12 口径调和、F13 软告警（句号数不足但满足辅助判据不自动拒）、F14 凭据优先级（环境变量→`~/.config/ima/`→技能目录兜底）、F10 陷阱段改写（ima_api.cjs 现已校验 HTTP 状态码）。CI smoke pass；部署态由 main blob 逐字节重建（SKILL.md + scripts/state.js），保留 `ima_credentials.json`。
+- **dir/Workbuddy专属：恢复指南追加 ima-skills F6 参数契约 + F10 HTTP 状态码重放项（PR #188，`878fb3c`）**：① F6（`ima_api.cjs` 位置参数无 `--help`/无格式校验）→ 补 `--help`/`-h` 用法输出（exit 0）+ `apiPath` 须 `openapi/<module>/v1/<action>` 前缀校验（exit 1 + code -100）；② F10 `postJson` 校验 `res.ok`，非 2xx 抛错（含 `httpStatus`/`body`，`main` catch 透出到 stderr JSON）；§0.4 覆盖检测桩补两项 grep、附录 A 回归补 IA-01b；同步 `wechat-article-to-ima/SKILL.md` 空响应陷阱段改写。部署态 `ima_api.cjs` 已本地 node 功能测试 4/4 通过。
+
+---
+
 ## [2026-11-04]
 
 ### Fixed
