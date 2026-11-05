@@ -20,6 +20,9 @@
    # 2026-11-04 新增修复项检测（ima_api.cjs）
    grep -q "openapi/<module>/v1/<action>" "<SKILL>/ima_api.cjs" && echo "P-ima-API 在位" || echo "P-ima-API 丢失"
    grep -q "err.httpStatus" "<SKILL>/ima_api.cjs" && echo "P-ima-HTTP-status 在位" || echo "P-ima-HTTP-status 丢失"
+   # 2026-11-05 新增：笔记类入库契约（文档级修复 D13 / P-ima-NOTE-FOLDER）
+   grep -q "import_doc. 不接受 .folder_id\|import_doc\` 不接受 \`folder_id\`" "<SKILL>/notes/SKILL.md" && echo "P-ima-NOTE-FOLDER(notes) 在位" || echo "P-ima-NOTE-FOLDER(notes) 丢失"
+   grep -q "截断到 30 个字符" "<SKILL>/knowledge-base/SKILL.md" && echo "P-ima-NOTE-FOLDER(kb) 在位" || echo "P-ima-NOTE-FOLDER(kb) 丢失"
    ```
 
 ---
@@ -287,6 +290,16 @@ node "<SKILL>/ima_api.cjs" openapi/wiki/v1/search_knowledge_base "{\"query\":\"\
 - **验证**：对返回非 2xx 的接口调用 → 退出码 1、stderr JSON 含 `httpStatus`（如 `404`）与截断 `body`；对 2xx 接口 → 仍正常返回文本。
 - **联动**：`wechat-article-to-ima/SKILL.md` 的「空响应陷阱」段已据本修复改写为「非 2xx 以退出码 1 + stderr JSON（含 httpStatus）暴露」，调用方遇此直接用 curl 带 `ima-openapi-clientid/apikey` 头复放定位。
 
+### P-ima-NOTE-FOLDER（ima_api.cjs 契约项，2026-11-05 新增；文档级修复）
+
+- **背景**（2026-11-05 实测）：`openapi/note/v1/import_doc` **不接受 `folder_id` 参数**——传入即返回 `code=310001 msg=文件夹不存在`。正确链路为「先 `import_doc` 建笔记（笔记落默认位置）→ 再用 `openapi/wiki/v1/add_knowledge`（`media_type=11`、`note_info.content_id=<note_id>`）把笔记关联到知识库子目录」。
+- **本项性质**：**不是 `ima_api.cjs` 的代码缺陷**，而是服务端契约事实。故处置为**文档级修复**（对应 §3 的 D13 条目），`ima_api.cjs` **无需改动**（不得为「迎合一个非法参数」而改脚本）。
+- **连带事实（须一并写入文档）**：
+  1. **笔记去重不可用整标题精确比对**——服务端会把条目 `title` 截断到 30 字符并追加 `...`（实测 28 条中 11 条被截断）。去重键须为「归一化标题前 30 字符」，且**必须先剥除末尾 `...` 再切片**（标题恰为 30 字时标记落在切片内会失配）。
+  2. **开放接口无 delete / remove 端点**（`openapi/**` 全量枚举确认）→ 重复入库**不可逆**，故「入库前严格查重」是硬要求，不可「先入库再比对」。
+  3. **服务端会把正文首个元数据行当作标题**——Markdown 若用 YAML front-matter，front-matter 会整块泄漏进条目标题（实测历史条目 5/11 出现 `title: "…` 污染）。调用方须显式传 `title` 参数，且 Markdown 元数据头用内联形态、禁用 front-matter。
+- **验证**：`node ima_api.cjs openapi/note/v1/import_doc '{"content_format":1,"content":"# t\n\n正文","folder_id":"folder_x"}'` → 返回 `code=310001`；去掉 `folder_id` 后 `code=0` 且返回 `note_id`。
+
 ---
 
 ## 3. 文档修复重放清单（12 项）
@@ -305,6 +318,7 @@ node "<SKILL>/ima_api.cjs" openapi/wiki/v1/search_knowledge_base "{\"query\":\"\
 | D10 | `_skillhub_meta.json` | `iconLocalPath` 本地化为当前机器实际路径（`C:\\Users\\<用户名>\\...`） |
 | D11 | 根 `SKILL.md` Credential Check 与配置写入指引（加固项） | 检查桩由 shell `~` 口径改为 node `os.homedir()` 口径（内嵌 `node -e` 判断 `client_id`/`api_key` 存在性，成功/失败均输出实际探测目录）；「方式 A」写入指引改双版本（node 版推荐 + bash 版）并加 Git Bash `$HOME` 虚拟化警示框（实测 `~` → 虚拟化目录，而 Node 侧按 `os.homedir()` 探测，`~` 写入会写错位置） |
 | D12 | `knowledge-base/SKILL.md` Step 5 的「⛔ 非零退出」行之后（加固项） | 新增「bash 传参陷阱（实测踩坑，2026-11-02）」引用块：禁止参数先存变量再 `$VAR` 展开（bash 分词不剥离变量展开后的引号 → 主机名带字面引号 → ENOTFOUND）；给单条内联传参与 `eval "set -- $(...)"` 后 `"$@"` 传递两种正确写法；注明脚本已内置剥离/白名单防线（对应 H1） |
+| D13 | 根 `SKILL.md` 笔记入库章节 + `notes/references/api.md`（**文档陷阱项**，2026-11-05 新增） | 补「`import_doc` **不接受 `folder_id`**」实测陷阱：传入 `folder_id` 返 `code=310001 msg=文件夹不存在`。正确用法为「先 `import_doc` 建笔记（落默认位置、不传 `folder_id`）→ 再 `wiki/v1/add_knowledge` 关联目标子目录」。同章补「笔记类去重不可用整标题精确比对：服务端把 `title` 截断到 30 字符并追加 `...`，须用前缀去重键（先剥末尾 `...` 再取前 30 字符）」，以及「开放接口无 delete/remove 端点 → 重复入库不可逆，入库前必须严格查重」 |
 
 **不修项裁决（防过度修复）**：
 - `application/zip` → media_type 14 的映射**保留**：api.md 明确它是 Xmind 合法 content_type，契约保真优先（审计项 P3-13）。

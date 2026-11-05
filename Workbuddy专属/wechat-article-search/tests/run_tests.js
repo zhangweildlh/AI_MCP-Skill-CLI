@@ -204,6 +204,37 @@ async function main() {
   state.onError = null;
   state.searchHtml = NORMAL;
 
+  console.log('\n[Step4/回归] Round2 缺陷锁定用例（2026-11-05 实测修正：URL 实体编码）');
+  // R8: 搜狗结果页 href 属性中的 `&` 被写作 `&amp;`；不解码则 URL 畸形，
+  //     跳转页会重定向到 antispider 页 → url_resolved 恒 false、正文取不到
+  //     （实测 49 条中 24 条未解析中转链接全部含未解码 `&amp;`）
+  check('R8a-decodeUrlEntities 解码 &amp;',
+    context.decodeUrlEntities('https://weixin.sogou.com/link?url=abc&amp;type=2&amp;query=x')
+      === 'https://weixin.sogou.com/link?url=abc&type=2&query=x',
+    String(context.decodeUrlEntities('https://weixin.sogou.com/link?url=abc&amp;type=2&amp;query=x')));
+  check('R8b-decodeUrlEntities 保留正常 & 不受影响',
+    context.decodeUrlEntities('https://mp.weixin.qq.com/s?a=1&b=2') === 'https://mp.weixin.qq.com/s?a=1&b=2',
+    String(context.decodeUrlEntities('https://mp.weixin.qq.com/s?a=1&b=2')));
+  check('R8c-decodeUrlEntities 解码数字实体',
+    context.decodeUrlEntities('a&#38;b') === 'a&b', String(context.decodeUrlEntities('a&#38;b')));
+  check('R8d-decodeUrlEntities 空值安全', context.decodeUrlEntities('') === '' && context.decodeUrlEntities(null) === '');
+  // 解析结果中的 url 必须已是解码后的良构 URL（不得残留 &amp;）
+  const entArts = context.parseArticlesFromSearchHtml(NORMAL, 10);
+  check('R8e-解析结果 url 不含未解码实体 &amp;',
+    entArts.every((a) => !String(a.url).includes('&amp;')),
+    JSON.stringify(entArts.map((a) => a.url).filter((u) => u.includes('&amp;'))));
+  check('R8f-解析结果 url 仍为搜狗中转链接形态',
+    entArts.every((a) => String(a.url).startsWith('https://weixin.sogou.com/link?url=')),
+    JSON.stringify(entArts.map((a) => a.url).slice(0, 1)));
+  // R9: getRealUrl 收到未解码 URL 时应先解码再请求（否则请求畸形路径）
+  resetRequests();
+  state.resolve = { statusCode: 302, headers: { location: MP }, body: '' };
+  await context.getRealUrl('https://weixin.sogou.com/link?url=abc&amp;type=2', 'SNUID=t; SUGGEST=s');
+  const linkReq2 = state.requests.find((r) => r.path.startsWith('/link'));
+  check('R9-getRealUrl 请求前已解码实体（path 不含 &amp;）',
+    !!linkReq2 && !linkReq2.path.includes('&amp;'),
+    linkReq2 && linkReq2.path);
+
   console.log('\n[Step4/集成] Cookie 注入（浏览器驱动降级路径）');
   // 有 cookie：搜索请求 + 直链请求都应带 Cookie
   resetRequests();

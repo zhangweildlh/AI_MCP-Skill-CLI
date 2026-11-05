@@ -7,7 +7,7 @@ license: Proprietary
 compatibility: 依赖技能 wechat-article-search（检索）、技能 ima-skills（入库）、原生网页抓取能力（正文抓取）；可选依赖浏览器自动化能力与网页抓取服务用于兜底。需要可访问互联网，且已配置目标 ima 知识库的接口凭据。
 metadata:
   author: zhangweildlh
-  version: 1.2.3
+  version: 1.3.0
   category: knowledge-management
 allowed-tools: Bash Read Write Edit WebFetch
 ---
@@ -83,8 +83,12 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 1. 确认 chrome-devtools 已激活：其 `start.cjs` 已自动探测真实调试浏览器端口（按 UA 过滤跳过 9222 上的 WorkBuddy 自身 Electron），并写入 `local-config.json` 的 `debugPort`。
 2. 读取该端口，经环境变量 `SOGOU_CDP_PORT` 传给 `get_sogou_cookie.js`（本技能不再依赖 9223 硬编码默认）；未就绪时先按 chrome-devtools 流程拉起（复用真实浏览器登录态 / `User Data` 拷贝方案），再继续。
-3. Cookie 提取后置 `-c` 传给 `search_wechat.js`；**禁止用 `&&` 串联提取与检索**（避免前段失败静默短路掩盖真实搜索行为），须两段式（先取 `CK` 并判 `rc==0 && -n CK`，否则转免 Cookie 降级，详见「检索执行规则」）。
-4. ANTI_SPIDER 即停试与会话级终止策略见「检索执行规则 → 退出码 / `ANTI_SPIDER` 判据表」硬约束（F4）。
+3. **调试端口必须实测连通，不得只读配置文件（2026-11-05 实测修正）**：`local-config.json` 的 `debugPort` 只是**上次写入的配置值**，与实际监听状态可能不一致——实测出现过「配置为 9223 但该端口 ECONNREFUSED、浏览器进程根本没跑」的情形，且**运行中途端口还会消失**（浏览器进程仍在、调试端口不再监听），此时 chrome-devtools MCP 报 `Could not connect to Chrome`。因此：
+   - 取到端口后必须实测：`node scripts/resolve_midlink.js --check`（等价于 `GET http://127.0.0.1:<port>/json/version` 探活）；
+   - 探活失败 → 先按 chrome-devtools 流程拉起（`node <chrome-devtools 技能目录>/localization/start.cjs`，**须在技能目录内执行**），再探活；
+   - 仍失败 → 记为告警 `browser_unavailable`，检索可继续（走免 Cookie 降级），但**降级链二级（浏览器解析）不可用**，抓取阶段须相应降级并在四栏清单中标注。
+4. Cookie 提取后置 `-c` 传给 `search_wechat.js`；**禁止用 `&&` 串联提取与检索**（避免前段失败静默短路掩盖真实搜索行为），须两段式（先取 `CK` 并判 `rc==0 && -n CK`，否则转免 Cookie 降级，详见「检索执行规则」）。
+5. ANTI_SPIDER 即停试与会话级终止策略见「检索执行规则 → 退出码 / `ANTI_SPIDER` 判据表」硬约束（F4）。
 
 ### 缺失处置
 
@@ -101,7 +105,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 3. 按「任务卡轮转规则」确定本轮执行的任务卡、目标子目录与关键词簇。
 4. 对 `[keywords]` 中的每个关键词串行执行检索（优先 `-c` 接口，见「检索执行规则」，**提取与检索须两段式、禁止 `&&` 串联**），捕获检索脚本的退出码与标准错误，按「退出码 / `ANTI_SPIDER` 判据表」分流：退出码 2 立即中止本轮并报告；退出码 1 + 含 `ANTI_SPIDER` 立即终止该关键词本轮（仅记 1 次尝试，不累加 attempts）并据会话级熔断规则判断是否整体终止；退出码 1 无 `ANTI_SPIDER`（网络故障）按限流退避并累加 attempts；退出码 0 且 `total:0` 标记「服务端零收录」并继续下一关键词（不累加 attempts）。每次检索后等待 `[cool_down_seconds]` 秒。对 `url_resolved=true` 的结果直接保留；对 `url_resolved=false` 的结果（搜狗中转链接）**不立即丢弃**，纳入「抓取降级链」由一级 / 二级尝试打开中转链接解析真实内容，最终以「完整性闸门」判定是否入库——取到完整正文则入库，取不到则标记失败并继续，禁止静默丢弃。
 5. 对检索结果按标题去重，再按「过滤规则」剔除中标类、开工类、招商类、广告类文章，命中即丢弃且不抓取。
-6. 按「抓取降级链」逐篇抓取正文，抓取结果落盘为 Markdown 文件，文件名等于文章标题（替换文件系统非法字符）。每份 Markdown 文件必须在正文前写入元数据头，依次包含：来源公众号、发布时间、作者、原文直链、采集日期，随后为正文。文件内容格式如下：
+6. 按「抓取降级链」逐篇抓取正文，抓取结果落盘为 Markdown 文件，文件名等于文章标题（替换文件系统非法字符）。每份 Markdown 文件必须在正文前写入元数据头，依次包含：来源公众号、发布时间、作者、原文直链、采集日期，随后为正文。**元数据头格式锁定为下列内联形态，严禁改用 YAML front-matter**（`---` / `title: "…"`）——服务端会把正文首个元数据行当作标题，front-matter 会整块泄漏进条目标题（实测历史条目 5/11 出现 `title: "…` 污染，叠加服务端 30 字符截断后既不可读又导致去重失配）。文件内容格式如下：
    ```
    # {文章标题}
    
@@ -113,6 +117,7 @@ allowed-tools: Bash Read Write Edit WebFetch
    
    {正文}
    ```
+   > `原文直链` 一律填**解析后的真实直链**（`mp.weixin.qq.com/s?…`），中转链接未解析成功时填已解码的原链接。
 7. 对每份 Markdown 文件执行「完整性闸门」，未通过者标记为失败并跳过，禁止入库。
 8. 将通过闸门的文件按「入库流程」逐篇存入 `[knowledge_base_id]` 下 `[folder_id]` 指定的子目录，每篇处理完立即写回进度文件。
 9. 执行「复验」，输出应入库、实入库、被过滤、失败四栏清单。
@@ -134,7 +139,15 @@ allowed-tools: Bash Read Write Edit WebFetch
     - 删除所有其他文件和目录，但**严禁删除尚未成功入库的本地 `.md` 文章副本**：此类文件须移动到 `[workspace]/failed_quarantine/` 子目录保留（供人工补做或下一轮续跑）；可安全删除的仅限检索结果中间文件（如 `[关键词].json`）、临时日志与其它过程文件；
     - 删除操作必须为彻底删除（不进入回收站），但出于安全考虑，先移动到临时 quarantine 目录再删除，确认无误后清空 quarantine；
     - 清扫完成后输出保留文件清单（含 `_progress.json`、`.workbuddy/` 目录，以及 `failed_quarantine/`（若存在））。
-12. 按「任务卡轮转规则」更新该卡的上次运行日期、下次到期日与轮转序号。
+12. 按「任务卡轮转规则」更新该卡的上次运行日期、下次到期日与轮转序号。**该步骤的写入必须经 `scripts/state.js update-card` 执行**（F9 唯一入口），示例：
+    ```bash
+    node scripts/state.js --progress "[workspace]/_progress.json" update-card --card A \
+      --last-run 2026-11-05 --next-due 2026-11-15 --rotate-index 0 \
+      --status completed --note "本轮要点" --pending-keywords "EPC,总包"
+    ```
+    - `--rotate-index` 传参时按轮转规则在 0 / 1 间切换；未传 `rotate_index`（两簇全搜）时保持不变。
+    - 被反爬熔断（F4a）时 `--status antispider_partial`，未检索的关键词写入 `--pending-keywords`，下次重试时刻写入 `--next-retry-at`。
+    - `attempts` 仍由 `set-attempts` / `reset-attempts` 单独改写，不得混入本命令。
 
 ## 任务卡轮转规则
 
@@ -174,27 +187,61 @@ allowed-tools: Bash Read Write Edit WebFetch
   | 1 | 无 `ANTI_SPIDER`（网络中断 / 连接重置等） | 请求失败、一篇未取到 | 视为临时网络故障，按退避公式重试；**严禁**把该情形伪装为 `total:0` 空列表（脚本自身已保证失败时不返回空列表） |
   | 2 | — | 参数非法（如 `-n 0` / 非数字 / 未知选项） | 立即中止本轮并报告，属本技能调用姿势错误，须修正 `[search_script_dir]` 与参数后再调用 |
 
-- **会话级反爬熔断（F4 硬约束）**：同一执行内若连续 ≥2 个关键词命中 `ANTI_SPIDER`（退出码 1 + 含 `ANTI_SPIDER`），判定「当前出口 IP / 会话已被风控」，立即**整体终止本轮**（不等候、不空转），将该卡标记为「反爬终止 / 待冷却数小时后或换出口 IP 重试」；**明令禁止**对已被标记会话维反爬的关键词在同一执行内重复硬试。
+- **会话级反爬熔断（F4 硬约束，2026-11-05 拆分为 F4a / F4b）**：同一执行内若连续 ≥2 个关键词命中 `ANTI_SPIDER`（退出码 1 + 含 `ANTI_SPIDER`），判定「当前出口 IP / 会话已被风控」。**「停止继续检索」与「丢弃已取回的数据」是两个独立决策，必须分开处置**——检索走 `weixin.sogou.com`，抓取走 `mp.weixin.qq.com`，后者不受前者风控影响：
+  - **F4a（检索熔断，默认）**：立即**停止继续发起检索请求**（不等候、不空转、不对已被标记会话维反爬的关键词重复硬试），**但保留已取回的检索结果并继续走「去重 → 过滤 → 抓取 → 闸门 → 入库」**。处置：该卡 `status=antispider_partial`，未检索的关键词写入 `pendingKeywords`，`note` 写明已取回量与待补词。
+  - **F4b（整体终止）**：仅当**本轮已取回结果数 = 0 且全部关键词均命中 `ANTI_SPIDER`** 时触发——此时无数据可处理，才整体终止本轮。
+  > **实测依据（2026-11-05）**：原 F4 把两条语义合并，曾使「第 1 个关键词已成功取回 49 条真实结果、第 2 个词起被反爬」的场景产出归零；而那 49 条中实际有 14 篇完全可入库。按 F4a 处置后同一批数据产出 14 篇。
 
 - **零结果细化（内部判定，对外口径不变）**：检索结束须区分三种零结果——(a) 退出码 1 + 含 `ANTI_SPIDER` → 反爬（**不累加 attempts**，仅记 1 次尝试并转下一关键词，见上方判据表与会话级熔断）；(b) 退出码 1 + 无 `ANTI_SPIDER` → 网络故障（按限流退避，累加 attempts）；(c) 退出码 0 + `total:0` → 服务端确无该关键词收录（**不累加 attempts**，标记「服务端零收录」并继续下一关键词）。对外表述仍统一为「疑似平台限流」（遵循 §边界与限制第 5 条），不得宣称「该主题没有文章」。
 
 ### 过滤规则
 
-标题或正文命中下列任一词族，即丢弃该篇文章：
+过滤必须**分层执行**（2026-11-05 实测修正）。原「标题或正文命中下列任一词族即丢弃」的规则在 EPC 等专业主题下误杀率高达 **93%**（实测 29 篇被过滤中 27 篇为误杀），因为「评标」「中标」「开工」「推广」是该领域的高频通用词与政策套话（「评标办法和标准」「招标人与中标人的责任」「大力推广」「可复制、可推广的经验」）。修正后的规则：
 
-- 中标类：中标、中标候选、开标、评标、中标公示、成交公告、候选人。
-- 开工类：开工、奠基、动工、破土、开工仪式、正式开工。
-- 招商类：招商、招商引资、招募、加盟、招募令。
-- 广告类：广告、推广、商务合作、投放、赞助、带货。
+**强特征（strong）**——命中即判定为该类公告：
+
+- 中标类：中标公示、中标公告、成交公告、中标候选人、中标候选人名单、开标记录、评标结果公告、评标结果、招标公告、招标编号、中标通知书、预中标公示、中标结果公告、成交通知书、中标金额。
+- 开工类：开工仪式、开工典礼、正式开工公告、奠基仪式、破土动工、开工动员。
+- 招商类：招商公告、招募令、加盟合作、招商热线、投资招募公告、招商合作。
+- 广告类：商务合作、广告投放、赞助合作、带货直播、微信公众号广告、广告合作、商业推广。
+
+**弱特征（weak）**——该词在目标领域属高频通用词，**仅在标题层**、且**上下文模式同时命中**时才拦截：
+
+| 词 | 标题层上下文模式（须同时满足） |
+| --- | --- |
+| 中标 | `(中标\|预中标)(公告\|公示\|候选人\|结果\|通知书\|候选人名单\|金额)` |
+| 开标 | `(开标\|唱标)记录` |
+| 开工 | `(正式\|隆重\|顺利\|如期\|集中)?开工(仪式\|典礼\|建设\|启动\|动员)?$` |
+| 动工 | `(破土\|正式\|如期)动工` |
+| 招募 | `(招募\|招商)(令\|公告\|合作\|计划)` |
+| 推广 | `(广告\|商业\|市场)(推广\|投放)` |
+
+**分层判定口径**
+
+1. **标题层**：命中任一强特征即丢弃；命中弱特征且上下文模式同时命中才丢弃。
+2. **正文层**：**仅强特征**可拦截，且须**同族命中 ≥ 2 个不同强特征**才丢弃——单次顺带提及不算公告类（如行业报道正文里出现一次「中标公示」不应把整篇丢掉）。
+3. **正文层的弱特征一律不拦截**（实测正文层的「评标/中标/推广/开工/动工」命中多为法规原文与政策套话）。
+4. **子串边界**：弱特征不得用无边界子串匹配。中文无天然词边界，`动工 ⊂ 推动`、`开工 ⊂ 召开` 会造成纯误判，故弱特征必须走上下文模式而非裸 `includes`。
+5. **执行实现**：`scripts/pipeline.js` 的 `matchFilter(text, layer)` 为唯一权威实现；`scripts/test_filter_rules.js` 为其回归测试（断言 29 条历史误杀样本全部不再拦截、3 条真命中仍被拦截、11 条子串边界用例全部正确）。**二者须同步修改，不得只改其一**。
 
 先按标题筛，再按正文复核一次。
 
 ### 抓取降级链
 
-1. 一级：使用原生网页抓取能力直接读取真实文章直链，获取标题、来源公众号、作者、发布时间与正文。检索结果中已包含 `title`、`url`、`summary`、`datetime`、`date_text`、`date_description`、`source` 字段，可直接作为元数据头的输入来源。**中转链接先解析（2026-11-02 实测沉淀）**：若 `url` 为 `weixin.sogou.com/link?url=...` 中转形态（检索未带 `-r` 或直链解析失败时的形态），须先经浏览器自动化导航该中转链接，待其 JS 跳转完成后取最终地址（`location.href`，即 `mp.weixin.qq.com/s?...` 形态）作为真实直链再抓取；解析失败时以原中转链接直接尝试抓取，最终以「完整性闸门」判定。检索命令已带 `-r` 且结果 `url_resolved=true` 时已是真实直链，无需本级解析。
+> **本节三级降级均有可执行实现**（2026-11-05 实测修正）。此前本节仅为散文、技能目录内无任何抓取/解析脚本，导致实测 23 篇抓取失败中 **21 篇（91%）** 因中转链接未解析而全军覆没。
+
+0. **零级（前置必做）：中转链接解析**。搜狗结果中 `url_resolved=false` 的条目，其 `url` 为 `weixin.sogou.com/link?url=…` 中转链接，且其中的 `&` 被写作 HTML 实体 `&amp;`——**不解码则 URL 畸形**，直连会被重定向到 `weixin.sogou.com/antispider/`（反爬页），正文永远取不到。必须先经浏览器自动化导航该中转链接、待其 JS 跳转完成后取 `location.href`（`mp.weixin.qq.com/s?…` 形态）作为真实直链。
+   - **执行入口**：`scripts/resolve_midlink.js`（零依赖，走 Chrome DevTools HTTP 端点 `/json/new` + `/json/list` + `/json/close`，**不需要 WebSocket、不依赖 chrome-devtools MCP**）。
+   - **用法**：单条 `node scripts/resolve_midlink.js "<中转链接>"` → stdout 输出真实直链；批量 `node scripts/resolve_midlink.js --file "<检索结果.json>" [--out "<映射.json>"]`；探活 `node scripts/resolve_midlink.js --check`。
+   - **端口**：环境变量 `SOGOU_CDP_PORT`（与 `get_sogou_cookie.js` 同一契约），缺省 9223。
+   - 解析失败时以**已解码**的原中转链接直接尝试抓取，最终以「完整性闸门」判定。
+   - 检索命令已带 `-r` 且结果 `url_resolved=true` 时已是真实直链，无需本级解析。
+
+1. 一级：使用原生网页抓取能力直接读取真实文章直链，获取标题、来源公众号、作者、发布时间与正文。检索结果中已包含 `title`、`url`、`summary`、`datetime`、`date_text`、`date_description`、`source` 字段，可直接作为元数据头的输入来源。
 2. 二级：一级返回空或页面异常时，改用浏览器自动化能力打开该直链提取正文。前置依赖检查记录浏览器能力不可用时，跳过本级直接进入三级。
 3. 三级：前两级均失败时，改用网页抓取服务的抓取接口；该接口返回限流错误时立即回退到二级，禁止连续硬重试。
 4. 连续两篇一级失败后，才整体切换到二级，避免单篇偶发就换道。
+5. **零级失败不得直接判失败**：须先走一级直连（原中转链接，已解码），再依次降级。
 
 ### 完整性闸门
 
@@ -223,14 +270,22 @@ allowed-tools: Bash Read Write Edit WebFetch
 2. 重名检查与去重（**按媒体类型分流，关键陷阱**）：
 
    - **文件类（media_type ≠ 11）**：调用 `openapi/wiki/v1/check_repeated_names` 接口，检查目标子目录下是否已存在同名条目（避免重复入库）。须同时满足：① 接口路径带版本前缀（实测有效完整路径为 `openapi/wiki/v1/check_repeated_names`）；② 参数结构为重名参数数组，每项含名称与媒体类型，字段名不可替换；③ 名称必须带 `.md` 扩展名（不带会误判为未重复）。
-   - **笔记类（media_type = 11，本技能入库模式）**：`check_repeated_names` **仅适用于文件类型，对笔记会误判「未重复」**，可能造成重复入库。**笔记去重须改用 `openapi/wiki/v1/get_knowledge_list`**：取目标子目录全量条目（`knowledge_base_id` + `folder_id` + `cursor` 空串 + `limit` ≤ 50），以条目 `title`（归一化，去首尾空格、转小写）比对本次待入库标题，命中即跳过。示例：
-     ```bash
-     # 经 ima_api.cjs 取目标子目录全量笔记条目
-     node <ima_api.cjs 路径> "openapi/wiki/v1/get_knowledge_list" \
-       '{"knowledge_base_id":"[knowledge_base_id]","folder_id":"[folder_id]","cursor":"","limit":50}'
-     # 遍历返回的 knowledge_list[]，以 title 归一化后比对本次标题，命中即视为已存在
-     ```
-   - 若去重判定为已存在（文件类 `is_repeated=true` 或笔记类 title 命中），说明该文章已入库，本轮跳过（不重复创建），标记为已去重。
+   - **笔记类（media_type = 11，本技能入库模式）**：`check_repeated_names` **仅适用于文件类型，对笔记会误判「未重复」**，可能造成重复入库。**笔记去重须改用 `openapi/wiki/v1/get_knowledge_list`**：取目标子目录全量条目（`knowledge_base_id` + `folder_id` + `cursor` 空串 + `limit` ≤ 50），以条目 `title` 比对本次待入库标题，命中即跳过。
+     > ⚠️ **不可用「整标题精确比对」（2026-11-05 实测修正）**：ima 服务端会把条目 `title` **截断到 30 个字符并追加 `...`**（实测 28 条中 11 条被截断）。故必须用**前缀去重键**：
+     > ```js
+     > const TITLE_CAP = 30;
+     > const dedupKey = (t) => {
+     >   let s = String(t ?? '').trim();
+     >   s = s.replace(/^title:\s*["']?/, '').replace(/["']?\s*$/, ''); // 剥历史 front-matter 污染
+     >   s = s.replace(/\.md$/i, '');                                   // 服务端会剥 .md
+     >   s = s.replace(/[.…]+$/, '');                                   // ★ 先剥截断标记再切片
+     >   return s.replace(/\s+/g, '').replace(/[！？!？?]/g, '').toLowerCase().slice(0, TITLE_CAP);
+     > };
+     > ```
+     > **★ 关键次序**：必须**先剥除末尾 `...` 再切片**。否则当标题长度恰为 30 时，截断标记落在第 30 字符**之内**，库内标题键会多一个尾点而与原始标题键失配（实测命中 20→22、缺失 6→4）。
+     > **★ 不可逆性**：ima 开放接口**无 delete / remove 端点**（端点全量枚举确认），重复入库**不可逆**。故「入库前查重」必须严格，不得先入库再比对。
+     > **实现**：`scripts/state.js` 导出 `dedupKey()`，`scripts/pipeline.js` 直接复用，二者不得各写一份。
+   - 若去重判定为已存在（文件类 `is_repeated=true` 或笔记类去重键命中），说明该文章已入库，本轮跳过（不重复创建），标记为已去重。
 
 **第二步：创建笔记**
 
@@ -238,7 +293,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 - `content_format` 固定为 `1`（Markdown）。
 - `content` 为本地 `.md` 文件的完整内容（含元数据头与正文）。
-- 可选传入 `folder_id` 直接将笔记创建到目标笔记本；若不传，则笔记先落在默认位置，后续步骤再关联到知识库子目录。
+- > ⚠️ **`import_doc` 不接受 `folder_id`（2026-11-05 实测）**：传入 `folder_id` 会返回 `code=310001 msg=文件夹不存在`。故**不得传 `folder_id`**——笔记先落在默认位置，再由第三步 `add_knowledge` 关联到目标子目录。
 - 接口返回 `note_id`，作为后续关联步骤的唯一标识。
 
 **第三步：将笔记关联到知识库子目录**
@@ -247,13 +302,15 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 - `media_type` 固定为 `11`（笔记类型）。
 - `note_info.content_id` 传入上一步返回的 `note_id`。
-- `title` 使用文章标题（与 `.md` 文件名一致，含 `.md` 扩展名）。
+- `title` 使用文章标题（与 `.md` 文件名一致，含 `.md` 扩展名）。**必须显式传 `title`**，不得依赖服务端从正文推导——服务端会把正文首个元数据行当作标题，Markdown 若用 YAML front-matter（`---` / `title: "…"`）会导致**整块 front-matter 被写进标题**（实测历史条目 5/11 出现 `title: "…` 污染，且叠加 30 字符截断后既不可读又导致去重失配）。
 - `knowledge_base_id` 传入 `[knowledge_base_id]`。
 - `folder_id` 传入 `[folder_id]`（目标子目录标识）。
 
-**第四步：入库复验（2026-11-02 实测新增）**
+**第四步：入库复验（2026-11-02 实测新增，2026-11-05 强化）**
 
 关联完成后，调用 `openapi/wiki/v1/get_knowledge_list` 接口（body 传 `knowledge_base_id`、`folder_id`、`cursor` 空串、`limit` 不超过 50）列出目标子目录内容，须命中本次入库条目且其 `media_type` 为 `11`（确为笔记而非 URL 书签）；命中即复验通过。需要进一步核对元数据时，可再调用 `openapi/wiki/v1/get_media_info`（body 传 `{"media_id":"<条目id>"}`）。复验未命中时将该篇标记为失败并计入失败清单，禁止计为成功。
+
+> **复验结果必须回写进度文件，且回写本身带复核**：`state.js mark-ingested` **默认联机复核**该条目 `media_type===11` 真实存在于目标子目录，复核不通过即拒绝写入（2026-11-05 实测修正，见「进度文件写操作纪律」）。禁止以「接口返回 code=0」代替内容核对——历史进度中曾出现声称已入库而 KB 全库查无此文的幽灵记录。
 
 **调用层陷阱警示：`ima_api.cjs` 空响应（2026-11-02 实测沉淀）**
 
@@ -298,22 +355,45 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 进度文件写操作纪律（F9 硬约束）
 
-`_progress.json` 的**任何**写操作（追加 / 修改 `articles` 条目、标记 `ingested` / `failed`、设置 / 重置 `attempts`、轮转状态）**必须且只能通过 `scripts/state.js` 执行**，禁止直接手工编辑 JSON。其强约束如下（违反即拒绝写入并报错）：
+`_progress.json` 的**任何**写操作（追加 / 修改 `articles` 条目、标记 `ingested` / `failed` / `filtered`、设置 / 重置 `attempts`、更新卡级字段、轮转状态）**必须且只能通过 `scripts/state.js` 执行**，禁止直接手工编辑 JSON。其强约束如下（违反即拒绝写入并报错）：
 
-- `mark-ingested` 须先调 `openapi/wiki/v1/get_knowledge_list` 复核目标条目 `media_type===11` 真实存在于知识库，否则不得标记为已入库；
-- `gate_failed`（闸门未通过）或被标记 `failed` 的条目**严禁**标记为 `ingested`；
+- `mark-ingested` **默认联机复核**（调 `openapi/wiki/v1/get_knowledge_list` 确认目标条目 `media_type===11` 真实存在于知识库），复核不通过即拒绝写入；仅在显式 `--no-verify` 时跳过（2026-11-05 实测修正：历史进度中曾出现「声称已入库但 KB 全库查无此文」的幽灵记录，成因即 `mark-ingested` 默认不复核）；
+- `gate_failed`（闸门未通过）或被标记 `failed` / `filtered` 的条目**严禁**标记为 `ingested`；
 - `pending` 与已尝试次数须一致（`attempts` 仅由 `set-attempts` / `reset-attempts` 改写）；
 - 每轮结算的四栏清单须由 `state.js report` 产出，不得手工拼凑。
 
 `state.js` 用法（须在 `wechat-article-to-ima/scripts/` 下以 Node 运行，传入 `--progress <路径>`）：
 
 - `validate`：结构与一致性校验；
-- `mark-ingested --card C --title T --media-id M [--verify]`：标记入库（默认不联机复核，加 `--verify` 时调 `ima_api.cjs` 复核 `media_type===11`）；
+- `migrate`：**旧 schema → 新 schema 幂等迁移**（历史进度文件兼容）。旧条目字段为 `cardId` / `status` / `ingested` / `gatePassed` / `filtered`，新条目字段为 `card` / `fetchStatus` / `filterResult` / `gateResult` / `ingestStatus`；不做迁移则 `validate` 直接判非法（2026-11-05 实测修正）。**迁移只改 articles 条目，不动 cards 卡级字段**（`lastRun` / `nextDue` / `attempts` / `pendingKeywords` / `note` 原样保留）；
+- `mark-ingested --card C --title T --media-id M [--no-verify] [--ima-api P] [--kb-id K] [--folder-id F]`：标记入库（**默认联机复核** `media_type===11`；需提供 `--ima-api` 与 `--kb-id`，否则报错）；
 - `mark-failed --card C --title T --reason R`：标记失败；
+- `mark-filtered --card C --title T --reason R`：标记被过滤（写 `filterResult=filtered:<reason>`；**缺失此命令会导致 `report` 的「被过滤」列恒为 0**——`report` 只统计 `filterResult` 以 `filtered` 开头的条目）；
 - `set-attempts --card C --n N` / `reset-attempts --card C`：设置 / 重置已尝试次数；
+- `reset-card --card C`：清空该卡全部文章记录（重跑 / 续跑前重置；否则旧的 `failed` 记录会永久阻断同标题重新标记 `ingested`）；
+- `update-card --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K]`：更新卡级字段（**步骤 12 轮转规则所需**，缺此命令则 F9 与步骤 12 自相矛盾——卡级字段无法经唯一入口写入）；
 - `report`：输出应入库 / 实入库 / 被过滤 / 失败四栏清单。
 
-文章条目追加到 `articles` 数组，每条包含所属任务卡、标题、抓取状态、过滤结果、闸门结果、入库状态与备注。
+**`articles` 条目 schema（2026-11-05 实测补齐，此前模板未定义导致执行体与脚本各写各的）**：
+
+| 字段 | 类型 | 取值域 | 说明 |
+| --- | --- | --- | --- |
+| `card` | string | `A` / `B` / `C` | 所属任务卡（历史字段名 `cardId` 由 `migrate` 归一化） |
+| `title` | string | 文章标题 | 与 `.md` 文件名一致（不含 `.md`） |
+| `fetchStatus` | string | `ok` / `failed` | 正文抓取结果 |
+| `filterResult` | string | `kept` / `filtered:<原因>` | 过滤结果（`report` 依此前缀统计被过滤列） |
+| `gateResult` | string | `pass` / `fail:<原因>` | 完整性闸门结果（以 `fail` 开头即视为未过闸） |
+| `ingestStatus` | string | `pending` / `ingested` / `failed` | 入库状态 |
+| `note` | string | 自由文本 | 备注（如 `media_id=…`、失败原因） |
+
+### 技能脚本清单（2026-11-05 新增，可执行实现落点）
+
+| 脚本 | 职责 | 关键约束 |
+| --- | --- | --- |
+| `scripts/state.js` | `_progress.json` 唯一读写入口（F9） | 导出 `dedupKey()` / `TITLE_CAP`，供流水线复用；**不得**由其他脚本另写一份去重键 |
+| `scripts/resolve_midlink.js` | 中转链接 → 真实直链（降级链零级） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；`--check` 为端口探活 |
+| `scripts/pipeline.js` | 抓取 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限） |
+| `scripts/test_filter_rules.js` | 过滤规则回归测试 | 断言 29 条历史误杀样本不再拦截 + 3 条真命中仍拦截 + 11 条子串边界用例 |
 
 ## 输出格式约束
 
