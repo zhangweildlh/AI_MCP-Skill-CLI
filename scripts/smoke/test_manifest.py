@@ -90,6 +90,20 @@ TEST_ENTRIES = [
          kind="regression", risk="needs-api",
          note="AnySearch CLI 测试，疑似需真实端点，默认门控"),
 
+    # ---- dir/Workbuddy专属（wechat-article-to-ima / wechat-article-search）----
+    dict(scope="dir/Workbuddy专属", name="wai-filter-rules",
+         path="Workbuddy专属/wechat-article-to-ima/scripts/test_filter_rules.js",
+         cmd=["node", "Workbuddy专属/wechat-article-to-ima/scripts/test_filter_rules.js"], shell=False,
+         kind="regression", risk="offline",
+         note="过滤规则回归：29 条历史误杀样本须全部不再拦截 + 3 条真命中仍拦截 + 11 条子串边界用例；"
+              "样本为技能自包含 fixture（tests/fixtures/filter_false_positives.json），零外部依赖、无网络"),
+    dict(scope="dir/Workbuddy专属", name="was-search-tests",
+         path="Workbuddy专属/wechat-article-search/tests/run_tests.js",
+         cmd=["node", "Workbuddy专属/wechat-article-search/tests/run_tests.js"], shell=False,
+         kind="regression", risk="offline",
+         note="检索技能自带单测（vm + 桩 https，零活网络）：内容完整性 / 全场景与全边界覆盖矩阵 / "
+              "Cookie 注入集成路径 / URL 实体解码回归（PASS=54）"),
+
     # ---- dir/tender-review-kit ----
     dict(scope="dir/tender-review-kit", name="trk-smoke", path="tender-review-kit/tests/test_smoke.py",
          cmd=[PYTHON, "tender-review-kit/tests/test_smoke.py"], shell=False,
