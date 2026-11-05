@@ -17,6 +17,9 @@
    grep -q "ENV_FALLBACK" "<SKILL>/knowledge-base/scripts/cos-upload.cjs" && echo "P1-1 在位" || echo "P1-1 丢失"
    grep -q "stripWrappingQuotes" "<SKILL>/knowledge-base/scripts/cos-upload.cjs" && echo "H1 在位" || echo "H1 丢失"
    test -f "<SKILL>/tests/run_regression.cjs" && echo "回归集在位" || echo "回归集丢失"
+   # 2026-11-04 新增修复项检测（ima_api.cjs）
+   grep -q "openapi/<module>/v1/<action>" "<SKILL>/ima_api.cjs" && echo "P-ima-API 在位" || echo "P-ima-API 丢失"
+   grep -q "err.httpStatus" "<SKILL>/ima_api.cjs" && echo "P-ima-HTTP-status 在位" || echo "P-ima-HTTP-status 丢失"
    ```
 
 ---
@@ -248,7 +251,41 @@ node "<SKILL>/ima_api.cjs" openapi/wiki/v1/search_knowledge_base "{\"query\":\"\
     throw err;
   }
   ```
-- **验证**：§4.3 场景 D。
+  - **验证**：§4.3 场景 D。
+
+### P-ima-API arg contract（ima_api.cjs，F6 修复项；2026-11-04 新增）
+
+- **背景**（2026-11-04 实测）：`ima_api.cjs` 纯位置参数（`const [, , apiPath, rawBody='{}', rawOptions='{}', ...rest] = process.argv`），无 `--help`、无命名旗标、无格式校验；误用 `--kb-id` 旗标 → 被当成 body（非法 JSON）→ `code=-100`。API 路径须为 `openapi/<module>/v1/<action>` 完整前缀，缺前缀时服务端返回 404，但旧版不校验、直接透传，排障困难。
+- **位置 1**：`main()` 首行位置参数解构之后，把旧 `if (!apiPath) { ... exit 1 }` 分支替换为「`--help`/`-h`/空 → 打印用法（含「apiPath 须为带 `openapi/` 前缀的完整路径、body 为第二个位置参数 JSON、options 为第三个位置参数 JSON」）后 `process.exit(0)`」。
+- **位置 2**：`try` 块首行插入 apiPath 格式校验：
+  ```js
+  if (!apiPath.startsWith('openapi/') || !apiPath.includes('/')) {
+    const err = new Error('invalid apiPath');
+    err.code = ERR_PROGRAMMATIC;
+    err.msg = 'apiPath 格式错误，应形如 openapi/<module>/v1/<action>（须以 openapi/ 开头且含 /），当前收到：' + apiPath;
+    throw err;
+  }
+  ```
+- **验证**：`node ima_api.cjs --help` → exit 0 打印用法；`node ima_api.cjs badpath` → exit 1、stderr JSON `{"code":-100,"msg":"apiPath 格式错误..."}`（无需凭证，校验在凭证加载前）；`node ima_api.cjs --kb-id x` → 同 badpath 被拦（不再被当 body 透传）。
+
+### P-ima-HTTP-status（ima_api.cjs，F10 修复项；2026-11-04 新增）
+
+- **背景**（2026-11-04 实测）：`postJson` 直接 `return await res.text()`，**不检查 `res.status`/`res.ok`**；404/401 等异常也表现为「退出码 0 + 空输出」，调用方（如 `wechat-article-to-ima`）难判真实失败。
+- **位置**：`postJson` 内 `const res = await fetch(...)` 之后、`return` 之前插入状态码校验：
+  ```js
+  const text = await res.text();
+  if (!res.ok) {
+    const err = new Error(`HTTP ${res.status} from ${apiPath}`);
+    err.code = ERR_PROGRAMMATIC;
+    err.httpStatus = res.status;
+    err.body = text.slice(0, 500);
+    throw err;
+  }
+  return text;
+  ```
+- **连带改造**：`main()` 的 `catch` 块在输出 stderr JSON 时追加 `httpStatus` 与 `body` 字段（若存在），使调用方能直接拿到 `httpStatus` 定位（404 查路径前缀、401 查凭据）。
+- **验证**：对返回非 2xx 的接口调用 → 退出码 1、stderr JSON 含 `httpStatus`（如 `404`）与截断 `body`；对 2xx 接口 → 仍正常返回文本。
+- **联动**：`wechat-article-to-ima/SKILL.md` 的「空响应陷阱」段已据本修复改写为「非 2xx 以退出码 1 + stderr JSON（含 httpStatus）暴露」，调用方遇此直接用 curl 带 `ima-openapi-clientid/apikey` 头复放定位。
 
 ---
 
@@ -396,7 +433,8 @@ run('NI-02', '不存在图片报准确路径(P2-2)', 'node', [NOTEIMAGES, '--not
 run('NI-03', '签名/扩展名不匹配拒绝(P3-11)', 'node', [NOTEIMAGES, '--note-id', 'fake', '--file', (() => { const p = path.join(FIX, 'mismatch.md'); fs.writeFileSync(p, `![x](${path.join(FIX, 'mismatch.png')})\n`); return p; })(), '--dry-run'], null, { exit: 1, errContains: 'does not match its actual signature' });
 run('NI-04', '参数互斥校验', 'node', [NOTEIMAGES, '--note-id', 'fake', '--file', mixedMd, '--content', 'x'], null, { exit: 1, errContains: 'Exactly one' });
 
-run('IA-01', '缺 apiPath', 'node', [IMAAPI], null, { exit: 1, errContains: '缺少必需参数：apiPath' });
+run('IA-01', '--help 打印用法并退出 0 (F6)', 'node', [IMAAPI, '--help'], null, { exit: 0, errContains: 'openapi/wiki/v1/get_knowledge_list' });
+run('IA-01b', '非法 apiPath 格式→code -100 (F6)', 'node', [IMAAPI, 'badpath'], null, { exit: 1, errContains: 'apiPath 格式错误' });
 run('IA-02', '非法 body', 'node', [IMAAPI, 'openapi/note/v1/list_note', '{bad'], null, { exit: 1, errContains: '请求 body 不是合法的 JSON' });
 
 run('CU-01', '敏感项 env 回退生效(P1-1)', 'node', [COSUPLOAD, '--file', path.join(FIX, 'no_such.png'), '--bucket', 'b', '--region', 'r', '--cos-key', 'k', '--content-type', 'image/png'],
