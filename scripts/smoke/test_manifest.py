@@ -92,17 +92,53 @@ TEST_ENTRIES = [
 
     # ---- dir/Workbuddy专属（wechat-article-to-ima / wechat-article-search）----
     dict(scope="dir/Workbuddy专属", name="wai-filter-rules",
-         path="Workbuddy专属/wechat-article-to-ima/scripts/test_filter_rules.js",
-         cmd=["node", "Workbuddy专属/wechat-article-to-ima/scripts/test_filter_rules.js"], shell=False,
+         path="Workbuddy专属/wechat-article-to-ima/tests/test_filter_rules.js",
+         cmd=["node", "Workbuddy专属/wechat-article-to-ima/tests/test_filter_rules.js"], shell=False,
          kind="regression", risk="offline",
          note="过滤规则回归：29 条历史误杀样本须全部不再拦截 + 3 条真命中仍拦截 + 11 条子串边界用例；"
-              "样本为技能自包含 fixture（tests/fixtures/filter_false_positives.json），零外部依赖、无网络"),
+              "并给出精确率/召回率指标（对照旧规则误杀率 93.1%）。样本为技能自包含 fixture"
+              "（tests/fixtures/filter_false_positives.json），零外部依赖、无网络"),
+    dict(scope="dir/Workbuddy专属", name="wai-state",
+         path="Workbuddy专属/wechat-article-to-ima/tests/test_state.js",
+         cmd=["node", "Workbuddy专属/wechat-article-to-ima/tests/test_state.js"], shell=False,
+         kind="regression", risk="offline",
+         note="state.js 全子命令回归：validate/migrate（幂等且卡级字段零改动）/mark-ingested（默认联机复核、"
+              "filtered 与 failed 严禁标 ingested）/mark-filtered/mark-failed/update-card/reset-card/report，"
+              "以及 dedupKey 的服务端 30 字符截断语义；临时进度文件自清理"),
+    dict(scope="dir/Workbuddy专属", name="wai-pipeline-contract",
+         path="Workbuddy专属/wechat-article-to-ima/tests/test_pipeline_contract.js",
+         cmd=["node", "Workbuddy专属/wechat-article-to-ima/tests/test_pipeline_contract.js"], shell=False,
+         kind="regression", risk="offline",
+         note="pipeline.js 契约：响应解析层（imaApi 返回原始文本未解析曾致去重失效→重复入库不可逆）、"
+              "过滤分层语义、闸门辅助判据、元数据头内联形态（禁 YAML front-matter）、"
+              "文件名安全化、CLI 契约（--dry-run 不得写进度文件与落盘 .md）"),
+    dict(scope="dir/Workbuddy专属", name="wai-fetch-taxonomy",
+         path="Workbuddy专属/wechat-article-to-ima/tests/test_fetch_failure_taxonomy.js",
+         cmd=["node", "Workbuddy专属/wechat-article-to-ima/tests/test_fetch_failure_taxonomy.js"], shell=False,
+         kind="regression", risk="offline",
+         note="抓取失败五类归因分类器离线单测（搜狗反爬/跳转占位/原文已删除/js_content 过短/正常），"
+              "样本 tests/fixtures/fetch_response_samples.json（运行时确定性补白，不留大体积 fixture）；"
+              "另含 url_resolved 与处置结果交叉表结构自检。--allow-real 时追加真实 URL 抽样归因与反爬占比阈值断言"),
+    dict(scope="dir/Workbuddy专属", name="wai-kb-consistency",
+         path="Workbuddy专属/wechat-article-to-ima/tests/test_kb_consistency.js",
+         cmd=["node", "Workbuddy专属/wechat-article-to-ima/tests/test_kb_consistency.js"], shell=False,
+         kind="regression", risk="offline",
+         note="ima 库五维一致性审计的离线逻辑单测（目录内重复条目/front-matter 污染/服务端截断/非笔记媒体类型/"
+              "幽灵记录/孤儿条目），样本 tests/fixtures/kb_snapshot_sample.json（合成快照）；"
+              "--allow-real 时审计真实 KB 与真实进度文件并断言重复=0、污染=0、幽灵=0"),
     dict(scope="dir/Workbuddy专属", name="was-search-tests",
          path="Workbuddy专属/wechat-article-search/tests/run_tests.js",
          cmd=["node", "Workbuddy专属/wechat-article-search/tests/run_tests.js"], shell=False,
          kind="regression", risk="offline",
          note="检索技能自带单测（vm + 桩 https，零活网络）：内容完整性 / 全场景与全边界覆盖矩阵 / "
               "Cookie 注入集成路径 / URL 实体解码回归（PASS=54）"),
+    dict(scope="dir/Workbuddy专属", name="was-cli-contract",
+         path="Workbuddy专属/wechat-article-search/tests/test_cli_contract.js",
+         cmd=["node", "Workbuddy专属/wechat-article-search/tests/test_cli_contract.js"], shell=False,
+         kind="smoke", risk="offline",
+         note="命令行契约层黑盒测试（子进程调用真实脚本）：退出码家族（参数非法=2/检索失败=1/成功=0）、"
+              "用法输出、-n 上限截断提示、Cookie 残缺告警不阻断、URL 实体解码静态断言；"
+              "--allow-real 时追加 -o 落盘 JSON 结构与实体解码校验"),
 
     # ---- dir/tender-review-kit ----
     dict(scope="dir/tender-review-kit", name="trk-smoke", path="tender-review-kit/tests/test_smoke.py",
@@ -248,25 +284,38 @@ def cleanup() -> int:
 
 
 def scan_unregistered() -> int:
-    """扫描含 tests/ 或 smoke/ 的目录，核对是否已全部登记（支持「扫描优先」纪律）。"""
+    """扫描含 tests/ 或 smoke/ 的目录，核对是否已全部登记（支持「扫描优先」纪律）。
+
+    扫描范围含**嵌套技能目录**：目录型 Skill 可位于合集目录内（如 `Workbuddy专属/<子技能>/`），
+    原实现只遍历仓库根下一层，会漏掉嵌套技能的测试目录 —— 导致「新增测试未登记」无法被发现。
+    现按「含 SKILL.md 的目录即技能根」逐层发现技能根，并检查其 tests/ 与 smoke/ 子目录。
+    """
     registered_dirs = set()
     for e in TEST_ENTRIES:
         p = (REPO_ROOT / e["path"]).parent
         registered_dirs.add(p)
     gaps = []
+    skip_names = {".git", "worktrees", "_gsdata_", "reports", "node_modules",
+                  ".workbuddy", "Memory-Data", "__pycache__", "dist", "build"}
     for d in sorted(REPO_ROOT.iterdir()):
-        if not d.is_dir():
-            continue
-        if d.name in (".git", "worktrees", "_gsdata_", "reports", "node_modules",
-                      ".workbuddy", "Memory-Data"):
+        if not d.is_dir() or d.name in skip_names:
             continue
         for sub in ("tests", "smoke", "scripts/smoke"):
             cand = d / sub
             if cand.is_dir() and cand not in registered_dirs:
                 gaps.append(str(cand.relative_to(REPO_ROOT)))
+    # 嵌套技能目录：含 SKILL.md 的目录即技能根（合集目录内的子技能）
+    for skill_md in sorted(REPO_ROOT.rglob("SKILL.md")):
+        root = skill_md.parent
+        if any(part in skip_names for part in root.relative_to(REPO_ROOT).parts):
+            continue
+        for sub in ("tests", "smoke"):
+            cand = root / sub
+            if cand.is_dir() and cand not in registered_dirs:
+                gaps.append(str(cand.relative_to(REPO_ROOT)))
     if gaps:
         print("[SCAN] 以下测试目录尚未在清单登记，建议补登：")
-        for g in gaps:
+        for g in sorted(set(gaps)):
             print(f"  - {g}")
         return 1
     print("[SCAN] 全部测试目录均已登记，无遗漏。")
