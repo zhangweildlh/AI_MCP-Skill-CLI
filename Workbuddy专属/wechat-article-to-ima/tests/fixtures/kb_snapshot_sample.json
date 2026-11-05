@@ -1,0 +1,34 @@
+{
+  "_note": "ima KB 快照样本（合成、确定性），用于离线单测五维一致性审计函数 auditSnapshot()。覆盖：目录内重复条目、front-matter 污染标题、服务端截断标题、媒体类型非笔记、进度声称已入库但库中无此文的幽灵记录、库中有而进度无记录的孤儿条目。",
+  "cards": { "A": "folder_sample_A", "B": "folder_sample_B" },
+  "kb": {
+    "A": [
+      { "media_id": "m1", "title": "正常条目标题", "media_type": 11 },
+      { "media_id": "m2", "title": "重复条目标题甲", "media_type": 11 },
+      { "media_id": "m3", "title": "重复条目标题甲", "media_type": 11 },
+      { "media_id": "m4", "title": "title: \"被污染的标题\"", "media_type": 11 },
+      { "media_id": "m5", "title": "被截断的标题示例文本内容很长很长很长很长...", "media_type": 11 },
+      { "media_id": "m6", "title": "非笔记类型的条目", "media_type": 14 }
+    ],
+    "B": [
+      { "media_id": "m7", "title": "另一张卡的条目", "media_type": 11 }
+    ]
+  },
+  "progress": {
+    "articles": [
+      { "card": "A", "title": "正常条目标题", "ingestStatus": "ingested" },
+      { "card": "A", "title": "重复条目标题甲", "ingestStatus": "ingested" },
+      { "card": "A", "title": "被污染的标题", "ingestStatus": "ingested" },
+      { "card": "A", "title": "幽灵记录标题（库中无此文）", "ingestStatus": "ingested" }
+    ]
+  },
+  "expect": {
+    "duplicates": 1,
+    "frontMatterLeaks": 1,
+    "truncated": 1,
+    "nonNoteEntries": 1,
+    "claimedHits": 3,
+    "claimedMisses": 1,
+    "orphans": 3
+  }
+}

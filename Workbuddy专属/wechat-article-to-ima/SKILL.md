@@ -222,7 +222,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 2. **正文层**：**仅强特征**可拦截，且须**同族命中 ≥ 2 个不同强特征**才丢弃——单次顺带提及不算公告类（如行业报道正文里出现一次「中标公示」不应把整篇丢掉）。
 3. **正文层的弱特征一律不拦截**（实测正文层的「评标/中标/推广/开工/动工」命中多为法规原文与政策套话）。
 4. **子串边界**：弱特征不得用无边界子串匹配。中文无天然词边界，`动工 ⊂ 推动`、`开工 ⊂ 召开` 会造成纯误判，故弱特征必须走上下文模式而非裸 `includes`。
-5. **执行实现**：`scripts/pipeline.js` 的 `matchFilter(text, layer)` 为唯一权威实现；`scripts/test_filter_rules.js` 为其回归测试（断言 29 条历史误杀样本全部不再拦截、3 条真命中仍被拦截、11 条子串边界用例全部正确）。**二者须同步修改，不得只改其一**。
+5. **执行实现**：`scripts/pipeline.js` 的 `matchFilter(text, layer)` 为唯一权威实现；`tests/test_filter_rules.js` 为其回归测试（断言 29 条历史误杀样本全部不再拦截、3 条真命中仍被拦截、11 条子串边界用例全部正确，并给出精确率/召回率指标）。**二者须同步修改，不得只改其一**。
 
 先按标题筛，再按正文复核一次。
 
@@ -395,6 +395,19 @@ allowed-tools: Bash Read Write Edit WebFetch
 | `scripts/pipeline.js` | 抓取 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限） |
 | `scripts/test_filter_rules.js` | 过滤规则回归测试 | 断言 29 条历史误杀样本不再拦截 + 3 条真命中仍拦截 + 11 条子串边界用例 |
 | `scripts/deploy.js` | 开发态 → 部署态 一键同步（零依赖） | 走 `git cat-file blob` 逐字节重建（**不经工作树**，避免 `core.autocrlf` 带入 CRLF，§7.3）；`ima_credentials.json` 为部署态专有物，保留不覆盖；`--dry-run` 预演、`--ref main` 指定来源引用 |
+
+### 测试资产（`tests/`，2026-11-05 补齐）
+
+> 全部为**可复用测试脚本**（§8.3⑤ 允许入库），零第三方依赖、不反向依赖仓库级入口、临时文件自清理。
+> 真实态用例默认跳过，须 `--allow-real` 显式门控（§9.3）。
+
+| 脚本 | 类型 | 覆盖内容 |
+| --- | --- | --- |
+| `tests/test_filter_rules.js` | 回归（离线） | 过滤规则逐条断言 + 精确率/召回率指标；样本 `tests/fixtures/filter_false_positives.json` |
+| `tests/test_state.js` | 回归（离线） | `state.js` 全子命令（validate/migrate/mark-*/update-card/reset-*/report）+ 强约束 + `dedupKey` 语义 |
+| `tests/test_pipeline_contract.js` | 回归（离线） | 响应解析层、过滤分层语义、闸门辅助判据、元数据头内联形态、文件名安全化、CLI 契约 |
+| `tests/test_fetch_failure_taxonomy.js` | 回归（离线）+ 真实态 | 抓取失败五类归因分类器（样本 `tests/fixtures/fetch_response_samples.json`）+ `url_resolved` 交叉表 |
+| `tests/test_kb_consistency.js` | 回归（离线）+ 真实态 | ima 库五维一致性审计（重复条目 / front-matter 污染 / 截断 / 非笔记媒体类型 / 幽灵记录 / 孤儿条目；样本 `tests/fixtures/kb_snapshot_sample.json`） |
 
 ## 输出格式约束
 

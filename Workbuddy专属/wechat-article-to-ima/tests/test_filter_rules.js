@@ -24,8 +24,14 @@ const TRUE_POSITIVE = fixture.truePositive || [];
 
 let pass = 0, fail = 0;
 const bad = [];
+function check(name, cond, detail) {
+  if (cond) { pass++; console.log('  ✓ ' + name); }
+  else { fail++; console.log('  ✗ ' + name + (detail ? ' :: ' + detail : '')); }
+}
 
 console.log('=== ① 29 条历史被过滤样本：断言「不再误杀」===');
+const FP = [];   // 误杀：期望不拦截却拦截
+const FN = [];   // 漏杀：期望拦截却未拦截
 for (const s of samples) {
   const isTP = TRUE_POSITIVE.includes(s.title);
   // 标题层判定（历史样本的 layer 字段指命中层；正文层命中一律不拦截）
@@ -35,7 +41,11 @@ for (const s of samples) {
   const nowFiltered = !!(hitTitle || hitBody);
   const expectFiltered = isTP;
   if (nowFiltered === expectFiltered) { pass++; }
-  else { fail++; bad.push({ title: s.title, expect: expectFiltered ? '拦截' : '不拦截', got: nowFiltered ? '拦截' : '不拦截', hitTitle, hitBody, ctx: (s.ctx || '').slice(0, 50) }); }
+  else {
+    fail++;
+    (expectFiltered ? FN : FP).push({ title: s.title, hitTitle, hitBody, ctx: (s.ctx || '').slice(0, 50) });
+    bad.push({ title: s.title, expect: expectFiltered ? '拦截' : '不拦截', got: nowFiltered ? '拦截' : '不拦截', hitTitle, hitBody, ctx: (s.ctx || '').slice(0, 50) });
+  }
 }
 console.log(`  通过 ${pass} / 失败 ${fail}`);
 
@@ -47,7 +57,22 @@ for (const t of TRUE_POSITIVE) {
 }
 console.log(`  真命中被拦截 ${tp} / 漏网 ${tpf}`);
 
-console.log('\n=== ③ 子串边界用例（核心 bug：动工⊂推动、开工⊂召开）===');
+console.log('\n=== ③ 过滤精确率 / 召回率指标（复用同一 fixture，量化而非仅逐条断言）===');
+// 以「标注样本集」为基准：正类 = 应被拦截的公告类，负类 = 不应被拦截的行业/政策类文章
+const TP = tp + (TRUE_POSITIVE.length - tpf);          // 真阳：期望拦截且确实拦截
+const FPc = FP.length;                                 // 误杀：不该拦却拦了
+const FNc = FN.length;                                 // 漏杀：该拦却没拦
+const precision = (TP + FPc) ? TP / (TP + FPc) : 1;
+const recall = (TP + FNc) ? TP / (TP + FNc) : 1;
+console.log(`  真阳 TP=${TP}  误杀 FP=${FPc}  漏杀 FN=${FNc}`);
+console.log(`  精确率 precision = ${(precision * 100).toFixed(1)}%   召回率 recall = ${(recall * 100).toFixed(1)}%`);
+console.log('  （对照：旧版「整标题/整正文命中即丢弃」规则在此样本集上误杀率 93.1%，精确率 6.9%）');
+check('误杀数 = 0（旧规则为 27/29 = 93.1%）', FPc === 0, '误杀 ' + FPc + ' 条：' + FP.map((x) => x.title).join(' | '));
+check('漏杀数 = 0', FNc === 0, '漏杀 ' + FNc + ' 条：' + FN.map((x) => x.title).join(' | '));
+check('精确率 = 100%', precision === 1, (precision * 100).toFixed(1) + '%');
+check('召回率 = 100%', recall === 1, (recall * 100).toFixed(1) + '%');
+
+console.log('\n=== ④ 子串边界用例（核心 bug：动工⊂推动、开工⊂召开）===');
 const boundary = [
   ['要推动工程总承包模式快速发展', null, '「推动」含「动工」子串 → 不得命中'],
   ['中建五局召开工程总承包管理推进会', null, '「召开」含「开工」子串 → 不得命中'],
