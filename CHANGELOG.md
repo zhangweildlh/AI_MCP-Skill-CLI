@@ -4,6 +4,12 @@
 
 ### Added
 - **dir/Workbuddy专属：wechat-article-to-ima 补开发态→部署态同步脚本 `scripts/deploy.js`（PR #191，`831b9b7`）**：此前该技能无部署同步脚本，部署只能靠一次性临时脚本完成、不可复现，且易绕过 §7.3「部署态一律由 main blob 逐字节重建（不经工作树）」硬规则。新脚本零依赖（Node 内置模块），走 `git cat-file blob` 逐字节重建、含写后逐文件字节校验；`ima_credentials.json` 为部署态专有物（凭据明文，§3.3）显式保留不覆盖；支持 `--repo/--skill-path/--ref/--to/--dry-run`。SKILL.md「技能脚本清单」补对应条目。部署态实测 7/7 与 main blob 逐字节一致。
+- **dir/Workbuddy专属：两技能测试资产迁移与补齐（PR #194，`22bf1cb`）**：把任务卡 A 执行期散落在工区的一次性诊断脚本按 §8.3⑤「可复用测试脚本允许入库」甄别后，改造并剪切/移动入仓库，形成 **7 套 / 217 断言** 的测试资产，覆盖冒烟·回归·真实态三类。
+  - **搬入**：`test_kb_consistency.js`（ima 库五维一致性审计：重复条目/front-matter 污染/服务端截断/非笔记媒体类型/幽灵记录/孤儿条目）、`test_fetch_failure_taxonomy.js`（抓取失败五类归因分类器 + `url_resolved` 交叉表）、`test_state.js`（state.js 全子命令 + 强约束 + `dedupKey` 截断语义，**该脚本此前零测试**）、`test_pipeline_contract.js`（响应解析层/过滤分层/闸门判据/元数据头形态/CLI 契约）、`test_cli_contract.js`（检索技能**命令行契约层**，此前仅测内部函数）。
+  - **不搬**：`_migrate.js`/`_process.js`/`_resolve.js`（已分别下沉为 `state.js migrate`/`pipeline.js`/`resolve_midlink.js`，重复）；`_write_memory.js`/`_search_a.sh`/`*.log`/`*_summary.json`（§8.3④⑤ 过程与衍生文件）。
+  - **改造要点**：去本机绝对路径（改 `__dirname` 相对定位 + 环境变量覆盖）、样本固化为技能内 `tests/fixtures/`（大体积样本用运行时确定性补白组合，不留大 blob）、真实态用例默认跳过须 `--allow-real` 门控（§9.3）、临时文件自清理（§9.5）、PASS/FAIL 计数 + 非零退出码。
+  - **顺带修掉两个自身缺陷**：① `pipeline.js` 的 `--dry-run` 守卫位于 `mark-filtered`/`mark-ingested` 之后 →「预演」会污染进度文件，已前移并加断言；② 响应解析层不可单测 → 抽出纯函数 `parseImaResponse()` 并导出（解析缺失曾致去重失效、重复入库不可逆）。
+  - **验证**：离线 217 断言全通过；经唯一入口 `run_all.py --scope dir/Workbuddy专属 --project-tests` 调度 **PASS=7 FAIL=0 SKIP=0**；部署态 7 套回归全通过，§7.3 三项判据 14/14 与 12/12 全过。
 
 ### Fixed
 - **dir/Workbuddy专属：wechat-article-to-ima / wechat-article-search 下沉 11 项采集链路缺陷修复（PR #190，`ef32020`）**：来源为 2026-11-05 任务卡 A（总包/EPC）全链路执行 + 三技能联合复测坐实，**11 项可下沉项全部落地**。
@@ -22,6 +28,9 @@
   - 另：`恢复指南-ima-skills上游更新重放修复.md` 新增 P-ima-NOTE-FOLDER（import_doc 契约项）+ D13 文档修复项 + §0.4 覆盖检测 grep；部署态 `ima-skills` 的 `notes/SKILL.md` 与 `knowledge-base/SKILL.md` 同步沉淀该组契约事实。
   - **验证**：过滤规则回归 43/43；search 自带测试 47 → 54 全通过；state.js 全子命令实测（migrate 幂等且卡级字段零丢失、mark-filtered 使 report 被过滤列可产出、mark-ingested 默认复核缺参即拒、filtered→ingested 被强约束拦截、reset-card 生效）；pipeline 实测（KB 去重键 17→14、去重命中零新增条目、真实入库 3 篇并复验 `media_type===11`、闸门未过件正确隔离）；仓库 smoke tier0/1 31 OK/0 FATAL/0 WARN。部署态 §7.3 三项判据全过（7/7 与 11/11）。
   - **未修项（量化披露）**：ima 开放接口无 delete 端点 → Card A 历史 3 条重复副本不可逆；Card C 历史 5 条 front-matter 污染标题无删除/改名端点，不可自动修复。
+
+### Changed
+- **meta（`scripts/smoke/test_manifest.py` 扫描口径）**：`scan_unregistered()` 原只遍历仓库根下一层目录，导致**嵌套技能目录**（合集目录内的子技能，如 `Workbuddy专属/<子技能>/tests/`）的测试目录完全不被扫描 —— 「新增测试未登记」无法被发现（§9.4 扫描优先 / §9.7 清单与 CI 协同）。现改为按「含 `SKILL.md` 的目录即技能根」逐层发现，覆盖嵌套技能；已做负向验证：临时移除某条登记后扫描即报出该未登记目录。
 - **dir/Workbuddy专属：wechat-article-search F1 端口自动探测兜底 + F2 残缺/空 Cookie 文案澄清（PR #186，`af1cfc3`）**：F1 消除「默认 9223」误导——`get_sogou_cookie.js` 改候选端口探测数组（9222~9240，按 UA 过滤跳过 WorkBuddy/Electron 自身）+ 读 `SOGOU_CDP_PORT`，未命中再报全候选不可达；错误提示改为「本机实测常为 9222 而非默认 9223」。F2 冷 profile 无 Cookie 退出码 2 文案点明「当前调试浏览器 profile 尚未访问过 weixin.sogou.com」。SKILL.md 去 9223 硬编码、补退出码 3 语义与回退段 `SOGOU_CDP_PORT` 说明。CI smoke/scope-map pass；部署态经 `scripts/deploy.js` 从 main blob 逐字节同步一致。
 - **dir/Workbuddy专属：wechat-article-to-ima 问题3上升前置契约 + F4 即停试/会话级熔断 + F5 两段式 + F8 笔记去重 + F9 state.js + F12/F13/F14 文档修正（PR #187，`f052de7`）**：① 问题3上升前置契约（chrome-devtools 调试浏览器就绪 + `SOGOU_CDP_PORT` 契约，与 wechat-article-search 呼应）；② F4 退出码 1+ANTI_SPIDER 仅记 1 次尝试不累加 attempts + 会话级反爬熔断（连续 ≥2 关键词命中即整体终止）；③ F5 提取与检索两段式范式（严禁 `&&` 串联）；④ F8 笔记类（media_type=11）去重改 `get_knowledge_list` 按 title 比对；⑤ F9 新增零依赖 `scripts/state.js` 作 `_progress.json` 唯一读写入口（强约束：failed 严禁标 ingested、mark-ingested 须复核 media_type===11）；⑥ F12 口径调和、F13 软告警（句号数不足但满足辅助判据不自动拒）、F14 凭据优先级（环境变量→`~/.config/ima/`→技能目录兜底）、F10 陷阱段改写（ima_api.cjs 现已校验 HTTP 状态码）。CI smoke pass；部署态由 main blob 逐字节重建（SKILL.md + scripts/state.js），保留 `ima_credentials.json`。
 - **dir/Workbuddy专属：恢复指南追加 ima-skills F6 参数契约 + F10 HTTP 状态码重放项（PR #188，`878fb3c`）**：① F6（`ima_api.cjs` 位置参数无 `--help`/无格式校验）→ 补 `--help`/`-h` 用法输出（exit 0）+ `apiPath` 须 `openapi/<module>/v1/<action>` 前缀校验（exit 1 + code -100）；② F10 `postJson` 校验 `res.ok`，非 2xx 抛错（含 `httpStatus`/`body`，`main` catch 透出到 stderr JSON）；§0.4 覆盖检测桩补两项 grep、附录 A 回归补 IA-01b；同步 `wechat-article-to-ima/SKILL.md` 空响应陷阱段改写。部署态 `ima_api.cjs` 已本地 node 功能测试 4/4 通过。
