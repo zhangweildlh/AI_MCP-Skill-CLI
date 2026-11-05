@@ -394,6 +394,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 | `scripts/resolve_midlink.js` | 中转链接 → 真实直链（降级链零级） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；`--check` 为端口探活 |
 | `scripts/pipeline.js` | 抓取 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限） |
 | `scripts/test_filter_rules.js` | 过滤规则回归测试 | 断言 29 条历史误杀样本不再拦截 + 3 条真命中仍拦截 + 11 条子串边界用例 |
+| `scripts/deploy.js` | 开发态 → 部署态 一键同步（零依赖） | 走 `git cat-file blob` 逐字节重建（**不经工作树**，避免 `core.autocrlf` 带入 CRLF，§7.3）；`ima_credentials.json` 为部署态专有物，保留不覆盖；`--dry-run` 预演、`--ref main` 指定来源引用 |
 
 ## 输出格式约束
 
