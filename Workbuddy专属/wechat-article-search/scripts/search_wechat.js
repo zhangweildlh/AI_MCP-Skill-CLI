@@ -44,6 +44,31 @@ function htmlToText(html) {
 }
 
 /**
+ * 解码 URL 语境下的 HTML 实体。
+ *
+ * 搜狗结果页的 href 属性中，`&` 被写作 HTML 实体 `&amp;`（HTML 规范要求）。
+ * 若原样输出/请求，该 URL 是**畸形**的：搜狗跳转页会把它当作无效参数，
+ * 直接重定向到 `weixin.sogou.com/antispider/`（反爬页），
+ * 导致 url_resolved 恒为 false、正文永远取不到（2026-11-05 实测：
+ * 49 条检索结果中 24 条为未解析的中转链接，其中全部含未解码的 `&amp;`）。
+ *
+ * @param {string} u
+ * @returns {string} 解码后的 URL
+ */
+function decodeUrlEntities(u) {
+  if (!u) return '';
+  return String(u)
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
+}
+
+/**
  * 从一段 HTML 中提取指定标签的所有区块内容（支持同名标签嵌套）。
  * @param {string} html
  * @param {string} tag - 如 'li'
@@ -370,6 +395,8 @@ function extractRedirectUrlFromHtml(html) {
  */
 function getRealUrl(url, cookieStr = '', retries = 3) {
   return new Promise((resolve) => {
+    // 解码 URL 实体（防御式）：调用方可能直接传入未解码的 href
+    url = decodeUrlEntities(url);
     // 如果不是搜狗链接，直接返回原URL
     if (!url.includes('weixin.sogou.com')) {
       resolve(url);
@@ -670,7 +697,9 @@ function parseArticle(liHtml) {
     if (!titleAnchor || !titleAnchor.text) return null;
 
     const title = titleAnchor.text;
-    let url = titleAnchor.href || '';
+    // ★ 解码 URL 实体：href 属性中的 `&amp;` 必须还原为 `&`，否则 URL 畸形、
+    //   搜狗跳转页会重定向到 antispider 页（2026-11-05 实测修正）
+    let url = decodeUrlEntities(titleAnchor.href || '');
 
     // 处理相对URL
     if (url.startsWith('/')) {
