@@ -185,6 +185,30 @@ function buildMd(a, art, title) {
   return `# ${title}\n\n来源：${a.source || '未知'}\n发布时间：${published}\n作者：${art.author}\n原文直链：${direct}\n采集日期：${collected}\n\n${htmlToText(art.html)}\n`;
 }
 
+/**
+ * 解析 ima 开放接口响应（纯函数，可离线单测）。
+ *
+ * ⚠️ `ima_api.cjs` 的 `imaApi()` 返回的是**原始响应文本**而非已解析对象。
+ *    若调用方直接 `resp.data`，读到的恒为 undefined → 会静默读不到 KB 现有条目
+ *    → 去重失效 → 重复入库（而开放接口无 delete 端点，重复**不可逆**）。
+ *    本函数是唯一的响应解析入口，业务码非 0 一律抛错（禁止当成功处理）。
+ *
+ * @param {string} apiPath 仅用于错误信息定位
+ * @param {string} text    imaApi() 返回的原始响应文本
+ * @returns {object} 解析后的业务对象
+ */
+function parseImaResponse(apiPath, text) {
+  let j;
+  try { j = JSON.parse(text || '{}'); }
+  catch (e) { throw new Error(apiPath + ' 响应非 JSON：' + String(text).slice(0, 200)); }
+  if (j && j.code !== undefined && j.code !== 0) {
+    const err = new Error(apiPath + ' code=' + j.code + ' msg=' + j.msg);
+    err.imaCode = j.code;
+    throw err;
+  }
+  return j;
+}
+
 const safeFile = (t) => String(t || '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 120);
 
 async function main() {
@@ -211,16 +235,7 @@ async function main() {
    *    （重复不可逆：开放接口无 delete 端点）。
    */
   async function imaCall(apiPath, body) {
-    const text = await imaApi(apiPath, body, {});
-    let j;
-    try { j = JSON.parse(text || '{}'); }
-    catch (e) { throw new Error(apiPath + ' 响应非 JSON：' + String(text).slice(0, 200)); }
-    if (j && j.code !== undefined && j.code !== 0) {
-      const err = new Error(apiPath + ' code=' + j.code + ' msg=' + j.msg);
-      err.imaCode = j.code;
-      throw err;
-    }
-    return j;
+    return parseImaResponse(apiPath, await imaApi(apiPath, body, {}));
   }
 
   const j = JSON.parse(fs.readFileSync(opt.search, 'utf8'));
@@ -283,6 +298,13 @@ async function main() {
     const tag = `[${i + 1}/${queue.length}]`;
     const title = String(a.title || '').trim();
 
+    // ⓪ --dry-run 必须在任何写操作之前短路（否则「预演」会污染进度文件与 KB）
+    if (opt.dryRun) {
+      const tfDry = matchFilter(title, 'title');
+      console.log(`${tag} [dry-run] ${tfDry ? '将被过滤(' + tfDry + ')' : '将通过过滤'} ${title.slice(0, 40)}`);
+      continue;
+    }
+
     // ① 标题层过滤
     const tf = matchFilter(title, 'title');
     if (tf) {
@@ -303,7 +325,6 @@ async function main() {
       continue;
     }
 
-    if (opt.dryRun) { console.log(`${tag} [dry-run] 跳过抓取 ${title.slice(0, 40)}`); continue; }
 
     // ③ 抓取（中转链接先经浏览器解析为真实直链 —— 降级链一级）
     let art = null, fetchErr = null;
@@ -426,4 +447,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('FATAL', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };
+module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };

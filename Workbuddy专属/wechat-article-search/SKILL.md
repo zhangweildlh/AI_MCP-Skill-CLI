@@ -50,6 +50,20 @@ metadata:
 3. 暂缓重试：IP 风控通常会随时间解除，可稍后重试。
 4. 更换网络出口 IP：解决 IP 维锁封（Cookie 方案无法覆盖）。
 
+## 测试资产（`tests/`，2026-11-05 补齐）
+
+> 全部为**可复用测试脚本**（§8.3⑤ 允许入库），零第三方依赖、不反向依赖仓库级入口、临时文件自清理。
+> 真实态用例默认跳过，须 `--allow-real` 显式门控（§9.3）。
+
+| 脚本 | 类型 | 覆盖内容 |
+| --- | --- | --- |
+| `tests/run_tests.js` | 回归（离线） | 内容完整性、全场景与全边界覆盖矩阵、Cookie 注入集成路径、URL 实体解码回归（vm 沙箱 + 桩 https，零活网络） |
+| `tests/test_cli_contract.js` | 冒烟（离线）+ 真实态 | **命令行契约层**：退出码家族（参数非法=2 / 检索失败=1 / 成功=0）、用法输出、`-n` 上限截断提示、Cookie 残缺告警不阻断、URL 实体解码静态断言；真实态验 `-o` 落盘 JSON 结构 |
+| `tests/cross_engine/` | 回归（离线） | 跨引擎解析一致性（Python 侧 `ref_parser.py`） |
+
+> **改动本技能后请回归**：`node tests/run_tests.js` 与 `node tests/test_cli_contract.js` 两条离线套件须全绿；
+> 真实态套件（`--allow-real`）在搜狗反爬解除后再跑。
+
 ## 输出格式
 
 - 脚本标准输出为 JSON：`{"query": "...", "total": N, "articles": [{"title": "...", "url": "...", "summary": "...", "datetime": "...", "date_text": "...", "date_description": "...", "source": "..."}]}`。

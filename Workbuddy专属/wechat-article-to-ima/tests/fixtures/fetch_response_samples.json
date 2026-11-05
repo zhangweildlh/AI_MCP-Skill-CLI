@@ -1,0 +1,46 @@
+{
+  "_note": "抓取响应特征样本（2026-11-05 实测归因）。用于离线单测分类器 classifyResponse()。",
+  "_classes": {
+    "sogouAntispider": "搜狗反爬页：<title>为「搜狗搜索」或正文落在 /antispider/ —— 中转链接未解析 / 会话被风控时直连的落点",
+    "sogouRedirect": "无 js_content 且响应过短（<20KB）—— 跳转页 / 风控占位",
+    "noJsContent": "无 js_content 且响应体不小 —— 原文已删除 / 违规 / 非文章页（实测此类响应可达数 MB）",
+    "jsContentShort": "有 js_content 但正文容器过短 —— 嵌套标签截断或空正文",
+    "ok": "有 js_content 且正文长度达标 —— 可入库候选"
+  },
+  "_pad": "padTimes/padText/padAt 为确定性补白指令：测试运行时按 spec 组合出足够长的响应体，避免仓库内留存大体积 fixture",
+  "samples": [
+    {
+      "name": "搜狗反爬页（<title>搜狗搜索</title>）",
+      "expect": "sogouAntispider",
+      "html": "<!DOCTYPE html><html><head><title>搜狗搜索</title></head><body><div class=\"antispider\">请输入验证码</div></body></html>"
+    },
+    {
+      "name": "搜狗反爬页（正文含 antispider 标记）",
+      "expect": "sogouAntispider",
+      "html": "<!DOCTYPE html><html><head><title></title></head><body><div id=\"antispider\">操作频繁</div></body></html>"
+    },
+    {
+      "name": "短响应无 js_content（跳转页 / 风控占位）",
+      "expect": "sogouRedirect",
+      "html": "<html><head><title>跳转中</title></head><body>redirecting</body></html>"
+    },
+    {
+      "name": "大响应无 js_content（原文已删除 / 违规）",
+      "expect": "noJsContent",
+      "html": "<!DOCTYPE html><html><head><title>微信公众平台</title></head><body><div id=\"js_error\">该内容已被发布者删除</div>",
+      "padText": "<span>占位</span>",
+      "padTimes": 4000,
+      "padAt": "end"
+    },
+    {
+      "name": "有 js_content 但正文过短",
+      "expect": "jsContentShort",
+      "html": "<html><body><div id=\"js_content\"><p>短</p></div></body></html>"
+    },
+    {
+      "name": "正常文章页",
+      "expect": "ok",
+      "html": "<html><body><div id=\"js_content\"><p>这是合规的正文段落内容，用于验证分类器把正常文章判为可入库候选。正文需要足够长度以越过「js_content 过短」的判定阈值，因为真实文章在完整性闸门处要求不少于八百字符，这里只取其下限附近的量级即可覆盖判定分支。</p><p>第二段用于把正文长度进一步推高，确保分类器稳定落入可入库候选这一分支，而不是被过短判据误判为截断。</p><p>第三段继续补足长度，使样本正文明确高于过短判据阈值且低于完整性闸门下限，正好落在「可入库候选」这一类。</p></div></body></html>"
+    }
+  ]
+}
