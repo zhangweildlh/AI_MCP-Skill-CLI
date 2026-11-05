@@ -2,7 +2,26 @@
 
 ## [2026-11-05]
 
+### Added
+- **dir/Workbuddy专属：wechat-article-to-ima 补开发态→部署态同步脚本 `scripts/deploy.js`（PR #191，`831b9b7`）**：此前该技能无部署同步脚本，部署只能靠一次性临时脚本完成、不可复现，且易绕过 §7.3「部署态一律由 main blob 逐字节重建（不经工作树）」硬规则。新脚本零依赖（Node 内置模块），走 `git cat-file blob` 逐字节重建、含写后逐文件字节校验；`ima_credentials.json` 为部署态专有物（凭据明文，§3.3）显式保留不覆盖；支持 `--repo/--skill-path/--ref/--to/--dry-run`。SKILL.md「技能脚本清单」补对应条目。部署态实测 7/7 与 main blob 逐字节一致。
+
 ### Fixed
+- **dir/Workbuddy专属：wechat-article-to-ima / wechat-article-search 下沉 11 项采集链路缺陷修复（PR #190，`ef32020`）**：来源为 2026-11-05 任务卡 A（总包/EPC）全链路执行 + 三技能联合复测坐实，**11 项可下沉项全部落地**。
+  - **S1 中转链接未解析致 91% 抓取失败**：搜狗 `url_resolved=false` 条目的 `&` 被写作 HTML 实体 `&amp;`，URL 畸形 → 直连被重定向到 `weixin.sogou.com/antispider/`，实测 23 篇抓取失败中 21 篇因此失败。修复：① `search_wechat.js` 在 href 提取与 `getRealUrl` 内解码 URL 实体（实测含未解码实体 4/4 → 0/4）；② 新增 `scripts/resolve_midlink.js`（降级链零级，走 Chrome DevTools HTTP 端点 `/json/new`+`/json/list`+`/json/close`，**不依赖 MCP、不依赖 WebSocket**，实测 18/24 条中转链接解析为真实直链）。
+  - **S2 笔记去重用整标题精确比对，但服务端截断标题至 30 字符**：实测 28 条中 11 条被截断 → 续跑必然重复入库，而**开放接口无 delete/remove 端点、重复不可逆**。修复：去重键改「归一化标题前 30 字符」，且**先剥末尾 `...` 再切片**（标题恰为 30 字时截断标记落在切片内仍会失配——实测命中 20→22、缺失 6→4）；实测 KB 17 条原始 → 14 唯一。
+  - **S3 过滤规则为无边界子串匹配，误杀 93%**：实测 29 篇被过滤中 27 篇误杀（「大力推广」「评标办法和标准」「招标人与中标人的责任」等政策套话/法规原文），且「动工」⊂「推动」、「开工」⊂「召开」。修复：词族分层（强特征/弱特征 + 上下文模式 + 词边界守卫），正文层仅强特征且须同族命中 ≥2；回归断言 29 条历史误杀样本全部不再拦截 + 3 条真命中仍拦截 + 11 条子串边界用例（43/43 通过）。
+  - **S5 `state.js` 缺三个子命令致 F9 与 SKILL.md 自相矛盾**：`report` 的「被过滤」列因无写入入口恒为 0；步骤 12 的卡级字段无法经唯一入口写入；旧 `failed` 记录永久阻断重跑。修复：新增 `mark-filtered` / `update-card` / `reset-card`。
+  - **S6 `_progress.json` 历史 schema 与 `state.js` 不兼容**（旧 `status/ingested/gatePassed` vs 新 `fetchStatus/filterResult/gateResult/ingestStatus`，`validate` 直接判非法）。修复：新增 `migrate` 幂等迁移，卡级字段零改动；SKILL.md 补 articles 条目完整 schema。
+  - **S7 `mark-ingested` 默认不联机复核**，历史进度出现「声称已入库而 KB 全库查无此文」的幽灵记录。修复：默认复核 `media_type===11`，`--no-verify` 显式关闭。
+  - **S4 抓取降级链三级降级全无代码实现**：新增 `scripts/pipeline.js` 固化「抓取→过滤→闸门→入库→状态回写」全流水线（ima 调用经 `ima_api.cjs` 模块导出，规避长正文 CLI 参数长度上限）。
+  - **S8 元数据头用 YAML front-matter 致标题污染**：服务端把正文首个元数据行当标题，实测历史条目 5/11 出现 `title: "…`。修复：元数据头锁定内联形态、禁 front-matter、`title` 显式传参；并记入「`import_doc` 不接受 `folder_id`（code=310001）」陷阱。
+  - **S9 调试端口「配置有、实际没在跑」且运行中消失**：前置检查改为实测连通 + 自愈拉起（`resolve_midlink.js --check`）。
+  - **S10 F4 熔断语义过宽致丢弃已取回数据**：拆为 F4a（停检索、保留已取回数据并继续处理）/ F4b（零有效结果才整体终止）——实测原语义会使产出归零，按 F4a 后同批数据产出 14 篇。
+  - **S11 `cardId` / `card` 字段名不统一**：读取兼容、写入归一。
+  - **S12 版本戳同步**：to-ima 1.2.3 → 1.3.0、search 0.1.5 → 0.1.6。
+  - 另：`恢复指南-ima-skills上游更新重放修复.md` 新增 P-ima-NOTE-FOLDER（import_doc 契约项）+ D13 文档修复项 + §0.4 覆盖检测 grep；部署态 `ima-skills` 的 `notes/SKILL.md` 与 `knowledge-base/SKILL.md` 同步沉淀该组契约事实。
+  - **验证**：过滤规则回归 43/43；search 自带测试 47 → 54 全通过；state.js 全子命令实测（migrate 幂等且卡级字段零丢失、mark-filtered 使 report 被过滤列可产出、mark-ingested 默认复核缺参即拒、filtered→ingested 被强约束拦截、reset-card 生效）；pipeline 实测（KB 去重键 17→14、去重命中零新增条目、真实入库 3 篇并复验 `media_type===11`、闸门未过件正确隔离）；仓库 smoke tier0/1 31 OK/0 FATAL/0 WARN。部署态 §7.3 三项判据全过（7/7 与 11/11）。
+  - **未修项（量化披露）**：ima 开放接口无 delete 端点 → Card A 历史 3 条重复副本不可逆；Card C 历史 5 条 front-matter 污染标题无删除/改名端点，不可自动修复。
 - **dir/Workbuddy专属：wechat-article-search F1 端口自动探测兜底 + F2 残缺/空 Cookie 文案澄清（PR #186，`af1cfc3`）**：F1 消除「默认 9223」误导——`get_sogou_cookie.js` 改候选端口探测数组（9222~9240，按 UA 过滤跳过 WorkBuddy/Electron 自身）+ 读 `SOGOU_CDP_PORT`，未命中再报全候选不可达；错误提示改为「本机实测常为 9222 而非默认 9223」。F2 冷 profile 无 Cookie 退出码 2 文案点明「当前调试浏览器 profile 尚未访问过 weixin.sogou.com」。SKILL.md 去 9223 硬编码、补退出码 3 语义与回退段 `SOGOU_CDP_PORT` 说明。CI smoke/scope-map pass；部署态经 `scripts/deploy.js` 从 main blob 逐字节同步一致。
 - **dir/Workbuddy专属：wechat-article-to-ima 问题3上升前置契约 + F4 即停试/会话级熔断 + F5 两段式 + F8 笔记去重 + F9 state.js + F12/F13/F14 文档修正（PR #187，`f052de7`）**：① 问题3上升前置契约（chrome-devtools 调试浏览器就绪 + `SOGOU_CDP_PORT` 契约，与 wechat-article-search 呼应）；② F4 退出码 1+ANTI_SPIDER 仅记 1 次尝试不累加 attempts + 会话级反爬熔断（连续 ≥2 关键词命中即整体终止）；③ F5 提取与检索两段式范式（严禁 `&&` 串联）；④ F8 笔记类（media_type=11）去重改 `get_knowledge_list` 按 title 比对；⑤ F9 新增零依赖 `scripts/state.js` 作 `_progress.json` 唯一读写入口（强约束：failed 严禁标 ingested、mark-ingested 须复核 media_type===11）；⑥ F12 口径调和、F13 软告警（句号数不足但满足辅助判据不自动拒）、F14 凭据优先级（环境变量→`~/.config/ima/`→技能目录兜底）、F10 陷阱段改写（ima_api.cjs 现已校验 HTTP 状态码）。CI smoke pass；部署态由 main blob 逐字节重建（SKILL.md + scripts/state.js），保留 `ima_credentials.json`。
 - **dir/Workbuddy专属：恢复指南追加 ima-skills F6 参数契约 + F10 HTTP 状态码重放项（PR #188，`878fb3c`）**：① F6（`ima_api.cjs` 位置参数无 `--help`/无格式校验）→ 补 `--help`/`-h` 用法输出（exit 0）+ `apiPath` 须 `openapi/<module>/v1/<action>` 前缀校验（exit 1 + code -100）；② F10 `postJson` 校验 `res.ok`，非 2xx 抛错（含 `httpStatus`/`body`，`main` catch 透出到 stderr JSON）；§0.4 覆盖检测桩补两项 grep、附录 A 回归补 IA-01b；同步 `wechat-article-to-ima/SKILL.md` 空响应陷阱段改写。部署态 `ima_api.cjs` 已本地 node 功能测试 4/4 通过。
