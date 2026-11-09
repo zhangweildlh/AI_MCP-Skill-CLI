@@ -32,8 +32,30 @@
 'use strict';
 const fs = require('fs');
 const http = require('http');
+const path = require('path');
 
-const CDP_PORT = Number(process.env.SOGOU_CDP_PORT) || 9223;
+/**
+ * 解析调试浏览器端口（与 chrome-devtools 契约一致）：
+ *   SOGOU_CDP_PORT 环境变量  >  chrome-devtools/local-config.json 的 debugPort  >  默认 9223
+ * 历史坑（2026-11-05 实测）：local-config.json 的 debugPort 只是「上次写入的配置值」，
+ * 与实际监听可能不一致；且 chrome-devtools 实际使用非 9223 端口时，若未显式设置
+ * SOGOU_CDP_PORT，仅 fallback 到 9223 会探活到错误端口。故此处回退读取真实配置端口。
+ */
+function resolveCdpPort() {
+  if (process.env.SOGOU_CDP_PORT) return Number(process.env.SOGOU_CDP_PORT) || 9223;
+  try {
+    const up = process.env.USERPROFILE;
+    if (up) {
+      const cfg = path.join(up, '.workbuddy', 'skills', 'chrome-devtools', 'local-config.json');
+      if (fs.existsSync(cfg)) {
+        const j = JSON.parse(fs.readFileSync(cfg, 'utf8'));
+        if (j && Number(j.debugPort)) return Number(j.debugPort);
+      }
+    }
+  } catch (_) { /* 配置缺失/非法不阻断，回退默认端口 */ }
+  return 9223;
+}
+const CDP_PORT = resolveCdpPort();
 const HOST = '127.0.0.1';
 const DEFAULT_TIMEOUT_MS = 25000;
 

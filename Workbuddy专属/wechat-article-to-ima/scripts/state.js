@@ -24,7 +24,12 @@
  *   reset-card    --card C                    清空该卡的全部文章记录（重跑/续跑前重置用）
  *   update-card   --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K]
  *                                             更新任务卡级字段（步骤 12 轮转规则所需）
- *   report                                      输出应入库 / 实入库 / 被过滤 / 失败 四栏清单
+ *   report                                      输出增强四栏清单：应入库 / 实入库(KB复核确认) / 被过滤 / 失败
+ *                                              被过滤/失败栏含逐条原因；实入库栏含目标子目录 + 应入未入根因；
+ *                                              幽灵记录（声称 ingested 但 KB 查无）显式标注。
+ *                                              可选参数：--kb-id <知识库id> --folder-id <子目录id>（联机复核）
+ *                                                        --kb-snapshot <快照json>（离线/审计复核）
+ *                                                        --card <卡> 限定单卡 --json 机器可读
  *
  * 强约束（违反即拒绝写入并报错）：
  *   - mark-ingested 默认联机复核目标条目 media_type===11 真实存在；仅在显式 --no-verify 时跳过。
@@ -56,6 +61,24 @@ const dedupKey = (t) => {
   return s.replace(/\s+/g, '').replace(/[！？!？?]/g, '').toLowerCase().slice(0, TITLE_CAP);
 };
 
+/**
+ * 确定性定位 ima-skills 的 ima_api.cjs（与 pipeline.js 共用，避免两份路径解析逻辑漂移）。
+ * 候选顺序：环境变量 IMA_API_CJS → $USERPROFILE/.workbuddy/skills/ima-skills/ima_api.cjs
+ * → 技能相邻目录 ../../ima-skills/ima_api.cjs。返回首个存在的文件路径，全缺返回 null。
+ * 不使用 $HOME（本环境执行沙箱中 $HOME 被虚拟化为 /HOME，会误判缺失）。
+ */
+function locateImaApi() {
+  const cands = [];
+  if (process.env.IMA_API_CJS) cands.push(process.env.IMA_API_CJS);
+  const up = process.env.USERPROFILE;
+  if (up) cands.push(path.join(up, '.workbuddy', 'skills', 'ima-skills', 'ima_api.cjs'));
+  cands.push(path.join(__dirname, '..', '..', 'ima-skills', 'ima_api.cjs'));
+  for (const c of cands) {
+    try { if (fs.existsSync(c) && fs.statSync(c).isFile()) return c; } catch (_) { /* next */ }
+  }
+  return null;
+}
+
 function usage() {
   console.error(`用法：node state.js --progress <路径> <子命令> [选项]
 
@@ -69,7 +92,7 @@ function usage() {
   reset-attempts --card C
   reset-card    --card C
   update-card   --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K]
-  report
+  report [--kb-id K] [--folder-id F] [--kb-snapshot <json>] [--card C] [--json]
 
 通用选项：
   --progress <路径>   必填。_progress.json 路径。
@@ -82,7 +105,7 @@ function fail(msg) {
 }
 
 function parseArgs(argv) {
-  const opt = { progress: '', command: '', card: '', title: '', mediaId: '', reason: '', n: null, verify: true, noVerify: false, imaApi: '', kbId: '', folderId: '' };
+  const opt = { progress: '', command: '', card: '', title: '', mediaId: '', reason: '', n: null, verify: true, noVerify: false, imaApi: '', kbId: '', folderId: '', kbSnapshot: '', json: false };
   let i = 0;
   while (i < argv.length) {
     const a = argv[i];
@@ -104,6 +127,8 @@ function parseArgs(argv) {
     else if (a === '--ima-api') opt.imaApi = argv[++i] || fail('缺少 --ima-api 值');
     else if (a === '--kb-id') opt.kbId = argv[++i] || fail('缺少 --kb-id 值');
     else if (a === '--folder-id') opt.folderId = argv[++i] || fail('缺少 --folder-id 值');
+    else if (a === '--kb-snapshot') opt.kbSnapshot = argv[++i] || fail('缺少 --kb-snapshot 值');
+    else if (a === '--json') opt.json = true;
     else if (!opt.command) opt.command = a;
     else fail(`未知参数：${a}`);
     i++;
@@ -163,7 +188,8 @@ function upsertArticle(data, card, title) {
 
 // 联机复核：调 ima_api.cjs 取目标子目录全量，确认 media_id 对应条目 media_type===11 真实存在。
 function verifyMediaType11(opt, folderId) {
-  if (!opt.imaApi) fail('mark-ingested 默认要求联机复核：请提供 --ima-api <ima_api.cjs 路径>（或显式加 --no-verify 跳过复核）。');
+  if (!opt.imaApi) opt.imaApi = locateImaApi();
+  if (!opt.imaApi) fail('mark-ingested 默认要求联机复核：无法定位 ima_api.cjs（请设置 IMA_API_CJS 环境变量、确保 ima-skills 已安装，或显式加 --no-verify 跳过复核）。');
   if (!opt.kbId) fail('mark-ingested 默认要求联机复核：请提供 --kb-id <knowledge_base_id>（或显式加 --no-verify 跳过复核）。');
   const fid = folderId || opt.folderId;
   if (!fid) fail('mark-ingested 默认要求联机复核：请提供 --folder-id 或从进度卡推导 folder_id（或显式加 --no-verify 跳过复核）。');
@@ -321,20 +347,159 @@ function cmdUpdateCard(opt, data) {
   console.error(`✅ 已更新 card=${opt.card} 字段（lastRun=${card.lastRun} nextDue=${card.nextDue} rotateIndex=${card.rotateIndex} status=${card.status} nextRetryAt=${card.nextRetryAt}）`);
 }
 
-function cmdReport(opt, data) {
-  let shouldIngest = 0, ingested = 0, filtered = 0, failed = 0;
-  for (const a of data.articles) {
-    if (String(a.filterResult).startsWith('filtered')) { filtered++; continue; }
-    if (String(a.gateResult).startsWith('fail') || a.fetchStatus === 'failed' || a.ingestStatus === 'failed') { failed++; continue; }
-    if (a.ingestStatus === 'ingested') ingested++;
+function parseMediaIdFromNote(note) {
+  if (!note) return null;
+  const m = String(note).match(/media_id=([^\s；;]+)/);
+  return m ? m[1].trim() : null;
+}
+
+// 读取 KB 快照文件（离线/审计用），归一为 [{media_id, title}]
+function readKbSnapshot(p) {
+  const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
+  let list = [];
+  if (Array.isArray(raw)) list = raw;
+  else if (raw && raw.knowledge_list) list = raw.knowledge_list;
+  else if (raw && raw.data && (raw.data.knowledge_list || raw.data.list)) list = raw.data.knowledge_list || raw.data.list;
+  else if (raw && raw.list) list = raw.list;
+  return list.map((it) => ({ media_id: String(it.media_id != null ? it.media_id : it.mediaId), title: it.title || it.name || '' }));
+}
+
+// 联机拉取目标子目录全量条目（分页），返回 [{media_id, title}]
+function fetchKbEntries(opt, folderId) {
+  if (!opt.imaApi) opt.imaApi = locateImaApi();
+  if (!opt.imaApi) throw new Error('无法定位 ima_api.cjs（请设置 IMA_API_CJS 或确保 ima-skills 已安装，或使用 --kb-snapshot 传入快照）');
+  if (!opt.kbId) throw new Error('请提供 --kb-id');
+  const fid = folderId || opt.folderId;
+  if (!fid) throw new Error('请提供 --folder-id 或从进度卡推导 folder_id');
+  const out = [];
+  let cursor = '';
+  let pages = 0;
+  do {
+    const body = JSON.stringify({ knowledge_base_id: opt.kbId, folder_id: fid, cursor, limit: 50 });
+    const res = spawnSync('node', [opt.imaApi, 'openapi/wiki/v1/get_knowledge_list', body], { encoding: 'utf-8', timeout: 60000 });
+    if (res.error) throw new Error('调用 ima_api.cjs 失败：' + res.error.message);
+    if (res.status !== 0) throw new Error('ima_api.cjs 退出码 ' + res.status + '：' + (((res.stderr || '').trim() || (res.stdout || '').trim()).slice(0, 200)));
+    let json;
+    try { json = JSON.parse(res.stdout); } catch (e) { throw new Error('ima_api.cjs 输出非 JSON：' + res.stdout.slice(0, 200)); }
+    const list = (json && json.data && (json.data.knowledge_list || json.data.list)) || [];
+    for (const it of list) out.push({ media_id: String(it.media_id), title: it.title || '' });
+    const next = (json && json.data && (json.data.cursor || json.data.next_cursor)) || '';
+    if (!next || next === cursor) break;
+    cursor = next;
+    pages++;
+  } while (pages < 100);
+  return out;
+}
+
+function reasonOf(a) {
+  if (a.ingestStatus === 'failed') return a.note || '(未提供原因)';
+  if (String(a.gateResult).startsWith('fail')) return String(a.gateResult).replace(/^fail:?/, '') || '(未提供原因)';
+  if (a.fetchStatus === 'failed') return '抓取失败';
+  return '(未提供原因)';
+}
+
+/**
+ * 纯分类函数（可离线单测）：依据进度文件 + 可选 KB 条目，产出四栏清单结构化结果。
+ * @param {object} data                _progress.json 解析对象
+ * @param {Array<{media_id,title}>|null} kbEntries  KB 子目录全量条目；null=离线（不做跨库核对）
+ * @param {object} opts                { cardFilter }
+ */
+function classifyReport(data, kbEntries, opts) {
+  const cardFilter = (opts && opts.cardFilter) || '';
+  const arts = data.articles.filter((a) => !cardFilter || cardOf(a) === cardFilter);
+  const kbSet = kbEntries ? new Set(kbEntries.map((e) => String(e.media_id))) : null;
+  const kbTitleKeys = kbEntries ? new Set(kbEntries.map((e) => dedupKey(e.title))) : null;
+
+  const filteredItems = [];
+  const failedItems = [];
+  const ghostItems = [];
+  let shouldIngest = 0, ingestedClaimed = 0, filtered = 0, failed = 0;
+
+  for (const a of arts) {
+    const card = cardOf(a);
+    const isFiltered = String(a.filterResult).startsWith('filtered');
+    const isFailed = String(a.gateResult).startsWith('fail') || a.fetchStatus === 'failed' || a.ingestStatus === 'failed';
+    if (isFiltered) {
+      filtered++;
+      filteredItems.push({ card, title: a.title, reason: String(a.filterResult).replace(/^filtered:?/, '') || '(未提供原因)' });
+      continue;
+    }
+    if (isFailed) {
+      failed++;
+      failedItems.push({ card, title: a.title, reason: reasonOf(a) });
+      continue;
+    }
+    // 通过闸门（未被过滤、未失败）
+    shouldIngest++;
+    if (a.ingestStatus === 'ingested') {
+      ingestedClaimed++;
+      if (kbSet) {
+        const mid = parseMediaIdFromNote(a.note);
+        const inByMedia = mid && kbSet.has(mid);
+        const inByTitle = kbTitleKeys.has(dedupKey(a.title));
+        if (!inByMedia && !inByTitle) {
+          ghostItems.push({ card, title: a.title, mediaId: mid, note: a.note || '', reason: '进度声称 ingested，但 KB 子目录未找到匹配条目（media_id 或去重键均未命中）' });
+        }
+      }
+    }
   }
-  // 应入库 = 通过闸门且未被过滤（含已入库与待入库）
-  shouldIngest = data.articles.filter((a) => !String(a.filterResult).startsWith('filtered') && !String(a.gateResult).startsWith('fail') && a.fetchStatus !== 'failed').length;
-  console.log('=== 四栏清单（state.js report）===');
-  console.log(`应入库 : ${shouldIngest}`);
-  console.log(`实入库 : ${ingested}`);
-  console.log(`被过滤 : ${filtered}`);
-  console.log(`失败   : ${failed}`);
+  const kbVerified = !!kbEntries;
+  const confirmed = kbVerified ? Math.max(0, ingestedClaimed - ghostItems.length) : ingestedClaimed;
+  const pending = Math.max(0, shouldIngest - ingestedClaimed);
+  const shouldButNotIngested = Math.max(0, shouldIngest - confirmed);
+  return {
+    cardFilter, kbVerified,
+    shouldIngest, ingestedClaimed, confirmed, filtered, failed,
+    pending, ghost: ghostItems.length,
+    ghostItems, filteredItems, failedItems,
+    shouldButNotIngested,
+  };
+}
+
+function cmdReport(opt, data) {
+  let kbEntries = null;
+  let kbErr = null;
+  if (opt.kbSnapshot) {
+    try { kbEntries = readKbSnapshot(opt.kbSnapshot); }
+    catch (e) { kbErr = '读取 --kb-snapshot 失败：' + e.message; }
+  } else if (opt.kbId && opt.folderId) {
+    try { kbEntries = fetchKbEntries(opt, opt.folderId); }
+    catch (e) { kbErr = 'KB 联机复核失败，降级为离线口径：' + e.message; }
+  }
+  const rep = classifyReport(data, kbEntries, { cardFilter: opt.card });
+  if (opt.json) { process.stdout.write(JSON.stringify(rep, null, 2) + '\n'); return; }
+
+  const L = [];
+  L.push('=== 四栏清单（state.js report' + (rep.kbVerified ? ' · KB 复核模式' : ' · 离线模式（未 KB 复核）') + '）===');
+  if (opt.kbId) L.push('目标子目录：kb_id=' + opt.kbId + '  folder_id=' + (opt.folderId || '(未提供)'));
+  else if (opt.kbSnapshot) L.push('目标子目录：来自快照 ' + opt.kbSnapshot);
+  L.push(`应入库 : ${rep.shouldIngest}`);
+  L.push(`实入库 : ${rep.confirmed}` + (rep.kbVerified && rep.ingestedClaimed !== rep.confirmed ? `  （进度声称 ${rep.ingestedClaimed}，幽灵 ${rep.ghost}）` : ''));
+  L.push(`被过滤 : ${rep.filtered}`);
+  L.push(`失败   : ${rep.failed}`);
+  L.push('');
+  L.push(`【应入库但未入库】 : ${rep.shouldButNotIngested} 篇`);
+  L.push(`   - 失败导致      : ${rep.failed} 篇（见失败明细）`);
+  L.push(`   - 幽灵记录      : ${rep.ghost} 篇（进度声称 ingested，KB 查无）`);
+  L.push(`   - 待入库/卡死   : ${rep.pending} 篇（通过闸门但 ingestStatus 仍为 pending）`);
+  L.push('');
+  L.push(`【被过滤明细】(${rep.filtered} 篇)`);
+  rep.filteredItems.forEach((x, i) => L.push(`   ${i + 1}. [${x.card}] ${x.title} — 原因：${x.reason}`));
+  if (!rep.filteredItems.length) L.push('   （无）');
+  L.push('');
+  L.push(`【失败明细】(${rep.failed} 篇)`);
+  rep.failedItems.forEach((x, i) => L.push(`   ${i + 1}. [${x.card}] ${x.title} — 原因：${x.reason}`));
+  if (!rep.failedItems.length) L.push('   （无）');
+  if (rep.ghost) {
+    L.push('');
+    L.push(`【幽灵记录明细】(${rep.ghost} 篇)  ⚠️`);
+    rep.ghostItems.forEach((x, i) => L.push(`   ${i + 1}. [${x.card}] ${x.title} — ${x.reason}（note=${x.note || '(空)'}）`));
+  }
+  L.push('');
+  if (rep.kbVerified) L.push('复核说明：实入库 ' + rep.confirmed + ' 篇均经 get_knowledge_list 复核 media_type===11 真实存在。');
+  else L.push('⚠️ 离线模式：实入库为进度文件声称值，未经 KB 复核，幽灵记录检测不可用。请加 --kb-id/--folder-id（或 --kb-snapshot）复验。');
+  if (kbErr) L.push('⚠️ ' + kbErr);
+  process.stdout.write(L.join('\n') + '\n');
 }
 
 function main() {
@@ -361,4 +526,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { dedupKey, TITLE_CAP, cardOf };
+module.exports = { dedupKey, TITLE_CAP, cardOf, locateImaApi, classifyReport, fetchKbEntries, readKbSnapshot, parseMediaIdFromNote };
