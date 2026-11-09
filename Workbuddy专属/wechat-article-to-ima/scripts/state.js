@@ -22,8 +22,10 @@
  *   set-attempts  --card C --n N              设置某卡已尝试次数
  *   reset-attempts --card C                   重置某卡已尝试次数为 0
  *   reset-card    --card C                    清空该卡的全部文章记录（重跑/续跑前重置用）
- *   update-card   --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K]
- *                                             更新任务卡级字段（步骤 12 轮转规则所需）
+ *   update-card   --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K] [--searched-keywords K] [--clear-searched] [--failure-class C]
+ *                                             更新任务卡级字段（步骤 12 轮转规则所需）；--searched-keywords 累积并集写入已搜词、--clear-searched 清空、--failure-class 写 transient/permanent
+ *   diff-keywords --card C --keywords "K1;K2;K3"   给定该卡全量关键词，输出尚未搜索的差集（续跑只搜剩余词）；支持 --json
+ *   classify-failure --reason "R"                  依据失败原因判定 transient（限流/网络，可重试）或 permanent（凭据失效，交人工）
  *   report                                      输出增强四栏清单：应入库 / 实入库(KB复核确认) / 被过滤 / 失败
  *                                              被过滤/失败栏含逐条原因；实入库栏含目标子目录 + 应入未入根因；
  *                                              幽灵记录（声称 ingested 但 KB 查无）显式标注。
@@ -91,8 +93,10 @@ function usage() {
   set-attempts  --card C --n N
   reset-attempts --card C
   reset-card    --card C
-  update-card   --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K]
+  update-card   --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K] [--searched-keywords K] [--clear-searched] [--failure-class C]
   report [--kb-id K] [--folder-id F] [--kb-snapshot <json>] [--card C] [--json]
+  diff-keywords --card C --keywords "K1;K2;K3" [--json]   输出尚未搜索的关键词差集（续跑只搜剩余词）
+  classify-failure --reason "R"                           判定 transient / permanent
 
 通用选项：
   --progress <路径>   必填。_progress.json 路径。
@@ -105,7 +109,7 @@ function fail(msg) {
 }
 
 function parseArgs(argv) {
-  const opt = { progress: '', command: '', card: '', title: '', mediaId: '', reason: '', n: null, verify: true, noVerify: false, imaApi: '', kbId: '', folderId: '', kbSnapshot: '', json: false };
+  const opt = { progress: '', command: '', card: '', title: '', mediaId: '', reason: '', n: null, verify: true, noVerify: false, imaApi: '', kbId: '', folderId: '', kbSnapshot: '', json: false, searchedKeywords: '', clearSearched: false, failureClass: '', keywords: '' };
   let i = 0;
   while (i < argv.length) {
     const a = argv[i];
@@ -124,10 +128,14 @@ function parseArgs(argv) {
     else if (a === '--next-retry-at') opt.nextRetryAt = argv[++i] || fail('缺少 --next-retry-at 值');
     else if (a === '--note') opt.note = argv[++i] || fail('缺少 --note 值');
     else if (a === '--pending-keywords') opt.pendingKeywords = argv[++i] || fail('缺少 --pending-keywords 值');
+    else if (a === '--searched-keywords') opt.searchedKeywords = argv[++i] || fail('缺少 --searched-keywords 值');
+    else if (a === '--clear-searched') opt.clearSearched = true;
+    else if (a === '--failure-class') { const fi = ++i; opt.failureClass = (argv[fi] !== undefined) ? argv[fi] : fail('缺少 --failure-class 值'); }
     else if (a === '--ima-api') opt.imaApi = argv[++i] || fail('缺少 --ima-api 值');
     else if (a === '--kb-id') opt.kbId = argv[++i] || fail('缺少 --kb-id 值');
     else if (a === '--folder-id') opt.folderId = argv[++i] || fail('缺少 --folder-id 值');
     else if (a === '--kb-snapshot') opt.kbSnapshot = argv[++i] || fail('缺少 --kb-snapshot 值');
+    else if (a === '--keywords') opt.keywords = argv[++i] || '';
     else if (a === '--json') opt.json = true;
     else if (!opt.command) opt.command = a;
     else fail(`未知参数：${a}`);
@@ -150,6 +158,11 @@ function loadProgress(progressPath) {
   if (!data || typeof data !== 'object') fail('_progress.json 结构非法（非对象）。');
   if (!data.cards || typeof data.cards !== 'object') data.cards = {};
   if (!Array.isArray(data.articles)) data.articles = [];
+  // 向后兼容：旧进度文件缺省新字段时就地补齐（searchedKeywords / failureClass），validate 不因旧文件缺字段而误拒
+  for (const [, v] of Object.entries(data.cards)) {
+    if (!Array.isArray(v.searchedKeywords)) v.searchedKeywords = [];
+    if (typeof v.failureClass !== 'string') v.failureClass = '';
+  }
   return data;
 }
 
@@ -161,7 +174,7 @@ function saveProgress(progressPath, data) {
 
 function ensureCard(data, card) {
   if (!data.cards[card]) {
-    data.cards[card] = { name: '', folder_id: '', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0 };
+    data.cards[card] = { name: '', folder_id: '', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0, searchedKeywords: [], failureClass: '' };
   }
   return data.cards[card];
 }
@@ -211,7 +224,7 @@ function cmdValidate(opt, data) {
   if (data.schema !== SCHEMA) errs.push(`schema 期望 ${SCHEMA}，实际 ${data.schema}`);
   if (typeof data.cards !== 'object') errs.push('cards 非对象');
   if (!Array.isArray(data.articles)) errs.push('articles 非数组');
-  const cardKeys = ['name', 'folder_id', 'lastRun', 'nextDue', 'rotateIndex', 'status', 'nextRetryAt', 'attempts'];
+  const cardKeys = ['name', 'folder_id', 'lastRun', 'nextDue', 'rotateIndex', 'status', 'nextRetryAt', 'attempts', 'searchedKeywords', 'failureClass'];
   for (const [c, v] of Object.entries(data.cards)) {
     for (const k of cardKeys) if (!(k in v)) errs.push(`cards.${c} 缺字段 ${k}`);
     if (typeof v.attempts !== 'number') errs.push(`cards.${c}.attempts 非数字`);
@@ -343,14 +356,40 @@ function cmdUpdateCard(opt, data) {
   if (opt.pendingKeywords !== undefined) {
     card.pendingKeywords = String(opt.pendingKeywords).split(/[,，;；]/).map((s) => s.trim()).filter(Boolean);
   }
+  if (opt.clearSearched) {
+    card.searchedKeywords = [];
+  }
+  if (opt.searchedKeywords !== undefined) {
+    // 累积并集：跨多次部分运行累加已搜词（重复自动去重），支撑「只搜剩余词」定向续跑
+    const add = String(opt.searchedKeywords).split(/[,，;；]/).map((s) => s.trim()).filter(Boolean);
+    const set = new Set(card.searchedKeywords || []);
+    add.forEach((k) => set.add(k));
+    card.searchedKeywords = Array.from(set);
+  }
+  if (opt.failureClass !== undefined) {
+    const fc = opt.failureClass;
+    if (fc !== '' && fc !== 'transient' && fc !== 'permanent') fail(`--failure-class 仅接受 transient / permanent / 空串（清除），收到: ${fc}`);
+    card.failureClass = fc;
+  }
   saveProgress(opt.progress, data);
-  console.error(`✅ 已更新 card=${opt.card} 字段（lastRun=${card.lastRun} nextDue=${card.nextDue} rotateIndex=${card.rotateIndex} status=${card.status} nextRetryAt=${card.nextRetryAt}）`);
+  console.error(`✅ 已更新 card=${opt.card} 字段（lastRun=${card.lastRun} nextDue=${card.nextDue} rotateIndex=${card.rotateIndex} status=${card.status} nextRetryAt=${card.nextRetryAt} failureClass=${card.failureClass} searchedKeywords=${card.searchedKeywords.length}）`);
 }
 
 function parseMediaIdFromNote(note) {
   if (!note) return null;
   const m = String(note).match(/media_id=([^\s；;]+)/);
   return m ? m[1].trim() : null;
+}
+
+// 失败类型分类（纯函数，可离线单测）：瞬时限流/网络 vs 永久凭据失效。
+// 永久失败不置 retry 态、交人工；守护据此类不重试。
+const FAILURE_PERMANENT = /(401|403|unauthorized|forbidden|invalid[ _-]?(api[ _-]?key|client[ _-]?id|token|credential)|凭证|凭据|鉴权|认证失败|未授权|api[ _-]?key[ \s]*无效|client[ _-]?id[ \s]*无效|key[ \s]*过期|token[ \s]*过期|secret[ \s]*无效)/i;
+const FAILURE_TRANSIENT = /(限流|antispider|anti[ _-]?spider|429|too many requests|rate[ _-]?limit|频繁|网络|network|econnreset|etimedout|timeout|超时|连接|connection|503|502|504|服务暂不可用|busy|服务忙)/i;
+function classifyFailure(reason) {
+  const r = String(reason || '');
+  if (FAILURE_PERMANENT.test(r)) return 'permanent';
+  if (FAILURE_TRANSIENT.test(r)) return 'transient';
+  return 'unknown';
 }
 
 // 读取 KB 快照文件（离线/审计用），归一为 [{media_id, title}]
@@ -502,6 +541,24 @@ function cmdReport(opt, data) {
   process.stdout.write(L.join('\n') + '\n');
 }
 
+function cmdDiffKeywords(opt, data) {
+  if (!opt.card) fail('diff-keywords 需要 --card。');
+  const card = ensureCard(data, opt.card);
+  if (!opt.keywords) fail('diff-keywords 需要 --keywords "<逗号/分号分隔全量关键词>"。');
+  const all = String(opt.keywords).split(/[,，;；]/).map((s) => s.trim()).filter(Boolean);
+  const done = new Set(card.searchedKeywords || []);
+  const remain = all.filter((k) => !done.has(k));
+  if (opt.json) {
+    process.stdout.write(JSON.stringify({ card: opt.card, total: all.length, searched: all.length - remain.length, remaining: remain }, null, 2) + '\n');
+    return;
+  }
+  process.stdout.write(remain.join('\n') + (remain.length ? '\n' : ''));
+}
+
+function cmdClassifyFailure(opt) {
+  process.stdout.write(classifyFailure(opt.reason || '') + '\n');
+}
+
 function main() {
   const opt = parseArgs(process.argv.slice(2));
   if (!opt.progress) fail('缺少必填 --progress <路径>。');
@@ -518,6 +575,8 @@ function main() {
     case 'reset-card': cmdResetCard(opt, data); break;
     case 'update-card': cmdUpdateCard(opt, data); break;
     case 'report': cmdReport(opt, data); break;
+    case 'diff-keywords': cmdDiffKeywords(opt, data); break;
+    case 'classify-failure': cmdClassifyFailure(opt); break;
     default: fail(`未知子命令：${opt.command}`);
   }
 }
@@ -526,4 +585,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { dedupKey, TITLE_CAP, cardOf, locateImaApi, classifyReport, fetchKbEntries, readKbSnapshot, parseMediaIdFromNote };
+module.exports = { dedupKey, TITLE_CAP, cardOf, locateImaApi, classifyReport, fetchKbEntries, readKbSnapshot, parseMediaIdFromNote, classifyFailure };

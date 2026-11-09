@@ -169,6 +169,33 @@ allowed-tools: Bash Read Write Edit WebFetch
 6. 同时将上次运行日期设为今天，下次到期日设为今天加 `[cycle_days]` 天。
 7. 日期一律使用本地日期字符串比较。禁止使用会被转换为协调世界时的日期生成方式，否则在东八区会整体偏移导致日期差一天。
 
+## 断点续跑与续跑守护
+
+本技能的运行由调度方（WorkBuddy / 任一 Agent）编排，关键词检索在技能**外部**（`wechat-article-search` 的 `search_wechat.js`）逐词完成，每词结果再由 `pipeline.js --search` 入库。因此「断点续跑」的全部**可机读信号都必须落在 `_progress.json`**，由 `state.js` 承载，调度方据其决策，而非依赖运行日志（改动 B 根治「续跑漏卡」根因）。
+
+### 触发场景（deep-discuss 收敛的边界）
+- 场景一：完成某卡**部分关键词**搜索（尚有另一部分关键词未搜），但未下载命中文章、也未入库；
+- 场景二：完成部分关键词搜索并下载到本地，但**尚未入库** ima；
+- 场景三：完成全部关键词搜索，命中文章**只有部分**下载、部分实际入库；
+- 场景四：运行中被限流熔断 / 网络或凭据异常**中断**。
+
+### 调度方必须落地的可机读信号（改动 B·状态机）
+- 每完成一个关键词的检索 + 入库，立即 `state.js update-card --searched-keywords "<该关键词>"`（**累积并集**，重复自动去重）；
+- 中断 / 部分完成时，写入卡级状态：
+  - 瞬时可恢复（限流 / 网络 / 超时）：`--status partial --failure-class transient --next-retry-at <下次重试时刻>`；
+  - 永久不可恢复（凭据失效 / 鉴权错误）：`--status interrupted --failure-class permanent`（**不写 `nextRetryAt`**），交人工；守护见到 `failureClass=permanent` 必须**停止续跑并提示用户**，不得反复重试。
+
+### 续跑步骤（守护 / 下一轮照此执行）
+1. 读 `_progress.json`，判定该卡 `status`：
+   - `failureClass=permanent`（`interrupted`）→ **停止续跑，提示人工处理凭据**；
+   - `partial` / `pending` / `antispider_partial` / `limited` → 进入续跑。
+2. `state.js diff-keywords --card <卡> --keywords "<该卡全量关键词（取自任务卡配置表）>"` 取**尚未搜索**的差集，只搜剩余词（已搜词跳过，避免重触发限流）；
+3. 对每个新检索结果 JSON 跑 `pipeline.js --search "<x.json>"`；
+4. 跑 `pipeline.js --ingest-quarantine --card <卡> --kb-id <kb> --folder-id <folder>`：**消费 `failed_quarantine/` 下未入库的 `.md`，直接补入库而非重搜**（闸门未过的质量失败篇目会被自动跳过，仅重入「闸门通过但入库阶段失败」的篇目）；
+5. 全部完成后按「任务卡轮转规则」用 `state.js update-card` 收尾（成功则 `status=completed`；仍有剩余则维持 `partial`）。
+
+> 失败原因分类可用 `state.js classify-failure --reason "..."` 离线判定 `transient` / `permanent`，供调度方统一决策。
+
 ## 规则与知识库
 
 ### 检索执行规则
@@ -340,6 +367,11 @@ allowed-tools: Bash Read Write Edit WebFetch
 4. 单篇处理失败最多重试两次并顺带切换降级通道，仍失败则标记失败并继续下一篇，禁止让单篇阻塞整批。
 5. 已尝试次数达到 `[max_attempts]`（默认 4）仍为零结果时，**停止继续累加 attempts**（防止无界增长，单次执行内累加至上限即封顶），将该卡标记为「限流终止 / 待下一轮或人工干预」，写入未完成清单，交由下一轮补做；本轮不再对该关键词硬试。
 6. 任务卡执行成功并完成时，将该卡已尝试次数重置为 0。
+7. **中断与部分完成（改动 B·状态机）**：当本轮因客观原因（限流熔断、网络/凭据异常、调用方主动中断）未能跑完该卡全部关键词时，必须以 `update-card` 写入**可机读的中断信号**，而非仅靠日志：
+   - 瞬时可恢复（限流/网络/超时）：`--status partial --failure-class transient --next-retry-at <下次重试时刻>`；守护据此判定「可续跑」；
+   - 永久不可恢复（凭据失效/鉴权错误）：`--status interrupted --failure-class permanent`（**不写 `nextRetryAt`**），交由人工；守护见到 `failureClass=permanent` 必须**停止续跑并提示用户**，不得反复重试；
+   - 每完成一个关键词的检索+入库，立即 `update-card --searched-keywords "<该关键词>"` 累积记录（重复自动去重）；续跑前先 `diff-keywords` 取差集，只搜未搜词，避免重触发限流。
+8. **续跑消费隔离区（改动 B·③）**：下一轮或守护续跑时，除对剩余关键词补搜外，还须执行 `node scripts/pipeline.js --workspace <工区> --card <卡> --ingest-quarantine [--kb-id K] [--folder-id F]`：扫描 `failed_quarantine/` 下未入库的 `.md`，**直接补入库而不重搜**；其中「闸门未过（质量不达标）」的 `.md` 会被自动跳过（重入必再失败），仅重入「闸门通过但入库阶段失败（多为瞬态）」的篇目。补入成功后该 `.md` 从隔离区移除并标记为 ingested。
 
 ### 进度文件模板
 
@@ -358,7 +390,9 @@ allowed-tools: Bash Read Write Edit WebFetch
       "rotateIndex": 0,
       "status": "pending",
       "nextRetryAt": null,
-      "attempts": 0
+      "attempts": 0,
+      "searchedKeywords": [],
+      "failureClass": ""
     }
   },
   "articles": []
@@ -383,8 +417,10 @@ allowed-tools: Bash Read Write Edit WebFetch
 - `mark-filtered --card C --title T --reason R`：标记被过滤（写 `filterResult=filtered:<reason>`；**缺失此命令会导致 `report` 的「被过滤」列恒为 0**——`report` 只统计 `filterResult` 以 `filtered` 开头的条目）；
 - `set-attempts --card C --n N` / `reset-attempts --card C`：设置 / 重置已尝试次数；
 - `reset-card --card C`：清空该卡全部文章记录（重跑 / 续跑前重置；否则旧的 `failed` 记录会永久阻断同标题重新标记 `ingested`）；
-- `update-card --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K]`：更新卡级字段（**步骤 12 轮转规则所需**，缺此命令则 F9 与步骤 12 自相矛盾——卡级字段无法经唯一入口写入）；
+- `update-card --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K] [--searched-keywords K] [--clear-searched] [--failure-class C]`：更新卡级字段（**步骤 12 轮转规则所需**，缺此命令则 F9 与步骤 12 自相矛盾——卡级字段无法经唯一入口写入）；`--searched-keywords` 为**累积并集**写入已搜词（重复自动去重，支撑定向续跑只搜剩余词）、`--clear-searched` 清空已搜词集合、`--failure-class` 写 `transient` / `permanent` / 空串（清除）；
 - `report`：输出增强四栏清单（应入库 / 实入库 / 被过滤 / 失败），被过滤/失败栏含逐条原因，实入库栏含 KB 复核确认数与目标子目录，应入未入含根因拆解，幽灵记录显式标注。支持 `--kb-id <kb> --folder-id <folder>`（KB 复核模式）、`--kb-snapshot <json>`（离线/审计快照）、`--card <卡>`（限定单卡）、`--json`（机器可读）。
+- `diff-keywords --card C --keywords "K1;K2;K3"`：给定该卡**全量关键词**（取自「任务卡配置表」），输出**尚未搜索**的差集（续跑时只搜剩余词，避免重触发限流）；支持 `--json`。
+- `classify-failure --reason "R"`：依据失败原因判定 `transient`（限流/网络，可重试）或 `permanent`（凭据失效，交人工），返回类别字符串；调度方据其决定是否续跑。
 
 **`articles` 条目 schema（2026-11-05 实测补齐，此前模板未定义导致执行体与脚本各写各的）**：
 
@@ -402,10 +438,10 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 | 脚本 | 职责 | 关键约束 |
 | --- | --- | --- |
-| `scripts/state.js` | `_progress.json` 唯一读写入口（F9） | 导出 `dedupKey()` / `TITLE_CAP` / `locateImaApi()` / `classifyReport()`，供流水线复用；`report` 子命令产出增强四栏清单（KB 复核 + 幽灵记录标注 + 逐条原因），**不得**由其他脚本另写一份去重键或路径解析 |
+| `scripts/state.js` | `_progress.json` 唯一读写入口（F9） | 导出 `dedupKey()` / `TITLE_CAP` / `locateImaApi()` / `classifyReport()` / `classifyFailure()`，供流水线复用；`report` 子命令产出增强四栏清单（KB 复核 + 幽灵记录标注 + 逐条原因）；`diff-keywords` 输出未搜词差集、`classify-failure` 判定 transient/permanent；**不得**由其他脚本另写一份去重键或路径解析 |
 | `scripts/check-deps.js` | 前置依赖**代码级**核查器（硬依赖阻断、软依赖告警） | 复用 `resolve_midlink.js` 的 `checkBrowser` 与 `state.js` 的 `locateImaApi`；解析并输出 `search_script_dir` / `ima_api` 路径 / `cdp_port`；硬依赖缺失退出码 1，软依赖缺失仅告警 |
 | `scripts/resolve_midlink.js` | 中转链接 → 真实直链（降级链零级） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；`--check` 为端口探活 |
-| `scripts/pipeline.js` | 抓取 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限） |
+| `scripts/pipeline.js` | 抓取 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限）；`--ingest-quarantine` 模式消费 `failed_quarantine/` 未入库 `.md` 直接补入库而不重搜（改动 B·③） |
 | `scripts/test_filter_rules.js` | 过滤规则回归测试 | 断言 29 条历史误杀样本不再拦截 + 3 条真命中仍拦截 + 11 条子串边界用例 |
 | `scripts/deploy.js` | 开发态 → 部署态 一键同步（零依赖） | 走 `git cat-file blob` 逐字节重建（**不经工作树**，避免 `core.autocrlf` 带入 CRLF，§7.3）；`ima_credentials.json` 为部署态专有物，保留不覆盖；`--dry-run` 预演、`--ref main` 指定来源引用 |
 

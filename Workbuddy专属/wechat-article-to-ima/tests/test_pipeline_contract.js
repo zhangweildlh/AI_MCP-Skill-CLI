@@ -124,6 +124,12 @@ try {
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (_) { /* ignore */ }
 }
 
+console.log('\n=== ⑧ 隔离区补入判定 shouldReingest ===');
+check('无进度记录 → 尝试重入（交入库流程判定）', P.shouldReingest('t', undefined) === true);
+check('闸门未过（gateResult=fail:*）→ 跳过不重入（质量失败重入必再失败）', P.shouldReingest('t', { gateResult: 'fail:chars<800', ingestStatus: 'failed' }) === false);
+check('闸门通过但入库失败 → 尝试重入（多为瞬态）', P.shouldReingest('t', { gateResult: 'pass', ingestStatus: 'failed' }) === true);
+check('已入库 → 尝试重入（由 KB 去重兜底，不重复创建）', P.shouldReingest('t', { gateResult: 'pass', ingestStatus: 'ingested' }) === true);
+
 console.log('\n=== 汇总 ===');
 console.log(`通过 ${pass} / 失败 ${fail}`);
 if (fail) {
