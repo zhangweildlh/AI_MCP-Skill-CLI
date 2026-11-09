@@ -34,7 +34,7 @@ const RESOLVE_JS = path.join(__dirname_, 'resolve_midlink.js');
 
 // ── 参数解析 ──
 function parseArgs(argv) {
-  const o = { workspace: '', card: '', search: '', kbId: '', folderId: '', limit: 0, dryRun: false };
+  const o = { workspace: '', card: '', search: '', kbId: '', folderId: '', limit: 0, dryRun: false, ingestQuarantine: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--workspace') o.workspace = argv[++i] || '';
@@ -44,6 +44,7 @@ function parseArgs(argv) {
     else if (a === '--folder-id') o.folderId = argv[++i] || '';
     else if (a === '--limit') o.limit = parseInt(argv[++i], 10) || 0;
     else if (a === '--dry-run') o.dryRun = true;
+    else if (a === '--ingest-quarantine') o.ingestQuarantine = true;
   }
   return o;
 }
@@ -200,6 +201,20 @@ function parseImaResponse(apiPath, text) {
   return j;
 }
 
+/**
+ * 隔离区补入判定（纯函数，可离线单测）：该篇 .md 是否值得重新尝试入库。
+ *  - 无进度记录 → 尝试（信息不足，交给入库流程判定）；
+ *  - 闸门未过（gateResult 以 fail 开头，属质量不达标）→ 不重入（重入必再次失败，浪费限流预算）；
+ *  - 闸门通过但入库失败（多为瞬态：网络/限流/凭据）→ 尝试。
+ * @param {string} title 文章标题（用于定位进度条目）
+ * @param {object|undefined} art 进度文件 articles 条目
+ */
+function shouldReingest(title, art) {
+  if (!art) return true;
+  if (String(art.gateResult || '').startsWith('fail')) return false;
+  return true;
+}
+
 const safeFile = (t) => String(t || '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 120);
 
 // ── 3 级抓取兜底：复用 web-search/firecrawl 适配层的官方 firecrawl CLI ──
@@ -273,7 +288,11 @@ async function fetchViaFirecrawl(candidates) {
 
 async function main() {
   const opt = parseArgs(process.argv.slice(2));
-  if (!opt.workspace || !opt.card || !opt.search) {
+  if (!opt.workspace || !opt.card) {
+    console.error('用法：node pipeline.js --workspace <工区> --card <卡> (--search "<检索结果.json>" | --ingest-quarantine) [--kb-id K] [--folder-id F] [--limit N] [--dry-run]');
+    process.exit(1);
+  }
+  if (!opt.search && !opt.ingestQuarantine) {
     console.error('用法：node pipeline.js --workspace <工区> --card <卡> --search "<检索结果.json>" [--kb-id K] [--folder-id F] [--limit N] [--dry-run]');
     process.exit(1);
   }
@@ -306,6 +325,81 @@ async function main() {
    */
   async function imaCall(apiPath, body) {
     return parseImaResponse(apiPath, await imaApi(apiPath, body, {}));
+  }
+
+  // 隔离区补入模式（定向续跑③）：消费 failed_quarantine/ 下未入库的 .md，直接补入库而非重搜。
+  async function ingestQuarantine() {
+    if (!opt.kbId || !opt.folderId) { console.error('[错误] --ingest-quarantine 需要 --kb-id 与 --folder-id 才能关联到目标子目录。'); process.exit(1); }
+    console.log('=== 隔离区补入模式（定向续跑③：消费 failed_quarantine/ 未入库 .md，不再重搜）===');
+    if (!fs.existsSync(quarantine)) { console.log('[隔离区] 无 failed_quarantine/，跳过。'); return; }
+    let data = { cards: {}, articles: [] };
+    try { data = JSON.parse(fs.readFileSync(progressPath, 'utf8')); } catch (_) { /* 进度损坏按空处理 */ }
+    const files = fs.readdirSync(quarantine).filter((f) => f.endsWith('.md'));
+    if (!files.length) { console.log('[隔离区] 无 .md 待补入。'); return; }
+    const stat = { attempted: 0, ingested: 0, skipped: 0, failed: 0 };
+    for (const f of files) {
+      const fp = path.join(quarantine, f);
+      const raw = fs.readFileSync(fp, 'utf8');
+      const m = raw.match(/^#\s*(.+?)\s*$/m);
+      const title = (m ? m[1] : f.replace(/\.md$/, '')).trim();
+      const art = (data.articles || []).find((a) => a.card === opt.card && a.title === title);
+      if (!shouldReingest(title, art)) {
+        stat.skipped++;
+        console.log(`[跳过] 闸门未过/质量失败，重入库无意义：${title.slice(0, 40)}`);
+        continue;
+      }
+      stat.attempted++;
+      // KB 去重：已存在则不重入，直接标 ingested 并移除隔离
+      let kbHit = null;
+      try {
+        const list = await imaCall('openapi/wiki/v1/get_knowledge_list', { knowledge_base_id: opt.kbId, folder_id: opt.folderId, cursor: '', limit: 50 });
+        const entries = (list.data?.knowledge_list || []);
+        kbHit = entries.find((x) => dedupKey(x.title) === dedupKey(title)) || null;
+      } catch (e) { console.log('[KB] 读取现有条目失败（继续，入库时复验）：' + e.message); }
+      if (kbHit) {
+        state('mark-ingested', markIngestedArgs(kbHit.media_id, title), true);
+        fs.unlinkSync(fp);
+        stat.ingested++;
+        console.log(`[已存在] KB 已有，标记 ingested 并移除隔离：${title.slice(0, 40)}`);
+        continue;
+      }
+      try {
+        const imp = await imaCall('openapi/note/v1/import_doc', { content_format: 1, content: raw });
+        const noteId = imp.data?.note_id || imp.data?.noteId;
+        if (!noteId) throw new Error('import_doc 未返回 note_id：' + JSON.stringify(imp).slice(0, 200));
+        const add = await imaCall('openapi/wiki/v1/add_knowledge', {
+          media_type: 11, note_info: { content_id: String(noteId) }, title: title + '.md',
+          knowledge_base_id: opt.kbId, folder_id: opt.folderId,
+        });
+        const mediaId = add.data?.media_id || add.data?.knowledge_id || add.data?.id;
+        const vl = await imaCall('openapi/wiki/v1/get_knowledge_list', { knowledge_base_id: opt.kbId, folder_id: opt.folderId, cursor: '', limit: 50 });
+        const hit = (vl.data?.knowledge_list || []).find((x) => String(x.media_id) === String(mediaId));
+        if (!hit) throw new Error('复验未命中：media_id 不在目标子目录');
+        if (Number(hit.media_type) !== 11) throw new Error('复验 media_type=' + hit.media_type + ' 非笔记(11)');
+        state('mark-ingested', markIngestedArgs(mediaId, title), true);
+        fs.unlinkSync(fp);
+        stat.ingested++;
+        console.log(`[补入] ✅ ${title.slice(0, 40)}`);
+      } catch (e) {
+        stat.failed++;
+        state('mark-failed', ['--card', opt.card, '--title', title, '--reason', '隔离区补入失败:' + e.message], true);
+        console.log(`[仍失败] ${e.message} | ${title.slice(0, 30)}`);
+      }
+    }
+    console.log('\n=== 隔离区补入统计 ===');
+    console.log(`尝试 : ${stat.attempted}`);
+    console.log(`补入成功 : ${stat.ingested}`);
+    console.log(`跳过(质量失败) : ${stat.skipped}`);
+    console.log(`仍失败 : ${stat.failed}`);
+    if (opt.kbId && opt.folderId) {
+      const rr = spawnSync('node', [STATE_JS, '--progress', progressPath, 'report', '--kb-id', opt.kbId, '--folder-id', opt.folderId], { encoding: 'utf-8', timeout: 120000 });
+      if (rr.status === 0) console.log('\n' + (rr.stdout || '').trim());
+    }
+  }
+
+  if (opt.ingestQuarantine) {
+    await ingestQuarantine();
+    return;
   }
 
   const j = JSON.parse(fs.readFileSync(opt.search, 'utf8'));
@@ -539,4 +633,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('FATAL', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, firecrawlScrape, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };
+module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, firecrawlScrape, shouldReingest, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };

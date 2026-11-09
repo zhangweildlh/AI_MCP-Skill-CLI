@@ -154,7 +154,7 @@ check('reset-card 仅移除目标卡条目', r.code === 0 && p.articles.length =
   r.err + ' | ' + JSON.stringify(p.articles.map((a) => a.card)));
 
 console.log('\n=== ⑦ dedupKey 去重键语义（服务端截断 30 字符）===');
-const { dedupKey, TITLE_CAP, classifyReport } = require(STATE_JS);
+const { dedupKey, TITLE_CAP, classifyReport, classifyFailure } = require(STATE_JS);
 check('TITLE_CAP = 30', TITLE_CAP === 30, String(TITLE_CAP));
 check('长标题取前 30 字符', dedupKey('A'.repeat(50)).length === 30, String(dedupKey('A'.repeat(50)).length));
 check('库内截断形态（…）与原始标题同键',
@@ -219,6 +219,44 @@ check('CLI 离线 report 被过滤计数正确', /被过滤 : 1/.test(r.out), r.
 // CLI --card 过滤
 r = state('report', ['--kb-snapshot', SNAP, '--card', 'B']);
 check('CLI --card 过滤（无 B 卡条目）应入库=0', /应入库 : 0/.test(r.out), r.out);
+
+console.log('\n=== ⑨ 续跑状态机：searchedKeywords 累积 / failureClass / diff-keywords / classify-failure ===');
+writeProgress({ schema: '1.1', updatedAt: '', cards: { A: { name: '总包', folder_id: 'f1', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0, searchedKeywords: [], failureClass: '' } }, articles: [] });
+r = state('update-card', ['--card', 'A', '--searched-keywords', 'EPC,总包; 总承包EPC']);
+check('searchedKeywords 首次写入（逗号/分号分隔）', r.code === 0, r.err);
+r = state('update-card', ['--card', 'A', '--searched-keywords', 'EPC, 城市更新']);
+p = readProgress();
+check('searchedKeywords 累积并集（EPC 重复被去重）', JSON.stringify(p.cards.A.searchedKeywords) === JSON.stringify(['EPC', '总包', '总承包EPC', '城市更新']), JSON.stringify(p.cards.A.searchedKeywords));
+r = state('update-card', ['--card', 'A', '--clear-searched']);
+p = readProgress();
+check('clear-searched 清空已搜词集合', Array.isArray(p.cards.A.searchedKeywords) && p.cards.A.searchedKeywords.length === 0, JSON.stringify(p.cards.A.searchedKeywords));
+r = state('update-card', ['--card', 'A', '--failure-class', 'permanent']);
+p = readProgress();
+check('failureClass=permanent 写入', p.cards.A.failureClass === 'permanent', JSON.stringify(p.cards.A.failureClass));
+r = state('update-card', ['--card', 'A', '--failure-class', 'bogus']);
+check('failureClass 非法值被拒', r.code !== 0, r.err);
+r = state('update-card', ['--card', 'A', '--failure-class', '']);
+p = readProgress();
+check('failureClass 清空（空串）', p.cards.A.failureClass === '', JSON.stringify(p.cards.A.failureClass));
+r = state('update-card', ['--card', 'A', '--searched-keywords', 'EPC;总包']);
+r = state('diff-keywords', ['--card', 'A', '--keywords', 'EPC;总包;城市更新;海绵城市']);
+check('diff-keywords 输出未搜词差集', r.out.trim().split('\n').filter(Boolean).join(',') === '城市更新,海绵城市', r.out);
+r = state('diff-keywords', ['--card', 'A', '--keywords', 'EPC;总包;城市更新', '--json']);
+let dj;
+try { dj = JSON.parse(r.out); } catch (e) { dj = null; }
+check('diff-keywords --json remaining/searched 正确', dj && dj.total === 3 && dj.searched === 2 && dj.remaining.length === 1 && dj.remaining[0] === '城市更新', r.out);
+r = state('classify-failure', ['--reason', 'HTTP 401 未授权 api_key 无效']);
+check('classify-failure 凭据失效 → permanent', r.out.trim() === 'permanent', r.out);
+r = state('classify-failure', ['--reason', '平台限流，请稍后再试']);
+check('classify-failure 限流 → transient', r.out.trim() === 'transient', r.out);
+r = state('classify-failure', ['--reason', '某未知错误']);
+check('classify-failure 未知 → unknown', r.out.trim() === 'unknown', r.out);
+check('classifyFailure(凭据) = permanent', classifyFailure('鉴权失败 client_id 无效') === 'permanent');
+check('classifyFailure(网络) = transient', classifyFailure('econnreset 网络连接超时') === 'transient');
+check('classifyFailure(未知) = unknown', classifyFailure('锅里的错误') === 'unknown');
+writeProgress({ schema: '1.1', updatedAt: '', cards: { A: { name: 'A', folder_id: 'f', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0 } }, articles: [] });
+r = state('validate', []);
+check('validate 对缺 searchedKeywords/failureClass 的旧卡向后兼容（loadProgress 补齐）', r.code === 0, r.err);
 
 console.log('\n=== 汇总 ===');
 console.log(`通过 ${pass} / 失败 ${fail}`);
