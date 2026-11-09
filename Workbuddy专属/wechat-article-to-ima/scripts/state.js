@@ -21,7 +21,7 @@
  *                                             标记被过滤（filterResult=filtered:<reason>，不计入 failed）
  *   set-attempts  --card C --n N              设置某卡已尝试次数
  *   reset-attempts --card C                   重置某卡已尝试次数为 0
- *   reset-card    --card C                    清空该卡的全部文章记录（重跑/续跑前重置用）
+ *   reset-card    --card C                    清空该卡的全部文章记录，并重置卡级累积态（searchedKeywords=[]、failureClass=''），重跑/续跑前重置用（强制全量重搜、解除旧失败类锁定）
  *   update-card   --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K] [--searched-keywords K] [--clear-searched] [--failure-class C]
  *                                             更新任务卡级字段（步骤 12 轮转规则所需）；--searched-keywords 累积并集写入已搜词、--clear-searched 清空、--failure-class 写 transient/permanent
  *   diff-keywords --card C --keywords "K1;K2;K3"   给定该卡全量关键词，输出尚未搜索的差集（续跑只搜剩余词）；支持 --json
@@ -92,7 +92,7 @@ function usage() {
   mark-filtered --card C --title T --reason R
   set-attempts  --card C --n N
   reset-attempts --card C
-  reset-card    --card C
+  reset-card    --card C                     （清空文章记录 + 重置 searchedKeywords/failureClass）
   update-card   --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K] [--searched-keywords K] [--clear-searched] [--failure-class C]
   report [--kb-id K] [--folder-id F] [--kb-snapshot <json>] [--card C] [--json]
   diff-keywords --card C --keywords "K1;K2;K3" [--json]   输出尚未搜索的关键词差集（续跑只搜剩余词）
@@ -284,15 +284,16 @@ function cmdMarkIngested(opt, data) {
   if (!opt.card || !opt.title) fail('mark-ingested 需要 --card 与 --title。');
   ensureCard(data, opt.card);
   const card = data.cards[opt.card];
-  if (opt.verify) verifyMediaType11(opt, card.folder_id);
   const art = upsertArticle(data, opt.card, opt.title);
-  // 强约束：禁止把 gate_failed / failed / filtered 伪装为 ingested
-  if (String(art.gateResult).startsWith('fail') || art.fetchStatus === 'failed' || art.ingestStatus === 'failed') {
-    fail(`title=${opt.title} 当前为 gate_failed / failed 状态，严禁标记为 ingested（如需重跑请先 reset-card --card ${opt.card}）。`);
+  const isFailed = String(art.gateResult).startsWith('fail') || art.fetchStatus === 'failed' || art.ingestStatus === 'failed';
+  const isFiltered = String(art.filterResult).startsWith('filtered');
+  // 强约束：未联机复核时，禁止把 failed / gate_failed / filtered 伪装为 ingested（防误报成功；segment ④ 契约要求 --no-verify 时拒绝）
+  if ((isFailed || isFiltered) && !opt.verify) {
+    fail(`title=${opt.title} 当前为 ${isFiltered ? 'filtered' : 'gate_failed/failed'} 状态，严禁在未联机复核情况下标记为 ingested（如需重跑请先 reset-card --card ${opt.card}）。`);
   }
-  if (String(art.filterResult).startsWith('filtered')) {
-    fail(`title=${opt.title} 已被标记为 filtered（${art.filterResult}），严禁标记为 ingested。`);
-  }
+  // 联机复核（默认开启）：failed/filtered 条目仅在有联机证据（KB 确已存在该 media_type===11 条目）时翻正为 ingested；
+  // 这正是隔离区补入（定向续跑③）等合法重入场景 —— 旧实现因强约束无条件拒绝，导致隔离区补入静默失效（文件被删、进度仍 failed）。
+  if (opt.verify) verifyMediaType11(opt, card.folder_id);
   art.ingestStatus = 'ingested';
   if (opt.mediaId) art.note = `media_id=${opt.mediaId}`;
   saveProgress(opt.progress, data);
@@ -340,8 +341,14 @@ function cmdResetCard(opt, data) {
   if (!opt.card) fail('reset-card 需要 --card。');
   const before = data.articles.length;
   data.articles = data.articles.filter((a) => cardOf(a) !== opt.card);
+  // 重置卡级累积态：searchedKeywords 清空 → 重跑时强制全量重搜（不被旧差集误导）；
+  // failureClass 清空 → 解除 permanent/transient 锁，避免旧失败类沿用至新一周期。
+  // 注意：仅清本卡，不影响其他卡的累积态（多卡并存时互不污染）。
+  const card = ensureCard(data, opt.card);
+  card.searchedKeywords = [];
+  card.failureClass = '';
   saveProgress(opt.progress, data);
-  console.error(`✅ 已清空 card=${opt.card} 的文章记录：${before} → ${data.articles.length}`);
+  console.error(`✅ 已清空 card=${opt.card} 的文章记录：${before} → ${data.articles.length}；并重置 searchedKeywords=[]、failureClass=''`);
 }
 
 function cmdUpdateCard(opt, data) {

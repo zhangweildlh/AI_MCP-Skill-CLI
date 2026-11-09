@@ -336,13 +336,32 @@ async function main() {
     try { data = JSON.parse(fs.readFileSync(progressPath, 'utf8')); } catch (_) { /* 进度损坏按空处理 */ }
     const files = fs.readdirSync(quarantine).filter((f) => f.endsWith('.md'));
     if (!files.length) { console.log('[隔离区] 无 .md 待补入。'); return; }
+    // 跨卡污染防护（缺陷 C）：共享 failed_quarantine/ 目录，旧实现会因「他卡残留 .md + 本卡无进度记录」
+    // 误将他卡内容入库本卡；若两卡标题相同还会误食对方文件内容。
+    // 修复 = 卡级文件前缀（写入时加 safeFile(card)+'__'，见下文两处 writeFileSync/renameSync）+ 双重闸（读取时）：
+    //   闸 1：文件名带 __ 前缀但非本卡前缀 → 跨卡残留，跳过（不读内容、不调用 ima）；
+    //   闸 2：无本卡进度记录的（他卡残留/孤立文件）→ 跳过，绝不触发 shouldReingest 误入本卡。
+    const ownPrefix = opt.card ? safeFile(opt.card) + '__' : null;
     const stat = { attempted: 0, ingested: 0, skipped: 0, failed: 0 };
     for (const f of files) {
       const fp = path.join(quarantine, f);
+      // 闸 1：带前缀但非本卡 → 跨卡残留，直接跳过
+      const hasPrefix = /__.+\.md$/.test(f);
+      if (ownPrefix && hasPrefix && !f.startsWith(ownPrefix)) {
+        stat.skipped++;
+        console.log(`[跳过] 非本卡(${opt.card})隔离残留：${f.slice(0, 40)}`);
+        continue;
+      }
       const raw = fs.readFileSync(fp, 'utf8');
       const m = raw.match(/^#\s*(.+?)\s*$/m);
       const title = (m ? m[1] : f.replace(/\.md$/, '')).trim();
       const art = (data.articles || []).find((a) => a.card === opt.card && a.title === title);
+      // 闸 2：无本卡进度记录 → 他卡残留/孤立文件，跨卡污染防护，跳过（不触发 shouldReingest）
+      if (!art) {
+        stat.skipped++;
+        console.log(`[跳过] 无本卡(${opt.card})进度记录，疑似他卡残留/孤立文件：${title.slice(0, 40)}`);
+        continue;
+      }
       if (!shouldReingest(title, art)) {
         stat.skipped++;
         console.log(`[跳过] 闸门未过/质量失败，重入库无意义：${title.slice(0, 40)}`);
@@ -552,7 +571,7 @@ async function main() {
     if (!gatePass) {
       stat.failed++; detail.failed.push({ title, reason: '完整性闸门未通过：' + gateReason });
       fs.mkdirSync(quarantine, { recursive: true });
-      fs.writeFileSync(path.join(quarantine, safeFile(title) + '.md'), buildMd(a, art, title), 'utf8');
+      fs.writeFileSync(path.join(quarantine, safeFile(opt.card) + '__' + safeFile(title) + '.md'), buildMd(a, art, title), 'utf8');
       state('mark-failed', ['--card', opt.card, '--title', title, '--reason', '完整性闸门未通过:' + gateReason], true);
       console.log(`${tag} 闸门未过 ${gateReason} | ${title.slice(0, 30)}`);
       await sleep(1200);
@@ -595,7 +614,7 @@ async function main() {
     } catch (e) {
       stat.failed++; detail.failed.push({ title, reason: '入库失败：' + e.message });
       fs.mkdirSync(quarantine, { recursive: true });
-      try { fs.renameSync(mdPath, path.join(quarantine, safeFile(title) + '.md')); } catch (_) { /* ignore */ }
+      try { fs.renameSync(mdPath, path.join(quarantine, safeFile(opt.card) + '__' + safeFile(title) + '.md')); } catch (_) { /* ignore */ }
       state('mark-failed', ['--card', opt.card, '--title', title, '--reason', '入库失败:' + e.message], true);
       console.log(`${tag} ❌ 入库失败 ${e.message} | ${title.slice(0, 30)}`);
     }

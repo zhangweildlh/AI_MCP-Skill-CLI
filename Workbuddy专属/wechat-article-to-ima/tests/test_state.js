@@ -116,9 +116,9 @@ check('缺 --ima-api/--kb-id → 默认复核拦截（退出码非 0）', r.code
 r = state('mark-ingested', ['--card', 'A', '--title', '新篇', '--media-id', '123', '--no-verify']);
 check('--no-verify 可写入 ingested', r.code === 0 && /未联机复核/.test(r.err), r.err);
 r = state('mark-ingested', ['--card', 'A', '--title', '被过滤篇', '--media-id', '123', '--no-verify']);
-check('filtered 条目严禁标 ingested（强约束）', r.code !== 0 && /严禁标记为 ingested/.test(r.err), r.err);
+check('filtered 条目严禁标 ingested（强约束）', r.code !== 0 && /严禁.*标记为 ingested/.test(r.err), r.err);
 r = state('mark-ingested', ['--card', 'A', '--title', '失败篇', '--media-id', '123', '--no-verify']);
-check('failed 条目严禁标 ingested（强约束）', r.code !== 0 && /严禁标记为 ingested/.test(r.err), r.err);
+check('failed 条目严禁标 ingested（强约束）', r.code !== 0 && /严禁.*标记为 ingested/.test(r.err), r.err);
 r = state('mark-ingested', ['--card', 'A', '--title', '被过滤篇', '--media-id', '123', '--no-verify']);
 check('重复尝试仍被拒（幂等拒绝而非静默放行）', r.code !== 0, r.err);
 
@@ -143,8 +143,8 @@ check('reset-attempts 归零', r.code === 0 && readProgress().cards.A.attempts =
 console.log('\n=== ⑥ reset-card：只清目标卡 ===');
 writeProgress({
   schema: '1.1', updatedAt: '',
-  cards: { A: { name: 'A', folder_id: 'fa', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0 },
-    B: { name: 'B', folder_id: 'fb', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0 } },
+  cards: { A: { name: 'A', folder_id: 'fa', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0, searchedKeywords: ['k1', 'k2'], failureClass: 'permanent' },
+    B: { name: 'B', folder_id: 'fb', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0, searchedKeywords: ['bk'], failureClass: 'transient' } },
   articles: [{ card: 'A', title: 'a1', fetchStatus: 'ok', filterResult: 'kept', gateResult: 'pass', ingestStatus: 'ingested', note: '' },
     { card: 'B', title: 'b1', fetchStatus: 'ok', filterResult: 'kept', gateResult: 'pass', ingestStatus: 'ingested', note: '' }],
 });
@@ -152,6 +152,14 @@ r = state('reset-card', ['--card', 'A']);
 p = readProgress();
 check('reset-card 仅移除目标卡条目', r.code === 0 && p.articles.length === 1 && p.articles[0].card === 'B',
   r.err + ' | ' + JSON.stringify(p.articles.map((a) => a.card)));
+// ★ 缺陷 B 回归：reset-card 须清空本卡 searchedKeywords / failureClass（否则强制全量重搜失效、旧失败类沿用）
+check('★ reset-card 清空目标卡 searchedKeywords=[]（强制全量重搜）', Array.isArray(p.cards.A.searchedKeywords) && p.cards.A.searchedKeywords.length === 0,
+  JSON.stringify(p.cards.A && p.cards.A.searchedKeywords));
+check('★ reset-card 清空目标卡 failureClass=\'\'（解除旧失败类锁定）', p.cards.A.failureClass === '',
+  JSON.stringify(p.cards.A && p.cards.A.failureClass));
+check('reset-card 不影响他卡累积态（searchedKeywords/failureClass 不变）',
+  JSON.stringify(p.cards.B.searchedKeywords) === JSON.stringify(['bk']) && p.cards.B.failureClass === 'transient',
+  JSON.stringify(p.cards.B));
 
 console.log('\n=== ⑦ dedupKey 去重键语义（服务端截断 30 字符）===');
 const { dedupKey, TITLE_CAP, classifyReport, classifyFailure } = require(STATE_JS);
