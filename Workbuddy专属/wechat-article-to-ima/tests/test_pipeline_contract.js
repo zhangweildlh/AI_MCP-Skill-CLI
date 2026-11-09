@@ -130,6 +130,76 @@ check('闸门未过（gateResult=fail:*）→ 跳过不重入（质量失败重�
 check('闸门通过但入库失败 → 尝试重入（多为瞬态）', P.shouldReingest('t', { gateResult: 'pass', ingestStatus: 'failed' }) === true);
 check('已入库 → 尝试重入（由 KB 去重兜底，不重复创建）', P.shouldReingest('t', { gateResult: 'pass', ingestStatus: 'ingested' }) === true);
 
+console.log('\n=== ⑨ 隔离区跨卡污染防护（缺陷 C 回归）===');
+// 桩 ima_api.cjs：get_knowledge_list 返回已入库条目（让 mark-ingested 联机复核通过），import/add 返回成功。
+// 双模：既支持被 require 调用（pipeline 自身 imaCall），也支持被 spawn 调用（verifyMediaType11 / report 以 `node <stub> <apiPath> <body>` 方式调用，须向 stdout 输出 JSON）。
+const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wai-ima-stub-'));
+const stubApi = path.join(stubDir, 'ima_api.cjs');
+fs.writeFileSync(stubApi, [
+  'function imaApi(apiPath, body) {',
+  "  if (String(apiPath).indexOf('get_knowledge_list') >= 0) {",
+  "    return JSON.stringify({ code: 0, msg: 'ok', data: { knowledge_list: [{ media_id: 'm1', media_type: 11, title: '跨卡文章.md' }] } });",
+  "  }",
+  "  if (String(apiPath).indexOf('import_doc') >= 0) {",
+  "    return JSON.stringify({ code: 0, msg: 'ok', data: { note_id: 'n1' } });",
+  "  }",
+  "  if (String(apiPath).indexOf('add_knowledge') >= 0) {",
+  "    return JSON.stringify({ code: 0, msg: 'ok', data: { media_id: 'm1', knowledge_id: 'm1', id: 'm1' } });",
+  "  }",
+  "  return JSON.stringify({ code: 0, msg: 'ok', data: {} });",
+  '}',
+  'module.exports = { imaApi };',
+  "if (require.main === module) { process.stdout.write(imaApi(process.argv[2] || '', process.argv[3] || '{}')); }",
+  ''
+].join('\n'), 'utf8');
+
+const WS2 = fs.mkdtempSync(path.join(os.tmpdir(), 'wai-quar-test-'));
+try {
+  const qDir = path.join(WS2, 'failed_quarantine');
+  fs.mkdirSync(qDir, { recursive: true });
+  // 卡 A 残留隔离文件（带卡前缀，模拟修复后写入形态）
+  fs.writeFileSync(path.join(qDir, 'A__跨卡文章.md'), '# 跨卡文章\n\n来源：X\n\n正文...', 'utf8');
+  // 旧式无前缀残留（模拟修复前遗留文件）
+  fs.writeFileSync(path.join(qDir, '旧文.md'), '# 旧文\n\n来源：Y\n\n正文...', 'utf8');
+
+  const progB = path.join(WS2, '_progress.json');
+  fs.writeFileSync(progB, JSON.stringify({
+    schema: '1.1', updatedAt: '',
+    cards: {
+      A: { name: 'A', folder_id: 'fa', status: 'pending', attempts: 0, searchedKeywords: [], failureClass: '' },
+      B: { name: 'B', folder_id: 'fb', status: 'pending', attempts: 0, searchedKeywords: [], failureClass: '' }
+    },
+    articles: [
+      // 卡 A 有该标题记录（failed），卡 B 无 → 卡 B 跑时应全部跳过
+      { card: 'A', title: '跨卡文章', fetchStatus: 'ok', filterResult: 'kept', gateResult: 'pass', ingestStatus: 'failed', note: '' }
+    ]
+  }), 'utf8');
+
+  // 卡 B 跑隔离补入：本应跳过全部（跨卡残留带前缀 + 旧式无前缀无记录）
+  const rB = spawnSync('node', [PIPE_JS, '--workspace', WS2, '--card', 'B', '--ingest-quarantine', '--kb-id', 'kb1', '--folder-id', 'f1'],
+    { encoding: 'utf-8', env: Object.assign({}, process.env, { IMA_API_CJS: stubApi }) });
+  check('★ 卡 B 跑隔离补入：退出码 0 且未误入', rB.status === 0, (rB.stderr || '').slice(0, 200));
+  check('★ 跨卡残留文件 A__跨卡文章.md 未被删除（闸1 跨卡前缀防护生效）', fs.existsSync(path.join(qDir, 'A__跨卡文章.md')), '');
+  check('★ 旧式无前缀残留 旧文.md 未被删除（闸2 无记录防护生效）', fs.existsSync(path.join(qDir, '旧文.md')), '');
+  const pB = JSON.parse(fs.readFileSync(progB, 'utf8'));
+  check('★ 卡 B 进度未被污染（articles 仍仅卡 A 1 条，卡 B 无新增 ingested）',
+    pB.articles.length === 1 && pB.articles[0].card === 'A', JSON.stringify(pB.articles));
+  check('★ 卡 B 跑隔离补入日志含跳过提示', /\[跳过\]/.test(rB.stdout || ''), (rB.stdout || '').slice(-300));
+
+  // 卡 A 跑隔离补入：本应成功补入并移除本卡文件（证明同卡正向路径不被误伤）
+  const rA = spawnSync('node', [PIPE_JS, '--workspace', WS2, '--card', 'A', '--ingest-quarantine', '--kb-id', 'kb1', '--folder-id', 'f1'],
+    { encoding: 'utf-8', env: Object.assign({}, process.env, { IMA_API_CJS: stubApi }) });
+  check('★ 卡 A 跑隔离补入：退出码 0', rA.status === 0, (rA.stderr || '').slice(0, 200));
+  check('★ 卡 A 的隔离文件已补入并移除', !fs.existsSync(path.join(qDir, 'A__跨卡文章.md')), '');
+  const pA = JSON.parse(fs.readFileSync(progB, 'utf8'));
+  const aArticle = pA.articles.find((a) => a.card === 'A' && a.title === '跨卡文章');
+  check('★ 卡 A 进度已标 ingested', !!aArticle && aArticle.ingestStatus === 'ingested', JSON.stringify(aArticle));
+  check('★ 旧式无前缀孤立文件 旧文.md 仍不被误食（两卡跑完仍残留）', fs.existsSync(path.join(qDir, '旧文.md')), '');
+} finally {
+  try { fs.rmSync(WS2, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+  try { fs.rmSync(stubDir, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+}
+
 console.log('\n=== 汇总 ===');
 console.log(`通过 ${pass} / 失败 ${fail}`);
 if (fail) {
