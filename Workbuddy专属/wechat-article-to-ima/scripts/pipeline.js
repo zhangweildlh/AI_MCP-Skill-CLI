@@ -48,18 +48,7 @@ function parseArgs(argv) {
   return o;
 }
 
-// ── ima-skills 定位（确定性路径解析，不用 $HOME）──
-function locateImaApi() {
-  const cands = [];
-  if (process.env.IMA_API_CJS) cands.push(process.env.IMA_API_CJS);
-  const up = process.env.USERPROFILE;
-  if (up) cands.push(path.join(up, '.workbuddy', 'skills', 'ima-skills', 'ima_api.cjs'));
-  cands.push(path.join(__dirname_, '..', '..', 'ima-skills', 'ima_api.cjs'));
-  for (const c of cands) {
-    try { if (fs.existsSync(c) && fs.statSync(c).isFile()) return c; } catch (_) { /* next */ }
-  }
-  return null;
-}
+// ── ima-skills 定位：复用 state.js 的 locateImaApi（单一事实源，避免两份路径解析）──
 
 // ── 过滤规则（S3：词族分层 + 上下文模式 + 词边界守卫）──
 // strong：命中即判定为该类公告。
@@ -182,7 +171,9 @@ function buildMd(a, art, title) {
   const collected = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const published = a.datetime || a.date_text || '未知';
   const direct = a.__resolvedUrl || a.url;
-  return `# ${title}\n\n来源：${a.source || '未知'}\n发布时间：${published}\n作者：${art.author}\n原文直链：${direct}\n采集日期：${collected}\n\n${htmlToText(art.html)}\n`;
+  // 3 级 firecrawl 直出 markdown；1 级原生抓取为 HTML，需 htmlToText 转纯文本
+  const body = (art && art.markdown != null) ? art.markdown : htmlToText(art.html);
+  return `# ${title}\n\n来源：${a.source || '未知'}\n发布时间：${published}\n作者：${art.author}\n原文直链：${direct}\n采集日期：${collected}\n\n${body}\n`;
 }
 
 /**
@@ -211,6 +202,75 @@ function parseImaResponse(apiPath, text) {
 
 const safeFile = (t) => String(t || '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 120);
 
+// ── 3 级抓取兜底：复用 web-search/firecrawl 适配层的官方 firecrawl CLI ──
+// 仅当 1 级（原生 fetch）失败后才触发；firecrawl 不可用或失败即优雅降级，禁止连续硬重试。
+// 密钥：优先 FIRECRAWL_API_KEY 环境变量；否则尝试从 <技能基址>/web-search/.env 读取注入
+//       （与 firecrawl 适配层 orchestrate.py 的 _load_firecrawl_key 同语义，不回显明文）。
+function locateFirecrawlEnv() {
+  const up = process.env.USERPROFILE;
+  const cands = [];
+  if (up) cands.push(path.join(up, '.workbuddy', 'skills', 'web-search', '.env'));
+  cands.push(path.join(__dirname_, '..', '..', 'web-search', '.env'));
+  for (const c of cands) {
+    try { if (fs.existsSync(c) && fs.statSync(c).isFile()) return c; } catch (_) { /* next */ }
+  }
+  return null;
+}
+function readFirecrawlKeyFromEnvFile() {
+  const f = locateFirecrawlEnv();
+  if (!f) return null;
+  try {
+    const txt = fs.readFileSync(f, 'utf8');
+    for (const line of txt.split('\n')) {
+      const m = line.match(/^\s*FIRECRAWL_API_KEY\s*=\s*(.+?)\s*$/);
+      if (m) return m[1].replace(/^["']|["']$/g, '');
+    }
+  } catch (_) { /* ignore */ }
+  return null;
+}
+const firecrawlCliOk = (() => {
+  try {
+    const r = spawnSync(process.env.FIRECRAWL_BIN || 'firecrawl', ['--version'], { encoding: 'utf-8', timeout: 15000 });
+    return r.status === 0;
+  } catch (_) { return false; }
+})();
+const firecrawlHasKey = !!process.env.FIRECRAWL_API_KEY || readFirecrawlKeyFromEnvFile() != null;
+const firecrawlAvailable = firecrawlCliOk && firecrawlHasKey;
+
+async function firecrawlScrape(url) {
+  const exe = process.env.FIRECRAWL_BIN || 'firecrawl';
+  const env = { ...process.env };
+  if (!env.FIRECRAWL_API_KEY) {
+    const k = readFirecrawlKeyFromEnvFile();
+    if (k) env.FIRECRAWL_API_KEY = k;
+  }
+  let res;
+  try {
+    res = spawnSync(exe, ['scrape', url], { encoding: 'utf-8', timeout: 60000, maxBuffer: 64 * 1024 * 1024, env });
+  } catch (e) { return { ok: false, reason: 'firecrawl 调用异常：' + e.message }; }
+  if (res.error) return { ok: false, reason: 'firecrawl 调用异常：' + res.error.message };
+  if (res.status !== 0) return { ok: false, reason: 'firecrawl 非零退出(' + res.status + ')：' + (res.stderr || '').trim().slice(0, 120) };
+  const out = (res.stdout || '').trim();
+  if (!out) return { ok: false, reason: 'firecrawl 空输出' };
+  // 输出形态随 CLI 版本变化：优先 JSON（data.markdown / markdown / data.content / content），否则整段当 markdown
+  let md = out;
+  try {
+    const j = JSON.parse(out);
+    md = j?.data?.markdown ?? j?.markdown ?? j?.data?.content ?? j?.content ?? out;
+  } catch (_) { /* 非 JSON，按原始 markdown 处理 */ }
+  if (!String(md).trim()) return { ok: false, reason: 'firecrawl 解析后无正文' };
+  return { ok: true, markdown: String(md) };
+}
+
+async function fetchViaFirecrawl(candidates) {
+  if (!firecrawlAvailable) return { ok: false, reason: 'firecrawl 不可用（CLI 缺失或无 FIRECRAWL_API_KEY）' };
+  for (const u of candidates) {
+    const r = await firecrawlScrape(u);
+    if (r.ok) return { ok: true, markdown: r.markdown, url: u };
+  }
+  return { ok: false, reason: 'firecrawl 对所有候选均失败' };
+}
+
 async function main() {
   const opt = parseArgs(process.argv.slice(2));
   if (!opt.workspace || !opt.card || !opt.search) {
@@ -222,11 +282,21 @@ async function main() {
   state.progressPath = progressPath;
   const quarantine = path.join(WS, 'failed_quarantine');
 
+  const { resolveMidLink, isMidLink } = require(RESOLVE_JS);
+  const { dedupKey, locateImaApi } = require(STATE_JS);
   const imaApiPath = locateImaApi();
   if (!imaApiPath) { console.error('[错误] 未找到 ima_api.cjs（可用 IMA_API_CJS 环境变量指定）'); process.exit(2); }
   const { imaApi } = require(imaApiPath);
-  const { resolveMidLink, isMidLink } = require(RESOLVE_JS);
-  const { dedupKey } = require(STATE_JS);
+
+  // mark-ingested 参数装配：接通 state.js 默认联机复核（传入 ima_api 路径 + kb-id + folder-id，去掉 --no-verify），
+  // 使「入库前查重/复核」真正落库（修复文档所述默认复核在手动流程不可达的问题）。
+  function markIngestedArgs(mediaId, title) {
+    const args = ['--card', opt.card, '--title', title, '--media-id', String(mediaId)];
+    if (imaApiPath) args.push('--ima-api', imaApiPath);
+    if (opt.kbId) args.push('--kb-id', opt.kbId);
+    if (opt.folderId) args.push('--folder-id', opt.folderId);
+    return args;
+  }
 
   /**
    * 调用 ima 开放接口。
@@ -293,6 +363,7 @@ async function main() {
     } finally { clearTimeout(timer); }
   };
 
+
   for (let i = 0; i < queue.length; i++) {
     const a = queue[i];
     const tag = `[${i + 1}/${queue.length}]`;
@@ -319,8 +390,7 @@ async function main() {
       const hit = kb.get(dedupKey(title));
       stat.dupSkipped++; stat.shouldIngest++; stat.ingested++;
       detail.ingested.push({ title, note: 'KB 已存在，跳过重复创建（media_id=' + hit.mediaId + '）' });
-      state('mark-ingested', ['--card', opt.card, '--title', title, '--media-id', String(hit.mediaId),
-        '--no-verify'], true);
+      state('mark-ingested', markIngestedArgs(hit.mediaId, title), true);
       console.log(`${tag} KB已存在跳过 ${title.slice(0, 40)}`);
       continue;
     }
@@ -347,6 +417,12 @@ async function main() {
       catch (e) { fetchErr = e; }
     }
     if (!art) {
+      // 1 级全失败 → 3 级：复用 firecrawl CLI 抓取（兜底，不达标即降级为失败，禁止连续硬重试）
+      const fc = await fetchViaFirecrawl(candidates);
+      if (fc.ok) { art = { markdown: fc.markdown, author: '未知' }; a.__resolvedUrl = fc.url; }
+      else { fetchErr = new Error('原生抓取与 firecrawl 均失败：' + (fc.reason || '')); }
+    }
+    if (!art) {
       const rs = '抓取失败：' + (fetchErr ? fetchErr.message : '未知');
       stat.failed++; detail.failed.push({ title, reason: rs });
       state('mark-failed', ['--card', opt.card, '--title', title, '--reason', rs], true);
@@ -355,7 +431,7 @@ async function main() {
       continue;
     }
 
-    const text = htmlToText(art.html);
+    const text = (art.markdown != null) ? art.markdown : htmlToText(art.html);
     const chars = text.replace(/\s/g, '').length;
     const periods = (text.match(/。/g) || []).length;
 
@@ -370,7 +446,7 @@ async function main() {
     }
 
     // ⑤ 完整性闸门
-    const aux = auxCriteria(art.html, text);
+    const aux = auxCriteria(art.html || '', text);
     let gatePass = true, gateReason = '';
     if (chars < MIN_CHARS) {
       gatePass = false; gateReason = `chars=${chars} < ${MIN_CHARS}`;
@@ -418,8 +494,7 @@ async function main() {
 
       stat.shouldIngest++; stat.ingested++;
       detail.ingested.push({ title, note: gateReason || ('note_id=' + noteId) });
-      state('mark-ingested', ['--card', opt.card, '--title', title, '--media-id', String(mediaId),
-        '--no-verify'], true);
+      state('mark-ingested', markIngestedArgs(mediaId, title), true);
       kb.set(dedupKey(title), { mediaId, stored: title + '.md' });
       fs.unlinkSync(mdPath); // 成功入库 → 删除本地副本
       console.log(`${tag} ✅ 入库 ${title.slice(0, 40)} | chars=${chars} periods=${periods}${gateReason ? ' | ' + gateReason : ''}`);
@@ -435,16 +510,33 @@ async function main() {
 
   const summary = { card: opt.card, total: j.total, uniq: uniq.length, ...stat, detail };
   fs.writeFileSync(path.join(WS, '_process_summary.json'), JSON.stringify(summary, null, 2), 'utf8');
-  console.log('\n=== 采集流水线统计 ===');
+  console.log('\n=== 采集流水线统计（本轮回填口径）===');
   console.log(`去重后候选 : ${uniq.length}`);
-  console.log(`应入库     : ${stat.shouldIngest}`);
+  console.log(`应入库     : ${stat.shouldIngest}（含 KB 已存在跳过 ${stat.dupSkipped} 篇）`);
   console.log(`实入库     : ${stat.ingested}`);
   console.log(`被过滤     : ${stat.filtered}`);
   console.log(`失败       : ${stat.failed}`);
+
+  // 权威四栏清单：给定 --kb-id/--folder-id 时，自动经 state.js report 产出「KB 复核模式」增强清单
+  // （含逐条原因、实入库 KB 复核确认、目标子目录、应入未入根因、幽灵记录标注）。
+  if (opt.kbId && opt.folderId) {
+    const reportArgs = ['--progress', state.progressPath, 'report', '--kb-id', opt.kbId, '--folder-id', opt.folderId];
+    if (imaApiPath) reportArgs.push('--ima-api', imaApiPath);
+    const rr = spawnSync('node', [STATE_JS, ...reportArgs], { encoding: 'utf-8', timeout: 120000 });
+    if (rr.status === 0) {
+      console.log('\n' + (rr.stdout || '').trim());
+    } else {
+      console.log('\n[告警] 自动生成 KB 复核四栏清单失败（不影响本轮回填）：' + ((rr.stderr || rr.stdout || '').trim().slice(0, 240)));
+    }
+  } else {
+    // 未提供 KB 参数：仅出离线四栏（无 KB 复核、无幽灵检测），并提示补参以复验。
+    const rr = spawnSync('node', [STATE_JS, '--progress', state.progressPath, 'report'], { encoding: 'utf-8', timeout: 60000 });
+    if (rr.status === 0) console.log('\n' + (rr.stdout || '').trim());
+  }
 }
 
 if (require.main === module) {
   main().catch((e) => { console.error('FATAL', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };
+module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, firecrawlScrape, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };

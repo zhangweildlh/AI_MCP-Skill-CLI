@@ -154,7 +154,7 @@ check('reset-card 仅移除目标卡条目', r.code === 0 && p.articles.length =
   r.err + ' | ' + JSON.stringify(p.articles.map((a) => a.card)));
 
 console.log('\n=== ⑦ dedupKey 去重键语义（服务端截断 30 字符）===');
-const { dedupKey, TITLE_CAP } = require(STATE_JS);
+const { dedupKey, TITLE_CAP, classifyReport } = require(STATE_JS);
 check('TITLE_CAP = 30', TITLE_CAP === 30, String(TITLE_CAP));
 check('长标题取前 30 字符', dedupKey('A'.repeat(50)).length === 30, String(dedupKey('A'.repeat(50)).length));
 check('库内截断形态（…）与原始标题同键',
@@ -169,6 +169,56 @@ check('剥除 front-matter 污染前缀后与干净标题同键',
 check('忽略 .md 扩展名', dedupKey('某标题.md') === dedupKey('某标题'), dedupKey('某标题.md'));
 check('忽略全半角与空格差异', dedupKey('某 标题！') === dedupKey('某标题'), dedupKey('某 标题！'));
 check('不同标题不撞键', dedupKey('甲篇文章标题') !== dedupKey('乙篇文章标题'), '');
+
+console.log('\n=== ⑧ report 增强四栏：逐条原因 + KB 复核 + 幽灵记录 ===');
+writeProgress({
+  schema: '1.1', updatedAt: '',
+  cards: { A: { name: '总包', folder_id: 'fA', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0 } },
+  articles: [
+    { card: 'A', title: '真入库篇', fetchStatus: 'ok', filterResult: 'kept', gateResult: 'pass', ingestStatus: 'ingested', note: 'media_id=M1' },
+    { card: 'A', title: '幽灵篇', fetchStatus: 'ok', filterResult: 'kept', gateResult: 'pass', ingestStatus: 'ingested', note: 'media_id=MG_host' },
+    { card: 'A', title: '过滤篇', fetchStatus: 'ok', filterResult: 'filtered:中标类（正文命中）', gateResult: 'pass', ingestStatus: 'pending' },
+    { card: 'A', title: '失败篇', fetchStatus: 'ok', filterResult: 'kept', gateResult: 'fail:chars<800', ingestStatus: 'failed', note: '闸门未过' },
+    { card: 'A', title: '待入篇', fetchStatus: 'ok', filterResult: 'kept', gateResult: 'pass', ingestStatus: 'pending' },
+  ],
+});
+const KB = [{ media_id: 'M1', title: '真入库篇.md' }, { media_id: 'M2', title: '别的篇' }];
+const rep = classifyReport(readProgress(), KB, {});
+check('KB 复核：应入库=3', rep.shouldIngest === 3, JSON.stringify(rep));
+check('KB 复核：实入库(确认)=1', rep.confirmed === 1, JSON.stringify(rep));
+check('KB 复核：被过滤=1', rep.filtered === 1, JSON.stringify(rep));
+check('KB 复核：失败=1', rep.failed === 1, JSON.stringify(rep));
+check('KB 复核：幽灵记录=1', rep.ghost === 1, JSON.stringify(rep));
+check('KB 复核：待入库/卡死=1', rep.pending === 1, JSON.stringify(rep));
+check('KB 复核：应入未入=2（幽灵1+待入1）', rep.shouldButNotIngested === 2, JSON.stringify(rep));
+check('幽灵明细含「幽灵篇」', rep.ghostItems.some((g) => g.title === '幽灵篇'), JSON.stringify(rep.ghostItems));
+check('被过滤明细原因非空', rep.filteredItems[0].reason.length > 0, JSON.stringify(rep.filteredItems));
+check('失败明细原因非空（取自 note）', /闸门未过/.test(rep.failedItems[0].reason), JSON.stringify(rep.failedItems));
+
+// 离线模式（无 KB）：幽灵检测不可用，实入库为声称值
+const repOff = classifyReport(readProgress(), null, {});
+check('离线：实入库=声称2（无幽灵检测）', repOff.confirmed === 2, JSON.stringify(repOff));
+check('离线：kbVerified=false', repOff.kbVerified === false, JSON.stringify(repOff));
+
+// CLI 路径：--kb-snapshot 离线/审计复核（无需真实 API）
+const SNAP = path.join(TMPDIR, 'kb_snapshot.json');
+fs.writeFileSync(SNAP, JSON.stringify(KB), 'utf8');
+r = state('report', ['--kb-snapshot', SNAP]);
+check('CLI --kb-snapshot 退出码 0', r.code === 0, r.err);
+check('CLI 输出含 幽灵记录明细', /幽灵记录明细/.test(r.out), r.out);
+check('CLI 输出含 应入库但未入库 : 2', /应入库但未入库】 : 2 篇/.test(r.out), r.out);
+check('CLI 输出含 被过滤明细(1 篇)', /被过滤明细】\(1 篇\)/.test(r.out), r.out);
+check('CLI 输出含 失败明细(1 篇)', /失败明细】\(1 篇\)/.test(r.out), r.out);
+
+// CLI 离线模式（无 KB 参数）：告警提示
+r = state('report', []);
+check('CLI 离线 report 退出码 0', r.code === 0, r.err);
+check('CLI 离线 report 提示未 KB 复核', /离线模式/.test(r.out), r.out);
+check('CLI 离线 report 被过滤计数正确', /被过滤 : 1/.test(r.out), r.out);
+
+// CLI --card 过滤
+r = state('report', ['--kb-snapshot', SNAP, '--card', 'B']);
+check('CLI --card 过滤（无 B 卡条目）应入库=0', /应入库 : 0/.test(r.out), r.out);
 
 console.log('\n=== 汇总 ===');
 console.log(`通过 ${pass} / 失败 ${fail}`);

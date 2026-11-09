@@ -65,10 +65,13 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 逐项检查（每项均须同时满足：目录存在且内含 SKILL.md）
 
+> **硬依赖（缺失即阻断本轮，见「缺失处置」）**：第 1、2 项。
+> **可选依赖（仅用于抓取降级链 3 级兜底，缺失不阻断，运行时降级）**：第 3、4 项——本技能不调用 `web-search` 主检索，仅在 1 级原生抓取失败、且 `firecrawl` 官方 CLI 与 `FIRECRAWL_API_KEY` 均可用时，复用其 `firecrawl scrape` 作为兜底；二者任一缺失则 3 级不可用，转由 2 级（浏览器自动化，Agent 手动兜底）或标记抓取失败。
+
 1. `wechat-article-search`：基址下 `wechat-article-search/` 目录存在且含 `SKILL.md`，并确认其 `scripts/` 子目录下存在 `search_wechat.js` 与 `get_sogou_cookie.js`（优先 `-c` 接口取 Cookie 与检索均依赖这两个脚本，缺失则检索 / 取 Cookie 将失败）。
 2. `ima-skills`：基址下 `ima-skills/` 目录存在且含 `SKILL.md`（正确标识为复数形式 ima-skills，不含单数形式的 ima-skill）。
-3. `web-search`：基址下 `web-search/` 目录存在且含 `SKILL.md`。
-4. `web-search` 的火爬适配层：基址下 `web-search/firecrawl/` 目录存在且含 `SKILL.md`。
+3. `web-search`（可选）：基址下 `web-search/` 目录存在且含 `SKILL.md`。仅作为 3 级抓取的父层（firecrawl 适配层所在目录）存在性参考。
+4. `web-search` 的火爬适配层（可选）：基址下 `web-search/firecrawl/` 目录存在且含 `SKILL.md`。3 级抓取实际复用其封装的官方 `firecrawl` CLI（`firecrawl scrape <URL>`），需本机已全局安装 `firecrawl` 且 `FIRECRAWL_API_KEY` 就绪（或 `web-search/.env` 已配置）。
 5. 探测浏览器自动化能力是否可用，仅作记录，不作为阻断项。
 6. **ima 知识库连接器（ima-mcp）连通性探测（告警项，非阻断）**：确认 ima-mcp 已连接且已授权；若未连接/未授权，须显式告警并提示用户确认 ima-mcp 已连接后再继续「入库流程」，避免「前置依赖检查通过却运行中入库失败」。同时须将 `search_script_dir` 解析为 `<技能基址>/wechat-article-search/scripts` 并用于步骤 4 命令拼接。
 7. **ima 凭据可用性探测（告警项，非阻断）**：确认 ima 开放接口凭据（client_id / api_key）已配置且有效，按以下**优先级**解析，任一层存在即视为具备：
@@ -85,18 +88,20 @@ allowed-tools: Bash Read Write Edit WebFetch
 2. 读取该端口，经环境变量 `SOGOU_CDP_PORT` 传给 `get_sogou_cookie.js`（本技能不再依赖 9223 硬编码默认）；未就绪时先按 chrome-devtools 流程拉起（复用真实浏览器登录态 / `User Data` 拷贝方案），再继续。
 3. **调试端口必须实测连通，不得只读配置文件（2026-11-05 实测修正）**：`local-config.json` 的 `debugPort` 只是**上次写入的配置值**，与实际监听状态可能不一致——实测出现过「配置为 9223 但该端口 ECONNREFUSED、浏览器进程根本没跑」的情形，且**运行中途端口还会消失**（浏览器进程仍在、调试端口不再监听），此时 chrome-devtools MCP 报 `Could not connect to Chrome`。因此：
    - 取到端口后必须实测：`node scripts/resolve_midlink.js --check`（等价于 `GET http://127.0.0.1:<port>/json/version` 探活）；
-   - 探活失败 → 先按 chrome-devtools 流程拉起（`node <chrome-devtools 技能目录>/localization/start.cjs`，**须在技能目录内执行**），再探活；
+   - 探活失败 → 先按 chrome-devtools 流程拉起（`node <chrome-devtools 技能目录>/localization/start.cjs`，**须在技能目录内执行**），再探活；本技能的 `scripts/check-deps.js` 支持 `--fix-browser` 自动执行「拉起 → 复探」一步到位（以连通性为准，不读配置值即判定成功）；
    - 仍失败 → 记为告警 `browser_unavailable`，检索可继续（走免 Cookie 降级），但**降级链二级（浏览器解析）不可用**，抓取阶段须相应降级并在四栏清单中标注。
 4. Cookie 提取后置 `-c` 传给 `search_wechat.js`；**禁止用 `&&` 串联提取与检索**（避免前段失败静默短路掩盖真实搜索行为），须两段式（先取 `CK` 并判 `rc==0 && -n CK`，否则转免 Cookie 降级，详见「检索执行规则」）。
 5. ANTI_SPIDER 即停试与会话级终止策略见「检索执行规则 → 退出码 / `ANTI_SPIDER` 判据表」硬约束（F4）。
 
 ### 缺失处置
 
-8. 第 1 项至第 4 项中任一项缺失时，**先用第 3 条回退基址对缺失项重探一次**，确属缺失则立即停止后续全部操作，输出缺失项清单（须附实际探测到的基址路径，便于核对是否命中虚拟化 HOME），并询问用户是否授权立即安装。未获得明确授权前，禁止自行安装，也禁止继续本轮执行。
+8. 第 1、2 项（硬依赖）缺失时，**先用第 3 条回退基址对缺失项重探一次**，确属缺失则立即停止后续全部操作，输出缺失项清单（须附实际探测到的基址路径，便于核对是否命中虚拟化 HOME），并询问用户是否授权立即安装。未获得明确授权前，禁止自行安装，也禁止继续本轮执行。第 3、4 项（可选依赖）缺失时不阻断，仅记录告警并说明 3 级抓取兜底不可用、已降级运行。
+
+> **代码级强制入口**：上述依赖判定已由 `scripts/check-deps.js` 固化为确定性核查（复用 `resolve_midlink.js` 的 CDP 端口探活与 `state.js` 的 `locateImaApi`），本技能执行检索 / 入库前应先运行 `node scripts/check-deps.js`；硬依赖缺失其退出码为 1，软依赖缺失仅告警并附文档回退。切勿只依赖本散文逐条人工核对。
 
 ## 工作流
 
-1. 执行「前置依赖检查」。第 1 项至第 4 项全部具备方可继续，否则终止本轮。
+1. 执行「前置依赖检查」（`node scripts/check-deps.js`）：第 1、2 项（硬依赖）齐全方可继续，否则终止本轮；第 3、4 项（可选）缺失仅告警并降级运行。
 2. 读取 `[workspace]` 根目录下的进度文件 `_progress.json`。文件不存在时按「进度文件模板」创建；文件损坏或字段缺失时，按模板重建并将各任务卡的上次运行日期置空、轮转序号置 0。
    2.1 读取项目级记忆文件：检查 `[workspace]/.workbuddy/memory/` 目录，读取其中最新的记忆文件（按文件名时间排序取最新者；若目录不存在或为空，则跳过本次校验，不视为异常）。对读取到的记忆文件执行以下校验：
    - 检查上次运行的任务卡与本次是否一致，若一致则核对上次运行的入库数量与本次是否可衔接（避免同一轮重复入库）；
@@ -120,7 +125,12 @@ allowed-tools: Bash Read Write Edit WebFetch
    > `原文直链` 一律填**解析后的真实直链**（`mp.weixin.qq.com/s?…`），中转链接未解析成功时填已解码的原链接。
 7. 对每份 Markdown 文件执行「完整性闸门」，未通过者标记为失败并跳过，禁止入库。
 8. 将通过闸门的文件按「入库流程」逐篇存入 `[knowledge_base_id]` 下 `[folder_id]` 指定的子目录，每篇处理完立即写回进度文件。
-9. 执行「复验」，输出应入库、实入库、被过滤、失败四栏清单。
+9. 执行「复验」，输出**增强四栏清单**（2026-11-05 强化）：必须以 `state.js report` 产出，**不得手工拼凑**。强烈建议带 `--kb-id` / `--folder-id` 走 KB 复核模式：
+   ```bash
+   node scripts/state.js --progress "[workspace]/_progress.json" report \
+     --kb-id "[knowledge_base_id]" --folder-id "[folder_id]" [--ima-api "<ima_api.cjs 路径>"]
+   ```
+   该清单须包含：① 四栏计数（应入库 / 实入库 / 被过滤 / 失败）；② **被过滤栏**逐条列出标题与命中原因（词族 + 标题层/正文层）；③ **失败栏**逐条列出标题与失败原因（抓取失败 / 闸门未过 / 入库失败）；④ **实入库栏**须为 **KB 复核确认数**（经 `get_knowledge_list` 复核 `media_type===11` 真实存在）、并标注**目标子目录 `folder_id`**；⑤ **应入库但未入库**差额及其根因拆解（失败数 / 幽灵记录数 / 待入库卡死数）；⑥ 若存在**幽灵记录**（进度声称 `ingested` 但 KB 子目录查无此文）须**显式标注**并附 note 明细。未带 KB 参数时 report 降级为离线模式，实入库为进度声称值、幽灵检测不可用——此时须显式告警并提示补 `--kb-id/--folder-id` 复验。
 10. 执行「写入项目级记忆」：
     - 生成记忆文件名：`[workspace]/.workbuddy/memory/[YYYY-MM-DD]_[cardId]_r[rotateIndex].md`（若文件不存在则创建，存在则追加）；
     - 内容包含：
@@ -228,7 +238,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 抓取降级链
 
-> **本节三级降级均有可执行实现**（2026-11-05 实测修正）。此前本节仅为散文、技能目录内无任何抓取/解析脚本，导致实测 23 篇抓取失败中 **21 篇（91%）** 因中转链接未解析而全军覆没。
+> **实装范围（代码级，单一事实源 = `scripts/pipeline.js`）**：0 级（中转链接解析）、1 级（原生网页抓取）、3 级（firecrawl 抓取兜底）已由 `pipeline.js` 实装并自动串联；**2 级（浏览器自动化）为 Agent 手动兜底路径（非代码自动路径）**——当 1 级与 3 级均失败、且确需该篇时，由 Agent 经 chrome-devtools 调试浏览器打开直链提取正文，不在 `pipeline.js` 内自动执行。
 
 0. **零级（前置必做）：中转链接解析**。搜狗结果中 `url_resolved=false` 的条目，其 `url` 为 `weixin.sogou.com/link?url=…` 中转链接，且其中的 `&` 被写作 HTML 实体 `&amp;`——**不解码则 URL 畸形**，直连会被重定向到 `weixin.sogou.com/antispider/`（反爬页），正文永远取不到。必须先经浏览器自动化导航该中转链接、待其 JS 跳转完成后取 `location.href`（`mp.weixin.qq.com/s?…` 形态）作为真实直链。
    - **执行入口**：`scripts/resolve_midlink.js`（零依赖，走 Chrome DevTools HTTP 端点 `/json/new` + `/json/list` + `/json/close`，**不需要 WebSocket、不依赖 chrome-devtools MCP**）。
@@ -237,11 +247,11 @@ allowed-tools: Bash Read Write Edit WebFetch
    - 解析失败时以**已解码**的原中转链接直接尝试抓取，最终以「完整性闸门」判定。
    - 检索命令已带 `-r` 且结果 `url_resolved=true` 时已是真实直链，无需本级解析。
 
-1. 一级：使用原生网页抓取能力直接读取真实文章直链，获取标题、来源公众号、作者、发布时间与正文。检索结果中已包含 `title`、`url`、`summary`、`datetime`、`date_text`、`date_description`、`source` 字段，可直接作为元数据头的输入来源。
-2. 二级：一级返回空或页面异常时，改用浏览器自动化能力打开该直链提取正文。前置依赖检查记录浏览器能力不可用时，跳过本级直接进入三级。
-3. 三级：前两级均失败时，改用网页抓取服务的抓取接口；该接口返回限流错误时立即回退到二级，禁止连续硬重试。
-4. 连续两篇一级失败后，才整体切换到二级，避免单篇偶发就换道。
-5. **零级失败不得直接判失败**：须先走一级直连（原中转链接，已解码），再依次降级。
+1. 一级：使用原生网页抓取能力直接读取真实文章直链，获取标题、来源公众号、作者、发布时间与正文。检索结果中已包含 `title`、`url`、`summary`、`datetime`、`date_text`、`date_description`、`source` 字段，可直接作为元数据头的输入来源。由 `pipeline.js` 的 `fetchArticle()` 实装。
+2. 二级（Agent 手动兜底，非代码自动路径）：仅当 1 级与 3 级均失败、且确需该篇时，由 Agent 经 chrome-devtools 调试浏览器打开该直链提取正文。代码层不自动执行本路径——`pipeline.js` 在 1 级与 3 级都失败后标记该篇抓取失败（移入 `failed_quarantine/` 供人工补做），不自动切到浏览器自动化。
+3. 三级（代码实装，复用 web-search/firecrawl）：前两级（0/1）失败或返回空时，由 `pipeline.js` 的 `fetchViaFirecrawl()` 复用 `web-search/firecrawl` 适配层封装的官方 `firecrawl` CLI（`firecrawl scrape <URL>`）抓取，密钥优先取 `FIRECRAWL_API_KEY` 环境变量、回退读 `web-search/.env`（与 firecrawl 适配层 `_load_firecrawl_key` 同语义，不回显明文）。**前置可用性由 `check-deps.js` 探测**：`firecrawl` CLI 未安装或 `FIRECRAWL_API_KEY` 缺失则本 tier 标记不可用并直接降级，避免无谓调用；该接口返回限流/错误时立即放弃本 tier，禁止连续硬重试。成功时其输出（markdown）直接作为正文（经「元数据头」包装入库）。
+4. 单篇抓取策略：`pipeline.js` 对本篇候选直链先走 0 级解析（如有）+ 1 级原生抓取；1 级失败即尝试 3 级（firecrawl）；3 级不可用或失败则该篇标记抓取失败。不自动整体切换浏览器自动化（2 级），避免单篇偶发就换道或触发反爬。
+5. **零级失败不得直接判失败**：须先走一级直连（原中转链接，已解码），再走三级兜底。
 
 ### 完整性闸门
 
@@ -311,6 +321,8 @@ allowed-tools: Bash Read Write Edit WebFetch
 关联完成后，调用 `openapi/wiki/v1/get_knowledge_list` 接口（body 传 `knowledge_base_id`、`folder_id`、`cursor` 空串、`limit` 不超过 50）列出目标子目录内容，须命中本次入库条目且其 `media_type` 为 `11`（确为笔记而非 URL 书签）；命中即复验通过。需要进一步核对元数据时，可再调用 `openapi/wiki/v1/get_media_info`（body 传 `{"media_id":"<条目id>"}`）。复验未命中时将该篇标记为失败并计入失败清单，禁止计为成功。
 
 > **复验结果必须回写进度文件，且回写本身带复核**：`state.js mark-ingested` **默认联机复核**该条目 `media_type===11` 真实存在于目标子目录，复核不通过即拒绝写入（2026-11-05 实测修正，见「进度文件写操作纪律」）。禁止以「接口返回 code=0」代替内容核对——历史进度中曾出现声称已入库而 KB 全库查无此文的幽灵记录。
+>
+> **本轮结算的四栏清单须由 `state.js report --kb-id <kb> --folder-id <folder>` 产出**（KB 复核模式），而非凭运行日志自报。该清单对「实入库」做 KB 逐条复核：进度声称 `ingested` 但 KB 子目录经 `media_id` / 去重键均未命中的条目，**判为幽灵记录并显式标注**（开放接口无删除端点，历史脏数据仅可披露、不能自动修复）。详见步骤 9。
 
 **调用层陷阱警示：`ima_api.cjs` 空响应（2026-11-02 实测沉淀）**
 
@@ -372,7 +384,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 - `set-attempts --card C --n N` / `reset-attempts --card C`：设置 / 重置已尝试次数；
 - `reset-card --card C`：清空该卡全部文章记录（重跑 / 续跑前重置；否则旧的 `failed` 记录会永久阻断同标题重新标记 `ingested`）；
 - `update-card --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K]`：更新卡级字段（**步骤 12 轮转规则所需**，缺此命令则 F9 与步骤 12 自相矛盾——卡级字段无法经唯一入口写入）；
-- `report`：输出应入库 / 实入库 / 被过滤 / 失败四栏清单。
+- `report`：输出增强四栏清单（应入库 / 实入库 / 被过滤 / 失败），被过滤/失败栏含逐条原因，实入库栏含 KB 复核确认数与目标子目录，应入未入含根因拆解，幽灵记录显式标注。支持 `--kb-id <kb> --folder-id <folder>`（KB 复核模式）、`--kb-snapshot <json>`（离线/审计快照）、`--card <卡>`（限定单卡）、`--json`（机器可读）。
 
 **`articles` 条目 schema（2026-11-05 实测补齐，此前模板未定义导致执行体与脚本各写各的）**：
 
@@ -390,7 +402,8 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 | 脚本 | 职责 | 关键约束 |
 | --- | --- | --- |
-| `scripts/state.js` | `_progress.json` 唯一读写入口（F9） | 导出 `dedupKey()` / `TITLE_CAP`，供流水线复用；**不得**由其他脚本另写一份去重键 |
+| `scripts/state.js` | `_progress.json` 唯一读写入口（F9） | 导出 `dedupKey()` / `TITLE_CAP` / `locateImaApi()` / `classifyReport()`，供流水线复用；`report` 子命令产出增强四栏清单（KB 复核 + 幽灵记录标注 + 逐条原因），**不得**由其他脚本另写一份去重键或路径解析 |
+| `scripts/check-deps.js` | 前置依赖**代码级**核查器（硬依赖阻断、软依赖告警） | 复用 `resolve_midlink.js` 的 `checkBrowser` 与 `state.js` 的 `locateImaApi`；解析并输出 `search_script_dir` / `ima_api` 路径 / `cdp_port`；硬依赖缺失退出码 1，软依赖缺失仅告警 |
 | `scripts/resolve_midlink.js` | 中转链接 → 真实直链（降级链零级） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；`--check` 为端口探活 |
 | `scripts/pipeline.js` | 抓取 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限） |
 | `scripts/test_filter_rules.js` | 过滤规则回归测试 | 断言 29 条历史误杀样本不再拦截 + 3 条真命中仍拦截 + 11 条子串边界用例 |
@@ -412,7 +425,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 ## 输出格式约束
 
 1. 使用简体中文输出，结构为表格或分节列表，不使用修饰性客套话。
-2. 结束时必须输出四栏清单：应入库数量、实入库数量、被过滤数量与对应原因、失败数量与对应原因。
+2. 结束时必须输出四栏清单（由 `node scripts/state.js --progress <p> report [--kb-id K] [--folder-id F]` 产出，不得手工拼凑）：① 应入库数量；② 实入库数量（**须为 KB 复核确认数**，并注明目标子目录 `folder_id`）；③ 被过滤数量与**逐条原因**（命中词族 + 标题层/正文层）；④ 失败数量与**逐条原因**（抓取失败 / 闸门未过 / 入库失败）。若存在**幽灵记录**（进度声称已入库但 KB 查无），须显式标注并提供 note 明细。
 3. 被限流终止的任务卡必须单独点名，并给出下次重试时刻。
 4. 每份 Markdown 文件的正文前须包含来源公众号、发布时间、作者、原文直链与采集日期。
 
