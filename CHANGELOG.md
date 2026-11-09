@@ -1,5 +1,12 @@
 ---
 
+## [2026-11-09]
+
+### Fixed
+- **dir/Workbuddy专属：wechat-article-to-ima 断点续跑根治——partial 状态机 + searchedKeywords 定向续搜 + 隔离区补入（PR #197，`e7bae01`）**：修复续跑守护漏卡根因——旧实现 `pendingKeywords` 写而不读、`searchedKeywords`/`partial` 字段本不存在，导致重跑时无法判定「哪些词已搜、哪些卡需补入」。`scripts/state.js` 卡结构新增 `searchedKeywords`（累积去重集合）与 `failureClass`（`transient`/`permanent`），新增 `update-card --searched-keywords/--clear-searched/--failure-class`、`diff-keywords`（输出未搜词差集）、`classify-failure`（瞬时限流/网络 vs 永久凭据失效分类）；`validate` 向后兼容旧卡缺新字段。`scripts/pipeline.js` 新增 `--ingest-quarantine` 消费 `failed_quarantine/` 下未入库 `.md` 直接补入库（`shouldReingest` 纯函数跳过闸门未过篇目、KB 去重、复验 `media_type===11`），且检索前若 `pendingKeywords`/未搜词非空则只搜剩余词（避免重触发限流）。`SKILL.md` 新增「断点续跑与续跑守护」专章（触发场景一~四、可机读信号、五步续跑法、`permanent` 失败交人工且守护停止续跑）。测试扩展 `test_state.js`（73/0）+ `test_pipeline_contract.js`（44/0），全仓 5 套离线测试（test_state 73 / test_pipeline_contract 44 / test_filter_rules 47 / test_fetch_failure_taxonomy 12 / test_kb_consistency 10）全 0 失败。验证：CI 全量门禁（meta 分类触发 tier0-3,5,6）pass；部署态由 main blob 逐字节重建 15/15 一致、0 CR；保留 `ima_credentials.json`。
+
+---
+
 ## [2026-11-05]
 
 ### Added
