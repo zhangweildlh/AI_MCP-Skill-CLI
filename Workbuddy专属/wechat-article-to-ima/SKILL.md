@@ -198,48 +198,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ## 调用示例（引导词）
 
-> 四套标准引导词（A / B / C 全量采集 + 续跑守护）的完整可复制版见 [`引导词.md`](./引导词.md)。此处沉淀最常用的**引导词 A** 与**续跑守护**作为调用示例；B/C 仅在 `--card` 与 `folder_id`、关键词簇上不同（见 `引导词.md`）。
-
-### 引导词 A —— 卡片 A 全量采集（首跑 / 周期全搜）
-
-前置：`[WS]`=工作区根目录，`[KB]`=知识库 ID，A 卡 `folder_id=folder_7511772189689986`；A 卡全量关键词 = 主词簇（工程总承包、EPC、总包）+ 变体词簇（总承包EPC、EPC总承包），逐一全搜。
-
-```
-0. node scripts/check-deps.js --json
-1. 进度文件就绪：若 [WS]/_progress_A.json 不存在创建 / 损坏重建。
-2. 取 A 卡全量关键词（主词簇 + 变体词簇逐一全搜 = 全量；不传 --rotate-index）。
-3-5. 对每个关键词循环：
-   3. 两段式检索 → [WS]/[关键词].json（间隔 cool_down）
-   4. node scripts/pipeline.js --workspace "[WS]" --card A --search "[WS]/[关键词].json" --kb-id "[KB]" --folder-id "folder_7511772189689986"
-   5. node scripts/state.js --progress "[WS]/_progress_A.json" update-card --card A --searched-keywords "[该关键词]"
-4b. node scripts/pipeline.js --workspace "[WS]" --card A --ingest-quarantine --kb-id "[KB]" --folder-id "folder_7511772189689986"
-6. node scripts/state.js --progress "[WS]/_progress_A.json" report --kb-id "[KB]" --folder-id "folder_7511772189689986"
-7. 收尾清扫（删除中间 .json、_process_summary_A.json；核对无游离 .md）。
-8. node scripts/state.js --progress "[WS]/_progress_A.json" update-card --card A --last-run [今天] --next-due [今天+cycle_days] --rotate-index 0 --status completed
-```
-
-> 进度文件按卡文件名隔离（`[WS]/_progress_A.json` / `_progress_B.json` / `_progress_C.json`），三卡互不污染；每卡文件自带互斥锁 + 原子写，并发写同卡不会整文件级丢失更新（lost update）。
-
-### 引导词 续跑守护 —— 对 A/B/C 断点续跑
-
-前置：`[WS]`=工作区，`[KB]`=知识库 ID。**逐卡（A → B → C）串行核查与续跑（不并行）**；目标让三卡全部完整执行。
-
-> 零 Agent 表述：本引导词仅描述执行逻辑（对哪些卡、什么顺序、是否并行），**不指派执行主体**；执行体由调度方经引导词传入并自行错开并发。同一 `[WS]` 下三卡进度文件经文件名隔离互不干扰，故无论何种执行拓扑都不会跨卡污染。
-
-```
-1. 判定该卡是否需要续跑（满足任一即进入续跑）：
-   - failureClass=permanent（interrupted）→ 停止续跑本卡，提示人工处理凭据（不得反复重试）；
-   - 或 status ∈ {partial, pending, antispider_partial, limited}；
-   - 或 diff-keywords --card [卡] --keywords "[该卡全量关键词]" 返回非空（仍有未搜词）；
-   - 或 [WS]/failed_quarantine/[卡]__*.md 存在残留（历史入库失败待补入）。
-   （判定不依赖单一 status：搜索已完成但入库失败残留的场景，仅靠 status 会漏判，须结合差集与隔离区残差。）
-2. node scripts/state.js --progress "[WS]/_progress_[卡].json" diff-keywords --card [卡] --keywords "[该卡全量关键词（主词簇+变体词簇）]"
-3. node scripts/pipeline.js --workspace "[WS]" --card [卡] --search "[WS]/[剩余词].json" --kb-id "[KB]" --folder-id "[该卡 folder]"
-   每搜完一词：node scripts/state.js --progress "[WS]/_progress_[卡].json" update-card --card [卡] --searched-keywords "[该关键词]"
-4. node scripts/pipeline.js --workspace "[WS]" --card [卡] --ingest-quarantine --kb-id "[KB]" --folder-id "[该卡 folder]"
-5. node scripts/state.js classify-failure --reason "..."（transient / permanent 决策）。
-6. node scripts/state.js --progress "[WS]/_progress_[卡].json" update-card --card [卡] --status completed（仍剩余则维持 partial）。
-```
+> 四套标准引导词（A / B / C 全量采集 + 续跑守护）的完整可复制版见 [`引导词.md`](./引导词.md)。该文件每套引导词均为单段、可独立复制粘贴给任一已加载本技能的 Agent 直接闭环执行；正文此处不再内联复现，避免双源漂移。
 
 ## 规则与知识库
 
@@ -404,7 +363,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 笔记成功关联到知识库后，立即删除本地对应的 `.md` 文件（不在工区保留副本），仅在进度文件中记录入库状态。**口径调和**：本条仅针对「成功入库」的 `.md`；未成功 / 失败的本地 `.md` 一律按「收尾清扫」移入 `failed_quarantine/` 保留，二者不冲突。
 
-### 限流与断点续跑
+### 限流退避
 
 1. 判定为限流后，按当前已尝试次数计算退避秒数，计算公式为 `[cool_down_seconds]` 乘以 2 的「已尝试次数减一」次方，上限为 86400 秒；记录下次重试时刻为当前时刻加该退避秒数，随后将已尝试次数加一。
 2. 记录完成后结束本轮，禁止在单次执行中空等数小时。
@@ -412,11 +371,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 4. 单篇处理失败最多重试两次并顺带切换降级通道，仍失败则标记失败并继续下一篇，禁止让单篇阻塞整批。
 5. 已尝试次数达到 `[max_attempts]`（默认 4）仍为零结果时，**停止继续累加 attempts**（防止无界增长，单次执行内累加至上限即封顶），将该卡标记为「限流终止 / 待下一轮或人工干预」，写入未完成清单，交由下一轮补做；本轮不再对该关键词硬试。
 6. 任务卡执行成功并完成时，将该卡已尝试次数重置为 0。
-7. **中断与部分完成（改动 B·状态机）**：当本轮因客观原因（限流熔断、网络/凭据异常、调用方主动中断）未能跑完该卡全部关键词时，必须以 `update-card` 写入**可机读的中断信号**，而非仅靠日志：
-   - 瞬时可恢复（限流/网络/超时）：`--status partial --failure-class transient --next-retry-at <下次重试时刻>`；守护据此判定「可续跑」；
-   - 永久不可恢复（凭据失效/鉴权错误）：`--status interrupted --failure-class permanent`（**不写 `nextRetryAt`**），交由人工；守护见到 `failureClass=permanent` 必须**停止续跑并提示用户**，不得反复重试；
-   - 每完成一个关键词的检索+入库，立即 `update-card --searched-keywords "<该关键词>"` 累积记录（重复自动去重）；续跑前先 `diff-keywords` 取差集，只搜未搜词，避免重触发限流。
-8. **续跑消费隔离区（改动 B·③）**：下一轮或守护续跑时，除对剩余关键词补搜外，还须执行 `node scripts/pipeline.js --workspace <工区> --card <卡> --ingest-quarantine [--kb-id K] [--folder-id F]`：扫描 `failed_quarantine/` 下未入库的 `.md`，**直接补入库而不重搜**；其中「闸门未过（质量不达标）」的 `.md` 会被自动跳过（重入必再失败），仅重入「闸门通过但入库阶段失败（多为瞬态）」的篇目。补入成功后该 `.md` 从隔离区移除并标记为 ingested。
+> 断点续跑的可机读信号（状态机）、续跑步骤与隔离区消费，见上方「断点续跑与续跑守护」一节，本节不再重复。
 
 ### 进度文件模板
 
