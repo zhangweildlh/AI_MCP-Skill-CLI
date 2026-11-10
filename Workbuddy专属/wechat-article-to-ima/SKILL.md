@@ -113,13 +113,13 @@ allowed-tools: Bash Read Write Edit WebFetch
 6. 按「抓取降级链」逐篇抓取正文，抓取结果落盘为 Markdown 文件，文件名等于文章标题（替换文件系统非法字符）。每份 Markdown 文件必须在正文前写入元数据头，依次包含：来源公众号、发布时间、作者、原文直链、采集日期，随后为正文。**元数据头格式锁定为下列内联形态，严禁改用 YAML front-matter**（`---` / `title: "…"`）——服务端会把正文首个元数据行当作标题，front-matter 会整块泄漏进条目标题（实测历史条目 5/11 出现 `title: "…` 污染，叠加服务端 30 字符截断后既不可读又导致去重失配）。文件内容格式如下：
    ```
    # {文章标题}
-   
+
    来源：{来源公众号}
    发布时间：{发布时间}
    作者：{作者}
    原文直链：{原文直链}
    采集日期：{采集日期}
-   
+
    {正文}
    ```
    > `原文直链` 一律填**解析后的真实直链**（`mp.weixin.qq.com/s?…`），中转链接未解析成功时填已解码的原链接。
@@ -200,18 +200,19 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 > 以下完整内联「引导词 A」与「续跑守护」全文，与 [`引导词.md`](./引导词.md) 逐字一致；引导词 B / C 与四套完整版见该文件。
 
-## 引导词 A —— 卡片 A（总包）全量采集（从头强制全量重搜）
+## 引导词 A —— 卡片 A（总包）全量采集
 
-调用 `wechat-article-to-ima` 对**卡片 A（总包）**执行**全量采集、从头强制全量重搜**（无首跑 / 周期全搜 / 普通周期续跑之分，断点续跑统一由「续跑守护」负责）：
+调用 `wechat-article-to-ima` 对**卡片 A（总包）**执行**全量采集、从头强制全量重搜**：
 
 - **工作区与知识库**：`[WS]=D:\Documents\AI_Work_Temp\ima+WorkBuddy`；目标知识库 `knowledge_base_id=ima_kb_QFSIbCma`。
-- **本卡参数（取自 SKILL.md「任务卡配置表」，此处自含、不引用他套）**：卡片 `A`（总包）；目标子目录 `folder_id=folder_7511772189689986`；全量关键词簇 = 主词簇（工程总承包、EPC、总包）+ 变体词簇（总承包EPC、EPC总承包），两簇逐一全搜。
+- **本卡参数**：卡片 `A`（总包）；目标子目录 `folder_id=folder_7511772189689986`；全量关键词簇 = 主词簇（工程总承包、EPC、总包）+ 变体词簇（总承包EPC、EPC总承包），两簇逐一全搜。
 - **第一步·强制全量重搜**：先执行 `node scripts/state.js --progress "[WS]/_progress_A.json" reset-card --card A`（清空 A 卡文章记录并重置 `searchedKeywords=[]` / `failureClass=''`，确保本轮不被旧差集误导、从头全搜）。
 - **执行采集工作流**：按 SKILL.md「采集工作流」步骤 1–12 端到端执行并闭环（前置依赖检查 → 读 `_progress_A.json` → 两词簇逐关键词串行检索 → 去重过滤 → 抓取落 MD → 完整性闸门 → 入 `folder_7511772189689986` → 复验 → 写记忆 → 收尾清扫 → 轮转收尾），全程必带 `--card A`；每完成一个关键词检索即 `state.js update-card --searched-keywords "<该关键词>"` 累积并集。
-- **关键命令（A 卡专属，粘贴即用）**：
+- **关键命令**：
   - 复验：`node scripts/state.js --progress "[WS]/_progress_A.json" report --kb-id ima_kb_QFSIbCma --folder-id folder_7511772189689986`
   - 收尾轮转：`node scripts/state.js --progress "[WS]/_progress_A.json" update-card --card A --last-run <今天> --next-due <今天+10天> --rotate-index 0 --status completed --note "本轮要点"`
-- **闭环判据**：本卡 `status=completed`、复验四栏齐全（应入库 / 实入库 / 被过滤 / 失败）、`failed_quarantine/` 中 `A__` 前缀残留清零（仅余 `permanent` 交人工）。未达闭环判据即视为断点，转「续跑守护」。
+- **闭环判据**：本卡 `status=completed`、复验四栏齐全（应入库 / 实入库 / 被过滤 / 失败）、`failed_quarantine/` 中 `A__` 前缀残留清零（仅余 `permanent` 交人工）。未达闭环判据即视为断点。
+- **隔离区要点**：`failed_quarantine/` 按卡加前缀，A 卡残留不误入 B/C；补入历史失败残留时 `ingest-quarantine` **必须带 `--card A`**，严禁不带 `--card` 跑。
 
 ## 引导词 续跑守护 —— 对 A/B/C 断点续跑
 
