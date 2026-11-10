@@ -9,6 +9,9 @@
 
 - **dir/Workbuddy专属：wechat-article-to-ima 引导词 A/B/C 完整自包含 + SKILL.md 调用示例内联（PR #207，`e83c4ee`）**：依指令核查坐实并推翻 #205「仅留指针」设计。`引导词.md` 重写——A/B/C 各套完整自包含（各自显式声明 `[WS]=D:\Documents\AI_Work_Temp\ima+WorkBuddy`、本卡 `folder_id`、全量关键词簇（主+变体）、`reset-card --card X` 前置强制全量重搜、C 卡隔离区要点），删除互引（`工作流同 A` / `闭环判据同 A`）与「首跑/周期全搜/普通周期续跑」区分；「断点续跑」定义按用户口径（任一 Agent 未能完整执行 A/B/C 均算断点）收归「续跑守护」。`SKILL.md`「调用示例（引导词）」节完整内联「引导词 A」+「续跑守护」全文，与 `引导词.md` 逐字一致。验证：内联区块与 `引导词.md` 对应区块 byte-identical、违规短语已清除、四套引导词均含显式 `[WS]` 声明；pre-commit 门禁（Tier0/1 冒烟、scope `dir/Workbuddy专属`）全过；部署态经 deploy.js 从 main blob 逐字节重建 17/17 一致；§7.2 映射表同步刷新为 17 文件 / 254980 B / 3902 行 / 聚合 md5 `f36e1bf9…`。
 
+### Fixed
+- **dir/Workbuddy专属：wechat-article-to-ima 对齐 SKILL.md 内联引导词 A 与 引导词.md 逐字一致 + A/B 补隔离区要点，并刷新 §7.2（PR #209，`4628472`）**：采纳用户手动修订后的 `SKILL.md` 与 `引导词.md`，使两文件在「引导词 A」区块逐字一致并补齐隔离区要点。`SKILL.md` 内联「引导词 A」标题去 `（从头强制全量重搜）` 后缀、去冗余括号说明与本卡参数/关键命令前缀、闭环判据尾句「转续跑守护」删除、新增 A 卡隔离区要点；`引导词.md` A/B/C 标题去后缀、去开头括号说明、本卡参数/关键命令去前缀、闭环判据尾句删除、A/B 两卡新增隔离区要点（原仅 C 有），三套现同构。验证：pre-commit 门禁（Tier0/1 冒烟、scope `dir/Workbuddy专属`）全过；CI（smoke + scope-map）全绿；部署态经 deploy.js 从 main blob 逐字节重建 17/17 一致。本 PR 配套的 meta 提交同步刷新 AGENTS.md §7.2 映射表：聚合 md5 `f36e1bf9…`→`9d54629e…`、SKILL.md blob `8a439e83…`→`7de5c5d9…`、引导词.md blob `fee8cf0e…`→`3f0ff6ac…`，实测 17 文件 / 254450 B / 3905 行 / 0 CR（CRLF 豁免口径下最强一致态）。
+
 ---
 
 ## [2026-11-09]
