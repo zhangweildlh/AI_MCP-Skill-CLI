@@ -196,6 +196,47 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 > 失败原因分类可用 `state.js classify-failure --reason "..."` 离线判定 `transient` / `permanent`，供调度方统一决策。
 
+## 调用示例（引导词）
+
+> 四套标准引导词（A / B / C 全量采集 + 续跑守护）的完整可复制版见 [`引导词.md`](./引导词.md)。此处沉淀最常用的**引导词 A** 与**续跑守护**作为调用示例；B/C 仅在 `--card` 与 `folder_id`、关键词簇上不同（见 `引导词.md`）。
+
+### 引导词 A —— 卡片 A 全量采集（首跑 / 周期全搜）
+
+前置：`[WS]`=工作区根目录，`[KB]`=知识库 ID，A 卡 `folder_id=folder_7511772189689986`；A 卡全量关键词 = 主词簇（工程总承包、EPC、总包）+ 变体词簇（总承包EPC、EPC总承包），逐一全搜。
+
+```
+0. node scripts/check-deps.js --json
+1. 进度文件就绪（不存在创建 / 损坏重建）。
+2. 取 A 卡全量关键词（主词簇 + 变体词簇逐一全搜 = 全量；不传 --rotate-index）。
+3-5. 对每个关键词循环：
+   3. 两段式检索 → [WS]/[关键词].json（间隔 cool_down）
+   4. node scripts/pipeline.js --workspace "[WS]" --card A --search "[WS]/[关键词].json" --kb-id "[KB]" --folder-id "folder_7511772189689986"
+   5. node scripts/state.js --progress "[WS]/_progress.json" update-card --card A --searched-keywords "[该关键词]"
+4b. node scripts/pipeline.js --workspace "[WS]" --card A --ingest-quarantine --kb-id "[KB]" --folder-id "folder_7511772189689986"
+6. node scripts/state.js --progress "[WS]/_progress.json" report --kb-id "[KB]" --folder-id "folder_7511772189689986"
+7. 收尾清扫（删除中间 .json；核对无游离 .md）。
+8. node scripts/state.js --progress "[WS]/_progress.json" update-card --card A --last-run [今天] --next-due [今天+cycle_days] --rotate-index 0 --status completed
+```
+
+### 引导词 续跑守护 —— 对 A/B/C 断点续跑
+
+前置：`[WS]`=工作区，`[KB]`=知识库 ID。**逐卡（A → B → C）执行**；目标让三卡全部完整执行。
+
+```
+1. 判定该卡是否需要续跑（满足任一即进入续跑）：
+   - failureClass=permanent（interrupted）→ 停止续跑本卡，提示人工处理凭据（不得反复重试）；
+   - 或 status ∈ {partial, pending, antispider_partial, limited}；
+   - 或 diff-keywords --card [卡] --keywords "[该卡全量关键词]" 返回非空（仍有未搜词）；
+   - 或 [WS]/failed_quarantine/[卡]__*.md 存在残留（历史入库失败待补入）。
+   （判定不依赖单一 status：搜索已完成但入库失败残留的场景，仅靠 status 会漏判，须结合差集与隔离区残差。）
+2. node scripts/state.js --progress "[WS]/_progress.json" diff-keywords --card [卡] --keywords "[该卡全量关键词（主词簇+变体词簇）]"
+3. node scripts/pipeline.js --workspace "[WS]" --card [卡] --search "[WS]/[剩余词].json" --kb-id "[KB]" --folder-id "[该卡 folder]"
+   每搜完一词：node scripts/state.js --progress "[WS]/_progress.json" update-card --card [卡] --searched-keywords "[该关键词]"
+4. node scripts/pipeline.js --workspace "[WS]" --card [卡] --ingest-quarantine --kb-id "[KB]" --folder-id "[该卡 folder]"
+5. node scripts/state.js classify-failure --reason "..."（transient / permanent 决策）。
+6. node scripts/state.js --progress "[WS]/_progress.json" update-card --card [卡] --status completed（仍剩余则维持 partial）。
+```
+
 ## 规则与知识库
 
 ### 检索执行规则
@@ -416,7 +457,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 - `mark-failed --card C --title T --reason R`：标记失败；
 - `mark-filtered --card C --title T --reason R`：标记被过滤（写 `filterResult=filtered:<reason>`；**缺失此命令会导致 `report` 的「被过滤」列恒为 0**——`report` 只统计 `filterResult` 以 `filtered` 开头的条目）；
 - `set-attempts --card C --n N` / `reset-attempts --card C`：设置 / 重置已尝试次数；
-- `reset-card --card C`：清空该卡全部文章记录（重跑 / 续跑前重置；否则旧的 `failed` 记录会永久阻断同标题重新标记 `ingested`）；
+- `reset-card --card C`：清空该卡全部文章记录与卡级累积态（**重跑前重置**，强制全量重搜、解除旧 `failureClass` 锁定；仅清本卡、不动他卡）；**续跑请勿调用本命令**——续跑应保留 `searchedKeywords` 并用 `diff-keywords` 仅搜剩余词，调用本命令会清空已搜词导致全量重搜、重触发限流；
 - `update-card --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K] [--searched-keywords K] [--clear-searched] [--failure-class C]`：更新卡级字段（**步骤 12 轮转规则所需**，缺此命令则 F9 与步骤 12 自相矛盾——卡级字段无法经唯一入口写入）；`--searched-keywords` 为**累积并集**写入已搜词（重复自动去重，支撑定向续跑只搜剩余词）、`--clear-searched` 清空已搜词集合、`--failure-class` 写 `transient` / `permanent` / 空串（清除）；
 - `report`：输出增强四栏清单（应入库 / 实入库 / 被过滤 / 失败），被过滤/失败栏含逐条原因，实入库栏含 KB 复核确认数与目标子目录，应入未入含根因拆解，幽灵记录显式标注。支持 `--kb-id <kb> --folder-id <folder>`（KB 复核模式）、`--kb-snapshot <json>`（离线/审计快照）、`--card <卡>`（限定单卡）、`--json`（机器可读）。
 - `diff-keywords --card C --keywords "K1;K2;K3"`：给定该卡**全量关键词**（取自「任务卡配置表」），输出**尚未搜索**的差集（续跑时只搜剩余词，避免重触发限流）；支持 `--json`。

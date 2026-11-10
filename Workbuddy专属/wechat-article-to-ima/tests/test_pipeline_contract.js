@@ -200,6 +200,58 @@ try {
   try { fs.rmSync(stubDir, { recursive: true, force: true }); } catch (_) { /* ignore */ }
 }
 
+console.log('\n=== ⑩ 隔离区残差消费不依赖 status（G4 回归：搜索完成但入库失败残留）===');
+// 桩 ima_api.cjs（同 ⑨ 双模）：get_knowledge_list 返回与残留标题不同的条目，迫使走 import→add→verify→mark-ingested 正向路径。
+const stubDirG4 = fs.mkdtempSync(path.join(os.tmpdir(), 'wai-ima-stub-g4-'));
+const stubApiG4 = path.join(stubDirG4, 'ima_api.cjs');
+fs.writeFileSync(stubApiG4, [
+  'function imaApi(apiPath, body) {',
+  "  if (String(apiPath).indexOf('get_knowledge_list') >= 0) {",
+  "    return JSON.stringify({ code: 0, msg: 'ok', data: { knowledge_list: [{ media_id: 'm1', media_type: 11, title: '其他文章.md' }] } });",
+  "  }",
+  "  if (String(apiPath).indexOf('import_doc') >= 0) {",
+  "    return JSON.stringify({ code: 0, msg: 'ok', data: { note_id: 'n1' } });",
+  "  }",
+  "  if (String(apiPath).indexOf('add_knowledge') >= 0) {",
+  "    return JSON.stringify({ code: 0, msg: 'ok', data: { media_id: 'm1', knowledge_id: 'm1', id: 'm1' } });",
+  "  }",
+  "  return JSON.stringify({ code: 0, msg: 'ok', data: {} });",
+  '}',
+  'module.exports = { imaApi };',
+  "if (require.main === module) { process.stdout.write(imaApi(process.argv[2] || '', process.argv[3] || '{}')); }",
+  ''
+].join('\n'), 'utf8');
+
+const WS3 = fs.mkdtempSync(path.join(os.tmpdir(), 'wai-quar-g4-'));
+try {
+  const qDir3 = path.join(WS3, 'failed_quarantine');
+  fs.mkdirSync(qDir3, { recursive: true });
+  // 卡 X 的历史入库失败残留（带卡前缀），标题与进度条目一致
+  fs.writeFileSync(path.join(qDir3, 'X__我的文章.md'), '# 我的文章\n\n来源：Z\n\n正文...', 'utf8');
+
+  const progX = path.join(WS3, '_progress.json');
+  // status=completed 模拟「搜索已完成」但入库失败残留仍待补入；证明残差检测不依赖 status（守护须结合隔离区残差判定）
+  fs.writeFileSync(progX, JSON.stringify({
+    schema: '1.1', updatedAt: '',
+    cards: { X: { name: 'X', folder_id: 'fx', status: 'completed', attempts: 0, searchedKeywords: [], failureClass: '' } },
+    articles: [
+      { card: 'X', title: '我的文章', fetchStatus: 'ok', filterResult: 'kept', gateResult: 'pass', ingestStatus: 'failed', note: '' }
+    ]
+  }), 'utf8');
+
+  const rX = spawnSync('node', [PIPE_JS, '--workspace', WS3, '--card', 'X', '--ingest-quarantine', '--kb-id', 'kb1', '--folder-id', 'f1'],
+    { encoding: 'utf-8', env: Object.assign({}, process.env, { IMA_API_CJS: stubApiG4 }) });
+  check('★ ⑩ 卡 X 隔离区残差：退出码 0', rX.status === 0, (rX.stderr || '').slice(0, 200));
+  check('★ ⑩ 卡 X 的 X__我的文章.md 被消费并移除（残差不依赖 status）', !fs.existsSync(path.join(qDir3, 'X__我的文章.md')), '');
+  const pX = JSON.parse(fs.readFileSync(progX, 'utf8'));
+  const xArt = pX.articles.find((a) => a.card === 'X' && a.title === '我的文章');
+  check('★ ⑩ 卡 X 进度条目已翻正为 ingested', !!xArt && xArt.ingestStatus === 'ingested', JSON.stringify(xArt));
+  check('★ ⑩ 日志含补入成功提示', /\[补入\]|✅/.test(rX.stdout || ''), (rX.stdout || '').slice(-200));
+} finally {
+  try { fs.rmSync(WS3, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+  try { fs.rmSync(stubDirG4, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+}
+
 console.log('\n=== 汇总 ===');
 console.log(`通过 ${pass} / 失败 ${fail}`);
 if (fail) {
