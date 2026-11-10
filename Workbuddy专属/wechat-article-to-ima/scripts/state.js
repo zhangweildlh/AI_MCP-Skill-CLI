@@ -63,20 +63,50 @@ const dedupKey = (t) => {
   return s.replace(/\s+/g, '').replace(/[！？!？?]/g, '').toLowerCase().slice(0, TITLE_CAP);
 };
 
+// ── R8 防护：解析出的工作区/进度目录严禁落在技能自身目录树内 ──
+// 否则运行产物（.md / 进度 / 隔离区）会污染技能仓库，甚至被误提交（AGENTS.md §4 红线）。
+function isInsideDir(child, parent) {
+  const c = path.resolve(child);
+  const p = path.resolve(parent);
+  if (c === p) return true;
+  const rel = path.relative(p, c);
+  // 跨盘：relative 返回绝对路径（如 C:\...）→ 不在 parent 内部；
+  // 同盘但 parent 之外：relative 以 .. 开头 → 亦不在内部。
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+function skillBaseDir() {
+  // state.js 位于 <技能>/scripts/state.js → 技能根为 scripts 的上一级
+  return path.resolve(__dirname, '..');
+}
+function assertOutsideSkillDir(targetPath) {
+  const skill = skillBaseDir();
+  const t = path.resolve(targetPath);
+  if (isInsideDir(t, skill)) {
+    fail(`解析出的路径落在技能自身目录树内（${t} ⊆ ${skill}），拒绝写入以防污染技能仓库。请将 [WS]/--progress 指定到技能目录之外的独立工作区。`);
+  }
+}
+
 /**
  * 确定性定位 ima-skills 的 ima_api.cjs（与 pipeline.js 共用，避免两份路径解析逻辑漂移）。
- * 候选顺序：环境变量 IMA_API_CJS → $USERPROFILE/.workbuddy/skills/ima-skills/ima_api.cjs
- * → 技能相邻目录 ../../ima-skills/ima_api.cjs。返回首个存在的文件路径，全缺返回 null。
+ * 候选顺序（传入 > 内置默认；详见 R7 通用默认参数优先级）：
+ *   --skill-base（agent 引导词传入，最高优先级）→ 环境变量 IMA_API_CJS
+ *   → $USERPROFILE/.workbuddy/skills/ima-skills/ima_api.cjs
+ *   → 技能相邻目录 ../../ima-skills/ima_api.cjs。返回首个存在的文件路径，全缺返回 null。
  * 不使用 $HOME（本环境执行沙箱中 $HOME 被虚拟化为 /HOME，会误判缺失）。
+ * @param {object} [opt]  解析选项，可含 { skillBase }
  */
-function locateImaApi() {
+function locateImaApi(opt) {
+  const o = opt || {};
   const cands = [];
+  // ① agent 引导词传入的「技能基址」：定位为 <skillBase>/../ima-skills/ima_api.cjs（与 __dirname 推导同源）
+  if (o.skillBase) cands.push(path.join(path.resolve(o.skillBase), '..', 'ima-skills', 'ima_api.cjs'));
+  // ② 直接指定 ima_api.cjs 路径（最高自由度的显式覆盖）
   if (process.env.IMA_API_CJS) cands.push(process.env.IMA_API_CJS);
   const up = process.env.USERPROFILE;
   if (up) cands.push(path.join(up, '.workbuddy', 'skills', 'ima-skills', 'ima_api.cjs'));
   cands.push(path.join(__dirname, '..', '..', 'ima-skills', 'ima_api.cjs'));
   for (const c of cands) {
-    try { if (fs.existsSync(c) && fs.statSync(c).isFile()) return c; } catch (_) { /* next */ }
+    try { if (c && fs.existsSync(c) && fs.statSync(c).isFile()) return c; } catch (_) { /* next */ }
   }
   return null;
 }
@@ -109,7 +139,7 @@ function fail(msg) {
 }
 
 function parseArgs(argv) {
-  const opt = { progress: '', command: '', card: '', title: '', mediaId: '', reason: '', n: null, verify: true, noVerify: false, imaApi: '', kbId: '', folderId: '', kbSnapshot: '', json: false, searchedKeywords: '', clearSearched: false, failureClass: '', keywords: '' };
+  const opt = { progress: '', command: '', card: '', title: '', mediaId: '', reason: '', n: null, verify: true, noVerify: false, imaApi: '', kbId: '', folderId: '', kbSnapshot: '', json: false, searchedKeywords: '', clearSearched: false, failureClass: '', keywords: '', skillBase: '' };
   let i = 0;
   while (i < argv.length) {
     const a = argv[i];
@@ -137,6 +167,7 @@ function parseArgs(argv) {
     else if (a === '--kb-snapshot') opt.kbSnapshot = argv[++i] || fail('缺少 --kb-snapshot 值');
     else if (a === '--keywords') opt.keywords = argv[++i] || '';
     else if (a === '--json') opt.json = true;
+    else if (a === '--skill-base') opt.skillBase = argv[++i] || fail('缺少 --skill-base 值');
     else if (!opt.command) opt.command = a;
     else fail(`未知参数：${a}`);
     i++;
@@ -145,7 +176,38 @@ function parseArgs(argv) {
   return opt;
 }
 
+// 文件锁：防并发进程（独立 Agent / 多开 pipeline）对同卡进度文件做整文件级
+// read-modify-write 丢失更新（lost update）。锁粒度 = 每卡文件（_progress_<card>.json.lock），
+// 不同卡各自持锁、永不互相争用。锁文件以 'wx' 互斥创建，陈旧（>5min）自动回收。
+const LOCK_STALE_MS = 5 * 60 * 1000;
+let _lockFd = null;
+let _lockPath = null;
+function acquireLock(progressPath) {
+  _lockPath = progressPath + '.lock';
+  try {
+    _lockFd = fs.openSync(_lockPath, 'wx');
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+    // 锁已存在：判定是否陈旧（持有进程已崩溃未释放）
+    try {
+      const st = fs.statSync(_lockPath);
+      const stale = (Date.now() - st.mtimeMs) > LOCK_STALE_MS;
+      if (stale) { fs.unlinkSync(_lockPath); _lockFd = fs.openSync(_lockPath, 'wx'); return; }
+    } catch (_) { /* 统计失败则按占用处理 */ }
+    fail(`进度文件锁 ${_lockPath} 已被另一进程持有（可能并发写同卡进度）。请错开并发或等待其结束。`);
+  }
+}
+function releaseLock() {
+  if (_lockFd !== null) {
+    try { fs.closeSync(_lockFd); } catch (_) { /* ignore */ }
+    try { if (_lockPath) fs.unlinkSync(_lockPath); } catch (_) { /* ignore */ }
+    _lockFd = null; _lockPath = null;
+  }
+}
+
 function loadProgress(progressPath) {
+  // R8 防护：解析出的进度目录严禁落在技能自身目录树内
+  assertOutsideSkillDir(path.dirname(path.resolve(progressPath)));
   let data;
   if (!fs.existsSync(progressPath)) {
     return { schema: SCHEMA, updatedAt: '', cards: {}, articles: [] };
@@ -153,9 +215,9 @@ function loadProgress(progressPath) {
   try {
     data = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
   } catch (e) {
-    fail(`_progress.json 解析失败（${e.message}），请先按模板重建。`);
+    fail(`_progress 解析失败（${e.message}），请先按模板重建。`);
   }
-  if (!data || typeof data !== 'object') fail('_progress.json 结构非法（非对象）。');
+  if (!data || typeof data !== 'object') fail('_progress 结构非法（非对象）。');
   if (!data.cards || typeof data.cards !== 'object') data.cards = {};
   if (!Array.isArray(data.articles)) data.articles = [];
   // 向后兼容：旧进度文件缺省新字段时就地补齐（searchedKeywords / failureClass），validate 不因旧文件缺字段而误拒
@@ -169,7 +231,10 @@ function loadProgress(progressPath) {
 function saveProgress(progressPath, data) {
   data.updatedAt = new Date().toISOString();
   fs.mkdirSync(path.dirname(path.resolve(progressPath)), { recursive: true });
-  fs.writeFileSync(progressPath, JSON.stringify(data, null, 2) + '\n', 'utf-8');
+  // 原子写：先写临时文件再 rename，避免写中途崩溃留下半截 JSON 导致进度损坏
+  const tmp = progressPath + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', 'utf-8');
+  fs.renameSync(tmp, progressPath);
 }
 
 function ensureCard(data, card) {
@@ -570,6 +635,12 @@ function main() {
   const opt = parseArgs(process.argv.slice(2));
   if (!opt.progress) fail('缺少必填 --progress <路径>。');
   if (!opt.command) { usage(); process.exit(2); }
+  // R8 防护：先判定位（禁止在技能目录树内写任何产物，含锁文件），再持锁
+  assertOutsideSkillDir(path.dirname(path.resolve(opt.progress)));
+  // 文件锁：覆盖 read-modify-write 全程（loadProgress 读 → 命令改 → saveProgress 写）
+  acquireLock(opt.progress);
+  // 任意退出路径（含 fail() 的 process.exit / 异常）均释放锁，避免脏锁残留
+  process.on('exit', () => { try { releaseLock(); } catch (_) {} });
   const data = loadProgress(opt.progress);
   switch (opt.command) {
     case 'validate': cmdValidate(opt, data); break;
@@ -592,4 +663,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { dedupKey, TITLE_CAP, cardOf, locateImaApi, classifyReport, fetchKbEntries, readKbSnapshot, parseMediaIdFromNote, classifyFailure };
+module.exports = { dedupKey, TITLE_CAP, cardOf, locateImaApi, classifyReport, fetchKbEntries, readKbSnapshot, parseMediaIdFromNote, classifyFailure, assertOutsideSkillDir };

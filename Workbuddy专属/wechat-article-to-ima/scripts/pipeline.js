@@ -32,9 +32,12 @@ const __dirname_ = __dirname;
 const STATE_JS = path.join(__dirname_, 'state.js');
 const RESOLVE_JS = path.join(__dirname_, 'resolve_midlink.js');
 
+// 透传给 state.js 子进程的额外参数（--skill-base 由 agent 引导词传入，优先级高于内置默认）
+let STATE_EXTRA = [];
+
 // ── 参数解析 ──
 function parseArgs(argv) {
-  const o = { workspace: '', card: '', search: '', kbId: '', folderId: '', limit: 0, dryRun: false, ingestQuarantine: false };
+  const o = { workspace: '', card: '', search: '', kbId: '', folderId: '', limit: 0, dryRun: false, ingestQuarantine: false, skillBase: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--workspace') o.workspace = argv[++i] || '';
@@ -45,6 +48,7 @@ function parseArgs(argv) {
     else if (a === '--limit') o.limit = parseInt(argv[++i], 10) || 0;
     else if (a === '--dry-run') o.dryRun = true;
     else if (a === '--ingest-quarantine') o.ingestQuarantine = true;
+    else if (a === '--skill-base') o.skillBase = argv[++i] || '';
   }
   return o;
 }
@@ -111,7 +115,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── state.js 调用（F9：进度写入唯一入口）──
 function state(cmd, args, allowFail) {
-  const res = spawnSync('node', [STATE_JS, '--progress', state.progressPath, cmd, ...args], { encoding: 'utf-8' });
+  const res = spawnSync('node', [STATE_JS, '--progress', state.progressPath, ...STATE_EXTRA, cmd, ...args], { encoding: 'utf-8' });
   if (res.status !== 0) {
     const msg = (res.stderr || res.stdout || '').trim();
     if (allowFail) return { ok: false, msg };
@@ -297,14 +301,19 @@ async function main() {
     process.exit(1);
   }
   const WS = opt.workspace;
-  const progressPath = path.join(WS, '_progress.json');
+  // STATE_EXTRA：将 agent 引导词传入的 --skill-base 透传给每个 state.js 子进程（传入 > 内置默认）
+  STATE_EXTRA = opt.skillBase ? ['--skill-base', opt.skillBase] : [];
+  const { dedupKey, locateImaApi, assertOutsideSkillDir } = require(STATE_JS);
+  const { resolveMidLink, isMidLink } = require(RESOLVE_JS);
+  // R8 防护：工作区严禁落在技能自身目录树内，否则 .md / 进度 / 隔离区会污染技能仓库
+  assertOutsideSkillDir(WS);
+  // 文件名隔离：每卡独立进度文件（_progress_<card>.json），避免多卡共享整文件导致整文件级 lost update
+  const progressPath = path.join(WS, '_progress_' + safeFile(opt.card) + '.json');
   state.progressPath = progressPath;
   const quarantine = path.join(WS, 'failed_quarantine');
 
-  const { resolveMidLink, isMidLink } = require(RESOLVE_JS);
-  const { dedupKey, locateImaApi } = require(STATE_JS);
-  const imaApiPath = locateImaApi();
-  if (!imaApiPath) { console.error('[错误] 未找到 ima_api.cjs（可用 IMA_API_CJS 环境变量指定）'); process.exit(2); }
+  const imaApiPath = locateImaApi({ skillBase: opt.skillBase });
+  if (!imaApiPath) { console.error('[错误] 未找到 ima_api.cjs（可用 IMA_API_CJS 环境变量或 --skill-base 指定）'); process.exit(2); }
   const { imaApi } = require(imaApiPath);
 
   // mark-ingested 参数装配：接通 state.js 默认联机复核（传入 ima_api 路径 + kb-id + folder-id，去掉 --no-verify），
@@ -411,7 +420,7 @@ async function main() {
     console.log(`跳过(质量失败) : ${stat.skipped}`);
     console.log(`仍失败 : ${stat.failed}`);
     if (opt.kbId && opt.folderId) {
-      const rr = spawnSync('node', [STATE_JS, '--progress', progressPath, 'report', '--kb-id', opt.kbId, '--folder-id', opt.folderId], { encoding: 'utf-8', timeout: 120000 });
+      const rr = spawnSync('node', [STATE_JS, '--progress', progressPath, ...STATE_EXTRA, 'report', '--kb-id', opt.kbId, '--folder-id', opt.folderId], { encoding: 'utf-8', timeout: 120000 });
       if (rr.status === 0) console.log('\n' + (rr.stdout || '').trim());
     }
   }
@@ -580,7 +589,7 @@ async function main() {
 
     // ⑥ 入库（笔记模式）
     const md = buildMd(a, art, title);
-    const mdPath = path.join(WS, safeFile(title) + '.md');
+    const mdPath = path.join(WS, safeFile(opt.card) + '__' + safeFile(title) + '.md');
     fs.writeFileSync(mdPath, md, 'utf8');
     try {
       // 注意：import_doc 不接受 folder_id（实测 code=310001 文件夹不存在），
@@ -622,7 +631,7 @@ async function main() {
   }
 
   const summary = { card: opt.card, total: j.total, uniq: uniq.length, ...stat, detail };
-  fs.writeFileSync(path.join(WS, '_process_summary.json'), JSON.stringify(summary, null, 2), 'utf8');
+  fs.writeFileSync(path.join(WS, '_process_summary_' + safeFile(opt.card) + '.json'), JSON.stringify(summary, null, 2), 'utf8');
   console.log('\n=== 采集流水线统计（本轮回填口径）===');
   console.log(`去重后候选 : ${uniq.length}`);
   console.log(`应入库     : ${stat.shouldIngest}（含 KB 已存在跳过 ${stat.dupSkipped} 篇）`);
@@ -633,7 +642,7 @@ async function main() {
   // 权威四栏清单：给定 --kb-id/--folder-id 时，自动经 state.js report 产出「KB 复核模式」增强清单
   // （含逐条原因、实入库 KB 复核确认、目标子目录、应入未入根因、幽灵记录标注）。
   if (opt.kbId && opt.folderId) {
-    const reportArgs = ['--progress', state.progressPath, 'report', '--kb-id', opt.kbId, '--folder-id', opt.folderId];
+    const reportArgs = ['--progress', state.progressPath, ...STATE_EXTRA, 'report', '--kb-id', opt.kbId, '--folder-id', opt.folderId];
     if (imaApiPath) reportArgs.push('--ima-api', imaApiPath);
     const rr = spawnSync('node', [STATE_JS, ...reportArgs], { encoding: 'utf-8', timeout: 120000 });
     if (rr.status === 0) {
@@ -643,7 +652,7 @@ async function main() {
     }
   } else {
     // 未提供 KB 参数：仅出离线四栏（无 KB 复核、无幽灵检测），并提示补参以复验。
-    const rr = spawnSync('node', [STATE_JS, '--progress', state.progressPath, 'report'], { encoding: 'utf-8', timeout: 60000 });
+    const rr = spawnSync('node', [STATE_JS, '--progress', state.progressPath, ...STATE_EXTRA, 'report'], { encoding: 'utf-8', timeout: 60000 });
     if (rr.status === 0) console.log('\n' + (rr.stdout || '').trim());
   }
 }
