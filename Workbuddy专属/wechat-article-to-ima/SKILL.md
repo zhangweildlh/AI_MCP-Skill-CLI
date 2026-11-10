@@ -198,7 +198,37 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ## 调用示例（引导词）
 
-> 四套标准引导词（A / B / C 全量采集 + 续跑守护）的完整可复制版见 [`引导词.md`](./引导词.md)。该文件每套引导词均为单段、可独立复制粘贴给任一已加载本技能的 Agent 直接闭环执行；正文此处不再内联复现，避免双源漂移。
+> 以下完整内联「引导词 A」与「续跑守护」全文，与 [`引导词.md`](./引导词.md) 逐字一致；引导词 B / C 与四套完整版见该文件。
+
+## 引导词 A —— 卡片 A（总包）全量采集（从头强制全量重搜）
+
+调用 `wechat-article-to-ima` 对**卡片 A（总包）**执行**全量采集、从头强制全量重搜**（无首跑 / 周期全搜 / 普通周期续跑之分，断点续跑统一由「续跑守护」负责）：
+
+- **工作区与知识库**：`[WS]=D:\Documents\AI_Work_Temp\ima+WorkBuddy`；目标知识库 `knowledge_base_id=ima_kb_QFSIbCma`。
+- **本卡参数（取自 SKILL.md「任务卡配置表」，此处自含、不引用他套）**：卡片 `A`（总包）；目标子目录 `folder_id=folder_7511772189689986`；全量关键词簇 = 主词簇（工程总承包、EPC、总包）+ 变体词簇（总承包EPC、EPC总承包），两簇逐一全搜。
+- **第一步·强制全量重搜**：先执行 `node scripts/state.js --progress "[WS]/_progress_A.json" reset-card --card A`（清空 A 卡文章记录并重置 `searchedKeywords=[]` / `failureClass=''`，确保本轮不被旧差集误导、从头全搜）。
+- **执行采集工作流**：按 SKILL.md「采集工作流」步骤 1–12 端到端执行并闭环（前置依赖检查 → 读 `_progress_A.json` → 两词簇逐关键词串行检索 → 去重过滤 → 抓取落 MD → 完整性闸门 → 入 `folder_7511772189689986` → 复验 → 写记忆 → 收尾清扫 → 轮转收尾），全程必带 `--card A`；每完成一个关键词检索即 `state.js update-card --searched-keywords "<该关键词>"` 累积并集。
+- **关键命令（A 卡专属，粘贴即用）**：
+  - 复验：`node scripts/state.js --progress "[WS]/_progress_A.json" report --kb-id ima_kb_QFSIbCma --folder-id folder_7511772189689986`
+  - 收尾轮转：`node scripts/state.js --progress "[WS]/_progress_A.json" update-card --card A --last-run <今天> --next-due <今天+10天> --rotate-index 0 --status completed --note "本轮要点"`
+- **闭环判据**：本卡 `status=completed`、复验四栏齐全（应入库 / 实入库 / 被过滤 / 失败）、`failed_quarantine/` 中 `A__` 前缀残留清零（仅余 `permanent` 交人工）。未达闭环判据即视为断点，转「续跑守护」。
+
+## 引导词 续跑守护 —— 对 A/B/C 断点续跑
+
+**断点续跑定义**：任一 Agent 未能完整执行 引导词 A/B/C，包含但不仅限于——某一卡片的词簇未能全部完整搜索；某一关键词搜到的命中文章未能全部下载；某一文章未能完整下载到本地 MD 文件；下载到本地的 MD 文件未能真实入库 ima；运行中被限流熔断 / 网络或凭据异常中断等。
+
+调用 `wechat-article-to-ima` 续跑守护：
+
+- **逐卡串行**（A → B → C，不并行）核查与续跑，目标三卡全部完整执行。
+- **每卡执行**（必带 `--card <卡>`；`[WS]=D:\Documents\AI_Work_Temp\ima+WorkBuddy`；`knowledge_base_id=ima_kb_QFSIbCma`）：
+  1. 读 `_progress_<卡>.json` 判定 `status`：`failureClass=permanent`（`interrupted`）→ **停止续跑并提示人工处理凭据**；`partial` / `pending` / `antispider_partial` / `limited` → 进入续跑。
+  2. `node scripts/state.js --progress "[WS]/_progress_<卡>.json" diff-keywords --card <卡> --keywords "<该卡全量关键词（主+变体，取自 SKILL.md「任务卡配置表」）>"` 取尚未搜索的差集，只搜剩余词（已搜词跳过，避免重触限流）。
+  3. 补搜命中结果 JSON 逐个跑 `node scripts/pipeline.js --search "<x.json>"`。
+  4. `node scripts/pipeline.js --ingest-quarantine --card <卡> --kb-id ima_kb_QFSIbCma --folder-id <该卡 folder_id>`：消费 `failed_quarantine/` 下未入库的 `.md` 直接补入库（闸门未过的质量失败篇目自动跳过，仅重入「闸门通过但入库失败」篇目）。**严禁不带 `--card` 跑**（否则误食他卡残留）。
+  5. 全部完成后按「任务卡轮转规则」用 `state.js update-card` 收尾（成功则 `status=completed`；仍有剩余则维持 `partial`）。
+- **闭环判据**：三卡皆 `status=completed`、各自 `failed_quarantine/` 残差清零（仅余 `permanent` 交人工）。
+
+> 失败原因分类可用 `node scripts/state.js classify-failure --reason "..."` 离线判定 `transient` / `permanent`，供调度方统一决策。
 
 ## 规则与知识库
 
