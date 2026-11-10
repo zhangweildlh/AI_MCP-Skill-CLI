@@ -113,6 +113,17 @@ const MIN_PERIODS = 5;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// 微信文章直连需带 Referer（否则易被反爬/防盗链拦截返回空正文或验证页；
+// 2026-11-10 卡片A 实跑 31 篇原生抓取失败即疑似缺此头，加回零风险、零行为退化）。
+const WECHAT_REFERER = 'https://mp.weixin.qq.com/';
+function buildFetchHeaders() {
+  return {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+    'Accept-Language': 'zh-CN,zh;q=0.9',
+    Referer: WECHAT_REFERER,
+  };
+}
+
 // ── state.js 调用（F9：进度写入唯一入口）──
 function state(cmd, args, allowFail) {
   const res = spawnSync('node', [STATE_JS, '--progress', state.progressPath, ...STATE_EXTRA, cmd, ...args], { encoding: 'utf-8' });
@@ -164,8 +175,17 @@ function htmlToText(html) {
 }
 function auxCriteria(html, text) {
   const paragraphs = text.split(/\n{2,}/).filter((p) => p.trim().length > 0).length;
-  const structured = (html.match(/<(li|tr|table)\b/gi) || []).length;
-  const headings = (html.match(/<h[2-6]\b/gi) || []).length;
+  let structured, headings;
+  if (html && html.trim()) {
+    // HTML 源（1 级原生抓取）：直接数 HTML 标签
+    structured = (html.match(/<(li|tr|table)\b/gi) || []).length;
+    headings = (html.match(/<h[2-6]\b/gi) || []).length;
+  } else {
+    // markdown 源（3 级 firecrawl 直出 markdown，无 HTML 标签）：用 markdown 语法近似
+    // （修复前 structured/headings 恒为 0 → 含 2 列表 + 1 标题的优质 markdown 被误关）
+    structured = (text.match(/^\s*[-*]\s+/gm) || []).length + (text.match(/^\s*\|.+\|/gm) || []).length;
+    headings = (text.match(/^\s{0,3}#{1,6}\s+/gm) || []).length;
+  }
   return { paragraphs, structured, headings, met: paragraphs >= 3 || structured >= 2 || headings >= 1 };
 }
 
@@ -220,6 +240,22 @@ function shouldReingest(title, art) {
 }
 
 const safeFile = (t) => String(t || '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 120);
+
+/**
+ * 抓取失败原因构造（纯函数，可离线单测）：原生抓取与 firecrawl 兜底的双路失败原因必须
+ * 分别保留，不得合并成一句笼统的「firecrawl 不可用」——否则真实根因（HTTP 4xx / js_content
+ * 为空 / 超时）被淹没，既无法诊断也无法驱动 test_fetch_failure_taxonomy 分类器。
+ * @param {Error|string|null} nativeErr 原生抓取错误（已逐候选尝试后仍非空）
+ * @param {string} firecrawlReason fetchViaFirecrawl 返回的失败原因（空串表示未触发）
+ */
+function buildFetchFailureReason(nativeErr, firecrawlReason) {
+  const nat = nativeErr ? String(nativeErr.message != null ? nativeErr.message : nativeErr) : '';
+  const fc = String(firecrawlReason || '');
+  if (nat && fc) return `原生抓取失败：${nat}｜firecrawl 兜底失败：${fc}`;
+  if (nat) return `原生抓取失败：${nat}`;
+  if (fc) return `firecrawl 兜底失败：${fc}`;
+  return '未知抓取失败（原生与兜底均无可用原因）';
+}
 
 // ── 3 级抓取兜底：复用 web-search/firecrawl 适配层的官方 firecrawl CLI ──
 // 仅当 1 级（原生 fetch）失败后才触发；firecrawl 不可用或失败即优雅降级，禁止连续硬重试。
@@ -465,7 +501,6 @@ async function main() {
   const stat = { shouldIngest: 0, ingested: 0, filtered: 0, failed: 0, dupSkipped: 0 };
   const detail = { ingested: [], filtered: [], failed: [] };
   const resolveCache = new Map();
-  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36';
 
   const fetchArticle = async (url) => {
     const ctl = new AbortController();
@@ -473,7 +508,7 @@ async function main() {
     try {
       const res = await fetch(url, {
         signal: ctl.signal,
-        headers: { 'User-Agent': UA, 'Accept-Language': 'zh-CN,zh;q=0.9' },
+        headers: buildFetchHeaders(),
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const html = await res.text();
@@ -542,7 +577,7 @@ async function main() {
       // 1 级全失败 → 3 级：复用 firecrawl CLI 抓取（兜底，不达标即降级为失败，禁止连续硬重试）
       const fc = await fetchViaFirecrawl(candidates);
       if (fc.ok) { art = { markdown: fc.markdown, author: '未知' }; a.__resolvedUrl = fc.url; }
-      else { fetchErr = new Error('原生抓取与 firecrawl 均失败：' + (fc.reason || '')); }
+      else { fetchErr = new Error(buildFetchFailureReason(fetchErr, fc.reason || '')); }
     }
     if (!art) {
       const rs = '抓取失败：' + (fetchErr ? fetchErr.message : '未知');
@@ -661,4 +696,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('FATAL', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, firecrawlScrape, shouldReingest, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };
+module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, firecrawlScrape, shouldReingest, buildFetchFailureReason, buildFetchHeaders, WECHAT_REFERER, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };
