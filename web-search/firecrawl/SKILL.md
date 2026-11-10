@@ -16,12 +16,12 @@ Firecrawl 在不同 LLM 平台有两种接入形态，本适配层不假定其�
 - **铁律**：无论哪种形态，禁止臆造工具名/组名，一律以 `list_groups` / `get_dynamic_tools` / 平台工具列表的实际返回为准；Firecrawl 不可用时按「降级」处理。
 
 ## 命令模板（具体 flag 以 `firecrawl <cmd> --help` 为准，上游 openapi.json 跟进时同步）
-- 搜索：`firecrawl search "<查询>"`
-- 抓取：`firecrawl scrape <URL>`
-- 爬取：`firecrawl crawl <URL>`
-- 站点地图：`firecrawl map <URL>`
-- 智能体任务：`firecrawl agent "<任务描述>"`
-- 交互：`firecrawl interact <URL> --prompt "<操作>"`（先有 scrape 产物；`-s/--scrape-id` 默认上次 scrape）
+- 搜索：`firecrawl search "<查询>" [--limit <1-100>] [--sources <web,images,news>] [--categories <github,research,pdf,developer>] [--tbs <qdr:h/d/w/m/y>] [--location <地点>] [--country <ISO国家码>] [--timeout <ms>] [--ignore-invalid-urls] [--highlights|--no-highlights] [--scrape] [--scrape-formats <markdown,html,...>] [--only-main-content] [--json]`
+- 抓取：`firecrawl scrape <URL> [-f <markdown,html,rawHtml,links,images,screenshot,summary,...>] [--only-main-content] [--wait-for <ms>] [--screenshot] [--full-page-screenshot] [--include-tags <tags>] [--exclude-tags <tags>] [-Q <prompt>] [--profile <name>] [--no-save-changes] [--lockdown] [--redact-pii] [--schema <json>] [--schema-file <path>] [--actions <json>] [--actions-file <path>] [--proxy <mode>] [--json]`
+- 爬取：`firecrawl crawl <URL> [--status] [--wait] [--poll-interval <s>] [--timeout <s>] [--progress] [--limit <num>] [--max-depth <num>] [--exclude-paths <paths>] [--include-paths <paths>] [--sitemap <skip|include>] [--ignore-query-parameters] [--crawl-entire-domain] [--allow-external-links] [--allow-subdomains] [--delay <ms>] [--max-concurrency <num>] [--scrape-options <json>] [--scrape-options-file <path>] [--webhook <url>] [--json]`
+- 站点地图：`firecrawl map <URL> [--wait] [--limit <num>] [--search <query>] [--sitemap <only|include|skip>] [--include-subdomains] [--ignore-query-parameters] [--timeout <s>] [--json]`
+- 智能体任务：`firecrawl agent "<任务描述>" [--urls <urls>] [--model <spark-1-mini|spark-1-pro>] [--schema <json>] [--schema-file <path>] [--max-credits <num>] [--webhook <url>] [--status] [--cancel] [--wait] [--poll-interval <s>] [--timeout <s>] [--json]`
+- 交互：`firecrawl interact <URL> --prompt "<操作>" [-s/--scrape-id <id>] [--node|--python|--bash] [--timeout <1-300s>] [--json]`
 
 ## 密钥注入（调用前，PowerShell 示例）
 
@@ -42,7 +42,10 @@ firecrawl search "查询"
 
 ## 输出解析
 - CLI 默认输出结构化结果；适配层提取事实条目，附 URL 作为 citation。
+- `firecrawl search` 需加 `--json` 使其输出标准 JSON（`{"success":true,"data":{"web":[{url,title,description,position}]}}`），由 `orchestrate.parse_track_output` 解析。
+- 其余子命令（scrape/crawl/map/agent/interact）原始 markdown/JSON 交由调用方按需解析（`orchestrate.run_firecrawl_*` 返回 `_aux_result`）。
 
 ## 降级
 - `firecrawl` 命令不存在 / 非零退出 / 无 key → 本轨道标记失败，交父技能进入阶段C（AnySearch 补台）或阶段D（原生兜底）。
 - 不得静默返回空结果。
+
