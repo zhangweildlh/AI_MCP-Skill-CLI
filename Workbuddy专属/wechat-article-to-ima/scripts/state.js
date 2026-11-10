@@ -19,6 +19,8 @@
  *                                             标记失败
  *   mark-filtered --card C --title T --reason R
  *                                             标记被过滤（filterResult=filtered:<reason>，不计入 failed）
+ *   mark-needs-fetch --card C --title T --reason R
+ *                                             标记 1 级抓取失败、移交 Agent 编排（pending_fetch），不计 failed
  *   set-attempts  --card C --n N              设置某卡已尝试次数
  *   reset-attempts --card C                   重置某卡已尝试次数为 0
  *   reset-card    --card C                    清空该卡的全部文章记录，并重置卡级累积态（searchedKeywords=[]、failureClass=''），重跑/续跑前重置用（强制全量重搜、解除旧失败类锁定）
@@ -120,6 +122,7 @@ function usage() {
   mark-ingested --card C --title T --media-id M [--no-verify] [--ima-api P] [--kb-id K] [--folder-id F]
   mark-failed   --card C --title T --reason R
   mark-filtered --card C --title T --reason R
+  mark-needs-fetch --card C --title T --reason R
   set-attempts  --card C --n N
   reset-attempts --card C
   reset-card    --card C                     （清空文章记录 + 重置 searchedKeywords/failureClass）
@@ -385,6 +388,19 @@ function cmdMarkFiltered(opt, data) {
   console.error(`✅ 已标记 filtered：card=${opt.card} title=${opt.title} reason=${opt.reason || '(未提供)'}`);
 }
 
+function cmdMarkNeedsFetch(opt, data) {
+  if (!opt.card || !opt.title) fail('mark-needs-fetch 需要 --card 与 --title。');
+  ensureCard(data, opt.card);
+  const art = upsertArticle(data, opt.card, opt.title);
+  // 1 级抓取失败、移交 Agent 编排（2/3 级）：不计 failed（未真正失败，待 Agent 兜底），
+  // 也不计 ingested；ingestStatus 保持 pending，fetchStatus 标 needs-fetch 供 report 单列。
+  art.fetchStatus = 'needs-fetch';
+  art.ingestStatus = 'pending';
+  if (opt.reason) art.note = opt.reason;
+  saveProgress(opt.progress, data);
+  console.error(`✅ 已标记 needs-fetch（移交 Agent 编排）：card=${opt.card} title=${opt.title} reason=${opt.reason || '(未提供)'}`);
+}
+
 function cmdSetAttempts(opt, data) {
   if (!opt.card) fail('set-attempts 需要 --card。');
   if (opt.n === null) fail('set-attempts 需要 --n <整数>。');
@@ -524,7 +540,8 @@ function classifyReport(data, kbEntries, opts) {
   const filteredItems = [];
   const failedItems = [];
   const ghostItems = [];
-  let shouldIngest = 0, ingestedClaimed = 0, filtered = 0, failed = 0;
+  const needsFetchItems = [];
+  let shouldIngest = 0, ingestedClaimed = 0, filtered = 0, failed = 0, needsFetch = 0;
 
   for (const a of arts) {
     const card = cardOf(a);
@@ -538,6 +555,12 @@ function classifyReport(data, kbEntries, opts) {
     if (isFailed) {
       failed++;
       failedItems.push({ card, title: a.title, reason: reasonOf(a) });
+      continue;
+    }
+    // 移交 Agent 编排（1 级失败，待 2/3 级兜底）：单列，不计入 failed、不计入应入库
+    if (a.fetchStatus === 'needs-fetch') {
+      needsFetch++;
+      needsFetchItems.push({ card, title: a.title, reason: a.note || '(未提供原因)' });
       continue;
     }
     // 通过闸门（未被过滤、未失败）
@@ -560,9 +583,9 @@ function classifyReport(data, kbEntries, opts) {
   const shouldButNotIngested = Math.max(0, shouldIngest - confirmed);
   return {
     cardFilter, kbVerified,
-    shouldIngest, ingestedClaimed, confirmed, filtered, failed,
+    shouldIngest, ingestedClaimed, confirmed, filtered, failed, needsFetch,
     pending, ghost: ghostItems.length,
-    ghostItems, filteredItems, failedItems,
+    ghostItems, filteredItems, failedItems, needsFetchItems,
     shouldButNotIngested,
   };
 }
@@ -588,6 +611,7 @@ function cmdReport(opt, data) {
   L.push(`实入库 : ${rep.confirmed}` + (rep.kbVerified && rep.ingestedClaimed !== rep.confirmed ? `  （进度声称 ${rep.ingestedClaimed}，幽灵 ${rep.ghost}）` : ''));
   L.push(`被过滤 : ${rep.filtered}`);
   L.push(`失败   : ${rep.failed}`);
+  L.push(`移交Agent编排 : ${rep.needsFetch}`);
   L.push('');
   L.push(`【应入库但未入库】 : ${rep.shouldButNotIngested} 篇`);
   L.push(`   - 失败导致      : ${rep.failed} 篇（见失败明细）`);
@@ -601,6 +625,11 @@ function cmdReport(opt, data) {
   L.push(`【失败明细】(${rep.failed} 篇)`);
   rep.failedItems.forEach((x, i) => L.push(`   ${i + 1}. [${x.card}] ${x.title} — 原因：${x.reason}`));
   if (!rep.failedItems.length) L.push('   （无）');
+  if (rep.needsFetch) {
+    L.push('');
+    L.push(`【移交 Agent 编排明细】(${rep.needsFetch} 篇)  ⚠️`);
+    rep.needsFetchItems.forEach((x, i) => L.push(`   ${i + 1}. [${x.card}] ${x.title} — ${x.reason}`));
+  }
   if (rep.ghost) {
     L.push('');
     L.push(`【幽灵记录明细】(${rep.ghost} 篇)  ⚠️`);
@@ -648,6 +677,7 @@ function main() {
     case 'mark-ingested': cmdMarkIngested(opt, data); break;
     case 'mark-failed': cmdMarkFailed(opt, data); break;
     case 'mark-filtered': cmdMarkFiltered(opt, data); break;
+    case 'mark-needs-fetch': cmdMarkNeedsFetch(opt, data); break;
     case 'set-attempts': cmdSetAttempts(opt, data); break;
     case 'reset-attempts': cmdResetAttempts(opt, data); break;
     case 'reset-card': cmdResetCard(opt, data); break;
