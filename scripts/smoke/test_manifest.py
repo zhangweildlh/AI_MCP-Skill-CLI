@@ -126,6 +126,12 @@ TEST_ENTRIES = [
          note="ima 库五维一致性审计的离线逻辑单测（目录内重复条目/front-matter 污染/服务端截断/非笔记媒体类型/"
               "幽灵记录/孤儿条目），样本 tests/fixtures/kb_snapshot_sample.json（合成快照）；"
               "--allow-real 时审计真实 KB 与真实进度文件并断言重复=0、污染=0、幽灵=0"),
+    dict(scope="dir/Workbuddy专属", name="wai-concurrent-lock",
+         path="Workbuddy专属/wechat-article-to-ima/tests/test_concurrent_lock.js",
+         cmd=["node", "Workbuddy专属/wechat-article-to-ima/tests/test_concurrent_lock.js"], shell=False,
+         kind="regression", risk="offline",
+         note="并发安全回归：12 进程并发写 _progress_A/B.json，验证每卡文件锁（fs.openSync 'wx' 自管互斥、陈旧>5min自动回收）"
+              "消除整文件级 lost update、无跨卡污染、原子写（tmp→renameSync）不损坏、reset-card 只清目标卡不影响他卡；10 断言全绿"),
     dict(scope="dir/Workbuddy专属", name="was-search-tests",
          path="Workbuddy专属/wechat-article-search/tests/run_tests.js",
          cmd=["node", "Workbuddy专属/wechat-article-search/tests/run_tests.js"], shell=False,
