@@ -17,10 +17,13 @@
  * 【用法】
  *   node pipeline.js --workspace <工区绝对路径> --card A --search "<检索结果.json>" \
  *                    [--kb-id <知识库id>] [--folder-id <子目录id>] [--limit N] [--dry-run]
+ *   node pipeline.js --workspace <工区> --card A --ingest-pending --kb-id <知识库id> --folder-id <子目录id>
  *
- *   --search   检索脚本产出的结果 JSON（含 articles[]）
- *   --limit    仅处理前 N 条（冒烟测试）
- *   --dry-run  只跑过滤与闸门，不抓取不入库
+ *   --search          检索脚本产出的结果 JSON（含 articles[]）
+ *   --limit           仅处理前 N 条（冒烟测试）
+ *   --dry-run         只跑过滤与闸门，不抓取不入库
+ *   --ingest-pending  消费 Agent 编排回交的 handback：读取 pending_fetch/*.md（去除 NEEDS_FETCH
+ *                     标记的已回交文章 markdown），重跑过滤+完整性闸门后入库（2/3 级降级链消费端）
  */
 
 'use strict';
@@ -37,7 +40,7 @@ let STATE_EXTRA = [];
 
 // ── 参数解析 ──
 function parseArgs(argv) {
-  const o = { workspace: '', card: '', search: '', kbId: '', folderId: '', limit: 0, dryRun: false, ingestQuarantine: false, skillBase: '' };
+  const o = { workspace: '', card: '', search: '', kbId: '', folderId: '', limit: 0, dryRun: false, ingestQuarantine: false, ingestPending: false, skillBase: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--workspace') o.workspace = argv[++i] || '';
@@ -48,6 +51,7 @@ function parseArgs(argv) {
     else if (a === '--limit') o.limit = parseInt(argv[++i], 10) || 0;
     else if (a === '--dry-run') o.dryRun = true;
     else if (a === '--ingest-quarantine') o.ingestQuarantine = true;
+    else if (a === '--ingest-pending') o.ingestPending = true;
     else if (a === '--skill-base') o.skillBase = argv[++i] || '';
   }
   return o;
@@ -181,7 +185,7 @@ function auxCriteria(html, text) {
     structured = (html.match(/<(li|tr|table)\b/gi) || []).length;
     headings = (html.match(/<h[2-6]\b/gi) || []).length;
   } else {
-    // markdown 源（3 级 firecrawl 直出 markdown，无 HTML 标签）：用 markdown 语法近似
+    // markdown 源（2/3 级 Agent 编排抓取直出 markdown，无 HTML 标签）：用 markdown 语法近似
     // （修复前 structured/headings 恒为 0 → 含 2 列表 + 1 标题的优质 markdown 被误关）
     structured = (text.match(/^\s*[-*]\s+/gm) || []).length + (text.match(/^\s*\|.+\|/gm) || []).length;
     headings = (text.match(/^\s{0,3}#{1,6}\s+/gm) || []).length;
@@ -196,7 +200,7 @@ function buildMd(a, art, title) {
   const collected = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const published = a.datetime || a.date_text || '未知';
   const direct = a.__resolvedUrl || a.url;
-  // 3 级 firecrawl 直出 markdown；1 级原生抓取为 HTML，需 htmlToText 转纯文本
+  // 2/3 级 Agent 编排抓取（firecrawl / chrome-devtools）直出 markdown；1 级原生抓取为 HTML，需 htmlToText 转纯文本
   const body = (art && art.markdown != null) ? art.markdown : htmlToText(art.html);
   return `# ${title}\n\n来源：${a.source || '未知'}\n发布时间：${published}\n作者：${art.author}\n原文直链：${direct}\n采集日期：${collected}\n\n${body}\n`;
 }
@@ -242,88 +246,75 @@ function shouldReingest(title, art) {
 const safeFile = (t) => String(t || '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 120);
 
 /**
- * 抓取失败原因构造（纯函数，可离线单测）：原生抓取与 firecrawl 兜底的双路失败原因必须
- * 分别保留，不得合并成一句笼统的「firecrawl 不可用」——否则真实根因（HTTP 4xx / js_content
- * 为空 / 超时）被淹没，既无法诊断也无法驱动 test_fetch_failure_taxonomy 分类器。
+ * 抓取失败原因构造（纯函数，可离线单测）：原生抓取（1 级）与 Agent 编排兜底（2/3 级）的
+ * 双路失败原因必须分别保留，不得合并成一句笼统的兜底不可用——否则真实根因（HTTP 4xx /
+ * js_content 为空 / 超时）被淹没，既无法诊断也无法驱动 test_fetch_failure_taxonomy 分类器。
+ * 注：2/3 级（web-search→firecrawl / chrome-devtools）本属 Agent 编排层，pipeline.js 不自动调用；
+ * 此函数保留为通用原因合并工具，供上层在 Agent 兜底失败时组合原生原因与编排原因。
  * @param {Error|string|null} nativeErr 原生抓取错误（已逐候选尝试后仍非空）
- * @param {string} firecrawlReason fetchViaFirecrawl 返回的失败原因（空串表示未触发）
+ * @param {string} agentReason Agent 编排兜底（2/3 级）的失败原因（空串表示未触发）
  */
-function buildFetchFailureReason(nativeErr, firecrawlReason) {
+function buildFetchFailureReason(nativeErr, agentReason) {
   const nat = nativeErr ? String(nativeErr.message != null ? nativeErr.message : nativeErr) : '';
-  const fc = String(firecrawlReason || '');
-  if (nat && fc) return `原生抓取失败：${nat}｜firecrawl 兜底失败：${fc}`;
+  const ag = String(agentReason || '');
+  if (nat && ag) return `原生抓取失败：${nat}｜Agent 编排兜底失败：${ag}`;
   if (nat) return `原生抓取失败：${nat}`;
-  if (fc) return `firecrawl 兜底失败：${fc}`;
-  return '未知抓取失败（原生与兜底均无可用原因）';
+  if (ag) return `Agent 编排兜底失败：${ag}`;
+  return '未知抓取失败（原生与编排兜底均无可用原因）';
 }
 
-// ── 3 级抓取兜底：复用 web-search/firecrawl 适配层的官方 firecrawl CLI ──
-// 仅当 1 级（原生 fetch）失败后才触发；firecrawl 不可用或失败即优雅降级，禁止连续硬重试。
-// 密钥：优先 FIRECRAWL_API_KEY 环境变量；否则尝试从 <技能基址>/web-search/.env 读取注入
-//       （与 firecrawl 适配层 orchestrate.py 的 _load_firecrawl_key 同语义，不回显明文）。
-function locateFirecrawlEnv() {
-  const up = process.env.USERPROFILE;
-  const cands = [];
-  if (up) cands.push(path.join(up, '.workbuddy', 'skills', 'web-search', '.env'));
-  cands.push(path.join(__dirname_, '..', '..', 'web-search', '.env'));
-  for (const c of cands) {
-    try { if (fs.existsSync(c) && fs.statSync(c).isFile()) return c; } catch (_) { /* next */ }
-  }
-  return null;
-}
-function readFirecrawlKeyFromEnvFile() {
-  const f = locateFirecrawlEnv();
-  if (!f) return null;
-  try {
-    const txt = fs.readFileSync(f, 'utf8');
-    for (const line of txt.split('\n')) {
-      const m = line.match(/^\s*FIRECRAWL_API_KEY\s*=\s*(.+?)\s*$/);
-      if (m) return m[1].replace(/^["']|["']$/g, '');
-    }
-  } catch (_) { /* ignore */ }
-  return null;
-}
-const firecrawlCliOk = (() => {
-  try {
-    const r = spawnSync(process.env.FIRECRAWL_BIN || 'firecrawl', ['--version'], { encoding: 'utf-8', timeout: 15000 });
-    return r.status === 0;
-  } catch (_) { return false; }
-})();
-const firecrawlHasKey = !!process.env.FIRECRAWL_API_KEY || readFirecrawlKeyFromEnvFile() != null;
-const firecrawlAvailable = firecrawlCliOk && firecrawlHasKey;
+// ── 2/3 级抓取为 Agent 编排路径（web-search→firecrawl / chrome-devtools），不在本脚本
+//    代码内自动调用；1 级失败改由 emitNeedsFetch 落盘 pending_fetch/<url>.md 移交 Agent 编排 ──
 
-async function firecrawlScrape(url) {
-  const exe = process.env.FIRECRAWL_BIN || 'firecrawl';
-  const env = { ...process.env };
-  if (!env.FIRECRAWL_API_KEY) {
-    const k = readFirecrawlKeyFromEnvFile();
-    if (k) env.FIRECRAWL_API_KEY = k;
-  }
-  let res;
-  try {
-    res = spawnSync(exe, ['scrape', url], { encoding: 'utf-8', timeout: 60000, maxBuffer: 64 * 1024 * 1024, env });
-  } catch (e) { return { ok: false, reason: 'firecrawl 调用异常：' + e.message }; }
-  if (res.error) return { ok: false, reason: 'firecrawl 调用异常：' + res.error.message };
-  if (res.status !== 0) return { ok: false, reason: 'firecrawl 非零退出(' + res.status + ')：' + (res.stderr || '').trim().slice(0, 120) };
-  const out = (res.stdout || '').trim();
-  if (!out) return { ok: false, reason: 'firecrawl 空输出' };
-  // 输出形态随 CLI 版本变化：优先 JSON（data.markdown / markdown / data.content / content），否则整段当 markdown
-  let md = out;
-  try {
-    const j = JSON.parse(out);
-    md = j?.data?.markdown ?? j?.markdown ?? j?.data?.content ?? j?.content ?? out;
-  } catch (_) { /* 非 JSON，按原始 markdown 处理 */ }
-  if (!String(md).trim()) return { ok: false, reason: 'firecrawl 解析后无正文' };
-  return { ok: true, markdown: String(md) };
+// pending_fetch 移交（降级链 2/3 级为 Agent 编排层，不在本脚本代码内自动调用）：
+//   1 级（原生 fetch）失败时，把待抓取需求落盘 pending_fetch/<key>.md 移交 Agent 编排；
+//   Agent 经 2 级（web-search→firecrawl）或 3 级（chrome-devtools）取到正文后，把文章
+//   markdown 覆写到同一 <key>.md（去除 NEEDS_FETCH 标记）作为 handback；pipeline.js 再由
+//   --ingest-pending 模式消费该 handback，重跑过滤 + 完整性闸门后入库（见 SKILL.md「硬门禁·G3」）。
+const PENDING_DIR = 'pending_fetch';
+const NEEDS_FETCH_MARKER = '<!-- NEEDS_FETCH -->';
+function pendingKeyOf(url) {
+  const base = safeFile(url);
+  // 加短哈希后缀防 URL 碰撞（同 safeFile 截断致不同 URL 同文件名）
+  let h = 0;
+  for (let i = 0; i < url.length; i++) h = (h * 31 + url.charCodeAt(i)) >>> 0;
+  return base + '_' + h.toString(16).slice(0, 8);
 }
-
-async function fetchViaFirecrawl(candidates) {
-  if (!firecrawlAvailable) return { ok: false, reason: 'firecrawl 不可用（CLI 缺失或无 FIRECRAWL_API_KEY）' };
-  for (const u of candidates) {
-    const r = await firecrawlScrape(u);
-    if (r.ok) return { ok: true, markdown: r.markdown, url: u };
+function emitNeedsFetch(a, candidates, reason, ws) {
+  const dir = path.join(ws, PENDING_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  const key = pendingKeyOf(a.url);
+  const lines = [
+    NEEDS_FETCH_MARKER,
+    `<!-- url: ${a.url} -->`,
+    `<!-- candidates: ${candidates.join(' || ')} -->`,
+    `<!-- reason: ${reason} -->`,
+    `<!-- tried: 0(midlink),1(native) -->`,
+    `<!-- created: ${new Date().toISOString()} -->`,
+    '',
+    '等待 Agent 编排（2 级 web-search→firecrawl / 3 级 chrome-devtools）抓取正文后，',
+    `将本文件覆写为文章 markdown（保留文件名 ${key}.md），pipeline.js 经 --ingest-pending 消费。`,
+  ];
+  fs.writeFileSync(path.join(dir, key + '.md'), lines.join('\n'), 'utf8');
+}
+function isPendingStub(content) {
+  return new RegExp('^' + NEEDS_FETCH_MARKER).test(content || '');
+}
+// 完整性闸门（纯函数，可离线单测）：从正文文本判定是否达入库门槛。
+// 抽离自主流程④⑤，供 --ingest-pending 消费 handback 时复用（G3 强制复验同一判据）。
+function evaluateGate(text, html) {
+  const chars = text.replace(/\s/g, '').length;
+  const periods = (text.match(/。/g) || []).length;
+  const aux = auxCriteria(html || '', text);
+  let pass = true, reason = '';
+  if (chars < MIN_CHARS) {
+    pass = false; reason = `chars=${chars} < ${MIN_CHARS}`;
+  } else if (periods < MIN_PERIODS && !aux.met) {
+    pass = false; reason = `chars=${chars}≥${MIN_CHARS} 但 periods=${periods}<${MIN_PERIODS} 且辅助判据均不满足(段落${aux.paragraphs}/结构${aux.structured}/标题${aux.headings})`;
+  } else if (periods < MIN_PERIODS) {
+    reason = `periods_low(periods=${periods}，辅助判据满足：段落${aux.paragraphs}/结构${aux.structured}/标题${aux.headings})`;
   }
-  return { ok: false, reason: 'firecrawl 对所有候选均失败' };
+  return { chars, periods, pass, reason };
 }
 
 async function main() {
@@ -461,8 +452,97 @@ async function main() {
     }
   }
 
+  // 消费 Agent 编排 handback（定向续跑④）：读取 pending_fetch/ 下已回交的 handback
+  // （去除 NEEDS_FETCH 标记的文章 markdown），重跑本技能过滤 + 完整性闸门（G3 强制复验）后入库。
+  async function consumePending() {
+    if (!opt.kbId || !opt.folderId) {
+      console.error('[错误] --ingest-pending 需要 --kb-id 与 --folder-id 才能关联到目标子目录入库。');
+      process.exit(1);
+    }
+    console.log('=== 消费 Agent 编排 handback（--ingest-pending：重跑过滤+闸门，G3 强制复验）===');
+    const dir = path.join(WS, PENDING_DIR);
+    if (!fs.existsSync(dir)) { console.log('[pending] 无 pending_fetch/，跳过。'); return; }
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
+    if (!files.length) { console.log('[pending] 无 .md 待消费。'); return; }
+    const stat = { attempted: 0, ingested: 0, skipped: 0, filtered: 0, failed: 0, stillPending: 0 };
+    for (const f of files) {
+      const fp = path.join(dir, f);
+      const raw = fs.readFileSync(fp, 'utf8');
+      // 仍含 NEEDS_FETCH 标记 → Agent 尚未取回，跳过（不误判为 handback）
+      if (isPendingStub(raw)) {
+        stat.skipped++; stat.stillPending++;
+        console.log(`[跳过] 仍为 stub，Agent 尚未抓取：${f.slice(0, 40)}`);
+        continue;
+      }
+      const m = raw.match(/^#\s*(.+?)\s*$/m);
+      const title = (m ? m[1] : f.replace(/\.md$/, '')).trim();
+      const text = raw;
+      stat.attempted++;
+      // ④ 正文层过滤（仅强特征）
+      const bf = matchFilter(text, 'body');
+      if (bf) {
+        stat.filtered++;
+        state('mark-filtered', ['--card', opt.card, '--title', title, '--reason', bf], true);
+        fs.unlinkSync(fp);
+        console.log(`[已过滤] ${title.slice(0, 40)}（${bf}）`);
+        continue;
+      }
+      // ⑤ 完整性闸门（与主线同一 evaluateGate 判据）
+      const gate = evaluateGate(text, '');
+      if (!gate.pass) {
+        stat.failed++;
+        state('mark-failed', ['--card', opt.card, '--title', title, '--reason', '完整性闸门未通过(handback):' + gate.reason], true);
+        fs.unlinkSync(fp);
+        console.log(`[闸门未过] ${title.slice(0, 40)}`);
+        continue;
+      }
+      // ⑥ 入库（笔记模式）：handback 即最终 markdown 正文（Agent 已生成 # 标题 + 正文形态）
+      try {
+        const imp = await imaCall('openapi/note/v1/import_doc', { content_format: 1, content: raw });
+        const noteId = imp.data?.note_id || imp.data?.noteId;
+        if (!noteId) throw new Error('import_doc 未返回 note_id：' + JSON.stringify(imp).slice(0, 200));
+        const add = await imaCall('openapi/wiki/v1/add_knowledge', {
+          media_type: 11,
+          note_info: { content_id: String(noteId) },
+          title: title + '.md',
+          knowledge_base_id: opt.kbId,
+          folder_id: opt.folderId,
+        });
+        const mediaId = add.data?.media_id || add.data?.knowledge_id || add.data?.id;
+        const vl = await imaCall('openapi/wiki/v1/get_knowledge_list', { knowledge_base_id: opt.kbId, folder_id: opt.folderId, cursor: '', limit: 50 });
+        const hit = (vl.data?.knowledge_list || []).find((x) => String(x.media_id) === String(mediaId));
+        if (!hit) throw new Error('复验未命中：media_id 不在目标子目录');
+        if (Number(hit.media_type) !== 11) throw new Error('复验 media_type=' + hit.media_type + ' 非笔记(11)');
+        stat.ingested++;
+        state('mark-ingested', markIngestedArgs(mediaId, title), true);
+        fs.unlinkSync(fp);
+        console.log(`[补入] ✅ ${title.slice(0, 40)}`);
+      } catch (e) {
+        stat.failed++;
+        state('mark-failed', ['--card', opt.card, '--title', title, '--reason', 'handback 入库失败:' + e.message], true);
+        // 入库失败（多为瞬态）：保留 handback 文件供下次 --ingest-pending 重试，不删
+        console.log(`[仍失败] ${e.message} | ${title.slice(0, 30)}`);
+      }
+    }
+    console.log('\n=== pending_fetch 消费统计 ===');
+    console.log(`尝试 : ${stat.attempted}`);
+    console.log(`补入成功 : ${stat.ingested}`);
+    console.log(`被过滤 : ${stat.filtered}`);
+    console.log(`失败 : ${stat.failed}`);
+    console.log(`待 Agent 抓取(stub) : ${stat.stillPending}`);
+    if (opt.kbId && opt.folderId) {
+      const rr = spawnSync('node', [STATE_JS, '--progress', progressPath, ...STATE_EXTRA, 'report', '--kb-id', opt.kbId, '--folder-id', opt.folderId], { encoding: 'utf-8', timeout: 120000 });
+      if (rr.status === 0) console.log('\n' + (rr.stdout || '').trim());
+    }
+  }
+
   if (opt.ingestQuarantine) {
     await ingestQuarantine();
+    return;
+  }
+
+  if (opt.ingestPending) {
+    await consumePending();
     return;
   }
 
@@ -574,23 +654,19 @@ async function main() {
       catch (e) { fetchErr = e; }
     }
     if (!art) {
-      // 1 级全失败 → 3 级：复用 firecrawl CLI 抓取（兜底，不达标即降级为失败，禁止连续硬重试）
-      const fc = await fetchViaFirecrawl(candidates);
-      if (fc.ok) { art = { markdown: fc.markdown, author: '未知' }; a.__resolvedUrl = fc.url; }
-      else { fetchErr = new Error(buildFetchFailureReason(fetchErr, fc.reason || '')); }
-    }
-    if (!art) {
-      const rs = '抓取失败：' + (fetchErr ? fetchErr.message : '未知');
-      stat.failed++; detail.failed.push({ title, reason: rs });
-      state('mark-failed', ['--card', opt.card, '--title', title, '--reason', rs], true);
-      console.log(`${tag} 抓取失败 ${fetchErr ? fetchErr.message : ''} | ${title.slice(0, 30)}`);
-      await sleep(1200);
+      // 1 级（原生 fetch）全失败：本脚本代码内**不自动调用** 2 级（web-search→firecrawl）/
+      // 3 级（chrome-devtools）——二者属 Agent 编排层（见 SKILL.md「下级路由」「硬门禁」）。
+      // 此处仅落盘 pending_fetch/<url>.md 移交 Agent 编排，并标记 needs-fetch，不直接判失败，
+      // 避免无谓失败计数与限流预算消耗；Agent 回交 handback 后由 --ingest-pending 消费。
+      const reason = fetchErr ? fetchErr.message : '未知原生抓取失败';
+      emitNeedsFetch(a, candidates, reason, WS);
+      state('mark-needs-fetch', ['--card', opt.card, '--title', title, '--reason', reason], true);
+      console.log(`${tag} 1 级原生抓取失败，已移交 Agent 编排（pending_fetch）${title.slice(0, 30)}`);
+      await sleep(800);
       continue;
     }
 
     const text = (art.markdown != null) ? art.markdown : htmlToText(art.html);
-    const chars = text.replace(/\s/g, '').length;
-    const periods = (text.match(/。/g) || []).length;
 
     // ④ 正文层过滤（仅强特征）
     const bf = matchFilter(text, 'body');
@@ -602,17 +678,10 @@ async function main() {
       continue;
     }
 
-    // ⑤ 完整性闸门
-    const aux = auxCriteria(art.html || '', text);
-    let gatePass = true, gateReason = '';
-    if (chars < MIN_CHARS) {
-      gatePass = false; gateReason = `chars=${chars} < ${MIN_CHARS}`;
-    } else if (periods < MIN_PERIODS && !aux.met) {
-      gatePass = false; gateReason = `chars=${chars}≥${MIN_CHARS} 但 periods=${periods}<${MIN_PERIODS} 且辅助判据均不满足(段落${aux.paragraphs}/结构${aux.structured}/标题${aux.headings})`;
-    } else if (periods < MIN_PERIODS) {
-      gateReason = `periods_low(periods=${periods}，辅助判据满足：段落${aux.paragraphs}/结构${aux.structured}/标题${aux.headings})`;
-    }
-    if (!gatePass) {
+    // ⑤ 完整性闸门（复用 evaluateGate，与 --ingest-pending 消费 handback 同一判据，G3 强制复验）
+    const gate = evaluateGate(text, art.html || '');
+    const gateReason = gate.reason;
+    if (!gate.pass) {
       stat.failed++; detail.failed.push({ title, reason: '完整性闸门未通过：' + gateReason });
       fs.mkdirSync(quarantine, { recursive: true });
       fs.writeFileSync(path.join(quarantine, safeFile(opt.card) + '__' + safeFile(title) + '.md'), buildMd(a, art, title), 'utf8');
@@ -696,4 +765,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('FATAL', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, firecrawlScrape, shouldReingest, buildFetchFailureReason, buildFetchHeaders, WECHAT_REFERER, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };
+module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, shouldReingest, buildFetchFailureReason, buildFetchHeaders, WECHAT_REFERER, emitNeedsFetch, isPendingStub, pendingKeyOf, evaluateGate, PENDING_DIR, NEEDS_FETCH_MARKER, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };

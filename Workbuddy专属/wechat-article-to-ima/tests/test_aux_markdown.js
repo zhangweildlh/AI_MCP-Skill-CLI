@@ -3,7 +3,7 @@
  * wechat-article-to-ima · 完整性闸门辅助判据（markdown 源）离线单测
  *
  * 缘起（2026-11-10 代码审查）：pipeline.js 的 auxCriteria 仅识别 HTML 标签
- * （<li>/<tr>/<table>/<h2-6>）来算 structured/headings。当 3 级 firecrawl 兜底生效时，
+ * （<li>/<tr>/<table>/<h2-6>）来算 structured/headings。当 Agent 编排 2/3 级 handback（markdown 源）时，
  * 文章源是 markdown（无 HTML 标签）→ structured/headings 恒为 0 → 含 2 列表 + 1 标题的
  * 优质 markdown 也会被判 met=false 被闸门误杀（而 1 级原生 HTML 源不受影响，故本轮未爆发）。
  *
@@ -24,7 +24,7 @@ function check(name, cond, detail) {
   else { fail++; failures.push(name + (detail ? ' :: ' + detail : '')); console.log('  ✗ ' + name + (detail ? ' :: ' + detail : '')); }
 }
 
-console.log('=== ③ auxCriteria：markdown 源（firecrawl）须按 markdown 语法判辅助判据 ===');
+console.log('=== ③ auxCriteria：markdown 源（Agent 编排 2/3 级 handback）须按 markdown 语法判辅助判据 ===');
 // 修复前：html 为空时 structured/headings 恒 0 → 以下优质 markdown 被误判 met=false
 check('markdown 含 ≥2 列表项 → structured≥2 满足', (() => {
   const a = P.auxCriteria('', '# 标题\n\n- 项目一\n- 项目二\n\n正文段落一\n\n正文段落二');

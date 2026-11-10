@@ -66,12 +66,12 @@ allowed-tools: Bash Read Write Edit WebFetch
 ### 逐项检查（每项均须同时满足：目录存在且内含 SKILL.md）
 
 > **硬依赖（缺失即阻断本轮，见「缺失处置」）**：第 1、2 项。
-> **可选依赖（仅用于抓取降级链 3 级兜底，缺失不阻断，运行时降级）**：第 3、4 项——本技能不调用 `web-search` 主检索，仅在 1 级原生抓取失败、且 `firecrawl` 官方 CLI 与 `FIRECRAWL_API_KEY` 均可用时，复用其 `firecrawl scrape` 作为兜底；二者任一缺失则 3 级不可用，转由 2 级（浏览器自动化，Agent 手动兜底）或标记抓取失败。
+> **可选依赖（仅用于 2 级 Agent 编排抓取兜底，缺失不阻断，运行时降级）**：第 3、4 项——`web-search`（含 `firecrawl` 适配层）与 `chrome-devtools` 是 **Agent 编排层**的下游技能，**本技能代码不自动调用**；1 级原生抓取失败时，`pipeline.js` 落盘 `pending_fetch/<url>.md` 移交 Agent 编排，由 Agent 经读其 `SKILL.md` 后执行 2 级（`web-search`→`firecrawl` 正文抓取）或 3 级（`chrome-devtools`）；下游技能缺失则相关篇目停留在 `pending_fetch` 待人工/下一轮 Agent 编排。
 
 1. `wechat-article-search`：基址下 `wechat-article-search/` 目录存在且含 `SKILL.md`，并确认其 `scripts/` 子目录下存在 `search_wechat.js` 与 `get_sogou_cookie.js`（优先 `-c` 接口取 Cookie 与检索均依赖这两个脚本，缺失则检索 / 取 Cookie 将失败）。
 2. `ima-skills`：基址下 `ima-skills/` 目录存在且含 `SKILL.md`（正确标识为复数形式 ima-skills，不含单数形式的 ima-skill）。
-3. `web-search`（可选）：基址下 `web-search/` 目录存在且含 `SKILL.md`。仅作为 3 级抓取的父层（firecrawl 适配层所在目录）存在性参考。
-4. `web-search` 的火爬适配层（可选）：基址下 `web-search/firecrawl/` 目录存在且含 `SKILL.md`。3 级抓取实际复用其封装的官方 `firecrawl` CLI（`firecrawl scrape <URL>`），需本机已全局安装 `firecrawl` 且 `FIRECRAWL_API_KEY` 就绪（或 `web-search/.env` 已配置）。
+3. `web-search`（可选）：基址下 `web-search/` 目录存在且含 `SKILL.md`。仅作为 2 级 Agent 编排正文抓取的下游技能（其 `firecrawl` 适配层提供 `firecrawl scrape`）；**本技能代码不自动调用**，由 Agent 经读其 `SKILL.md` 后执行（见「下级路由」）。
+4. `web-search` 的火爬适配层（可选）：基址下 `web-search/firecrawl/` 目录存在且含 `SKILL.md`。Agent 经 2 级取正文时复用其封装的官方 `firecrawl` CLI（`firecrawl scrape <URL>`），需本机已全局安装 `firecrawl` 且 `FIRECRAWL_API_KEY` 就绪（或 `web-search/.env` 已配置）。属 Agent 编排能力，非代码自动路径。
 5. 探测浏览器自动化能力是否可用，仅作记录，不作为阻断项。
 6. **ima 知识库连接器（ima-mcp）连通性探测（告警项，非阻断）**：确认 ima-mcp 已连接且已授权；若未连接/未授权，须显式告警并提示用户确认 ima-mcp 已连接后再继续「入库流程」，避免「前置依赖检查通过却运行中入库失败」。同时须将 `search_script_dir` 解析为 `<技能基址>/wechat-article-search/scripts` 并用于步骤 4 命令拼接。
 7. **ima 凭据可用性探测（告警项，非阻断）**：确认 ima 开放接口凭据（client_id / api_key）已配置且有效，按以下**优先级**解析，任一层存在即视为具备：
@@ -82,16 +82,11 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 前置：chrome-devtools 调试浏览器就绪（与 wechat-article-search 呼应）
 
-本技能经 wechat-article-search 提取 `weixin.sogou.com` Cookie 以绕过会话维反爬；该 Cookie **依赖 chrome-devtools 已就绪的真实调试浏览器**（含站点登录态 / Cookie）。执行检索前必须满足：
+> 本技能的 Cookie 提取依赖 chrome-devtools 已就绪的调试浏览器（含站点登录态 / Cookie）。其**拉起、端口探活、免 Cookie 降级等完整指令与流程由 `chrome-devtools` 技能 `SKILL.md` 规定**，本技能不重复其细节（避免冗余复述第三方技能内部步骤，见「下级路由」）。本技能仅约定与 `chrome-devtools` 的**契约**：
 
-1. 确认 chrome-devtools 已激活：其 `start.cjs` 已自动探测真实调试浏览器端口（按 UA 过滤跳过 9222 上的 WorkBuddy 自身 Electron），并写入 `local-config.json` 的 `debugPort`。
-2. 读取该端口，经环境变量 `SOGOU_CDP_PORT` 传给 `get_sogou_cookie.js`（本技能不再依赖 9223 硬编码默认）；未就绪时先按 chrome-devtools 流程拉起（复用真实浏览器登录态 / `User Data` 拷贝方案），再继续。
-3. **调试端口必须实测连通，不得只读配置文件（2026-11-05 实测修正）**：`local-config.json` 的 `debugPort` 只是**上次写入的配置值**，与实际监听状态可能不一致——实测出现过「配置为 9223 但该端口 ECONNREFUSED、浏览器进程根本没跑」的情形，且**运行中途端口还会消失**（浏览器进程仍在、调试端口不再监听），此时 chrome-devtools MCP 报 `Could not connect to Chrome`。因此：
-   - 取到端口后必须实测：`node scripts/resolve_midlink.js --check`（等价于 `GET http://127.0.0.1:<port>/json/version` 探活）；
-   - 探活失败 → 先按 chrome-devtools 流程拉起（`node <chrome-devtools 技能目录>/localization/start.cjs`，**须在技能目录内执行**），再探活；本技能的 `scripts/check-deps.js` 支持 `--fix-browser` 自动执行「拉起 → 复探」一步到位（以连通性为准，不读配置值即判定成功）；
-   - 仍失败 → 记为告警 `browser_unavailable`，检索可继续（走免 Cookie 降级），但**降级链二级（浏览器解析）不可用**，抓取阶段须相应降级并在四栏清单中标注。
-4. Cookie 提取后置 `-c` 传给 `search_wechat.js`；**禁止用 `&&` 串联提取与检索**（避免前段失败静默短路掩盖真实搜索行为），须两段式（先取 `CK` 并判 `rc==0 && -n CK`，否则转免 Cookie 降级，详见「检索执行规则」）。
-5. ANTI_SPIDER 即停试与会话级终止策略见「检索执行规则 → 退出码 / `ANTI_SPIDER` 判据表」硬约束（F4）。
+- 连通性以实测为准：经 `scripts/resolve_midlink.js --check`（复用 Chrome DevTools HTTP 端点探活）确认端口连通；不得只读 `local-config.json` 的 `debugPort` 配置值即判定就绪（配置值与实际监听可能不一致，2026-11-05 实测修正）。`scripts/check-deps.js --fix-browser` 可一键「拉起 → 复探」。
+- 未就绪时记为告警 `browser_unavailable`，检索走免 Cookie 降级，并在四栏清单标注「降级链三级（浏览器解析）不可用」；具体拉起步骤见 `chrome-devtools` 技能 `SKILL.md`。
+- Cookie 提取后置 `-c` 传给 `search_wechat.js`；两段式取法与 ANTI_SPIDER 即停试策略见「检索执行规则」。
 
 ### 缺失处置
 
@@ -231,24 +226,43 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 > 失败原因分类可用 `node scripts/state.js classify-failure --reason "..."` 离线判定 `transient` / `permanent`，供调度方统一决策。
 
+## 第三方技能编排（Agent 路由与硬门禁）
+
+本技能对 `web-search`、`chrome-devtools`、`wechat-article-search`、`ima-skills` 等独立技能**模拟视为子技能 / 下游路由**，但**绝不冗余复述其 `SKILL.md` 内部指令与流程步骤**——只声明「触发条件 → 读其 `SKILL.md` → 按其工序执行」。具体步骤以各技能自身 `SKILL.md` 为唯一事实源（遵循技能 self-contained / 不跨技能引用的纪律）。
+
+### 下级路由（何时调哪个独立技能）
+
+| 路由 | 触发时机 | 下游技能 | 本技能只声明 | 禁止 |
+| --- | --- | --- | --- | --- |
+| 中转链接解析 | 结果 `url_resolved=false` | （本技能 `resolve_midlink.js`，代码内） | — | — |
+| 关键词检索 | 每轮执行 | `wechat-article-search` | 「读其 `SKILL.md` → 按 `search_wechat.js` / `get_sogou_cookie.js` 工序执行」 | 复述其 Cookie 提取 / bash 细节 |
+| 1 级正文抓取 | 每篇候选直链 | （本技能 `pipeline.js`，代码内） | — | — |
+| 2 级正文抓取 | 1 级失败（移交 `pending_fetch`） | `web-search`（`firecrawl` 适配层） | 「读 `web-search` 主 `SKILL.md` → 按 `firecrawl scrape <URL>` 工序取正文」 | 把关键词检索交给 web-search；复述 firecrawl 内部步骤 |
+| 3 级正文抓取 | 1 级失败且 2 级不可得（移交 `pending_fetch`） | `chrome-devtools` | 「读 `chrome-devtools` 主 `SKILL.md` → 按 MCP / 调试浏览器工序打开直链提取」 | 复述其拉起 / 端口细节 |
+| 入库 | 抓取成功 / handback 通过 | `ima-skills`（开放接口） | 「读 `ima-skills` 主 `SKILL.md` → 按 import_doc / add_knowledge 工序」 | 复述其接口细节 |
+
+> 关键词检索 **永不** 委托给 `web-search`：`web-search` 仅用于 2 级**正文抓取**（firecrawl 取文章正文）；微信发现性检索由 `wechat-article-search` 独占。
+
+### 硬门禁（Agent 编排强制约束）
+
+**G1 · 强制读源**：调用任何下游独立技能前，Agent **必须**先 `Read` 该技能主 `SKILL.md`（或经 MCP 加载其能力说明），确认当前工序与参数后**再**执行；禁止凭记忆或本技能的简述直接拼命令。
+
+**G2 · 强制顺级、禁止跳级硬判失败**：降级严格 0 → 1 → 2 → 3 递进。1 级失败**只**落盘 `pending_fetch` 移交，不得跳过 2 级直接判永久失败；2 级不可得才进 3 级。Agent 不得因单篇 1 级偶发失败而整体切道或提前终止批次。
+
+**G3 · 强制复验（Agent-present 假设）**：Agent 回交的 `pending_fetch/<url>.md` handback，`pipeline.js` 经 `--ingest-pending` **重跑本技能的过滤 + 完整性闸门**后才入库；Agent 不得绕过闸门直接标成功。`pipeline.js` 的 0/1 级为代码自动、无头可跑；**2/3 级依赖 Agent 在场**——无 Agent 时仅 0/1 级生效，2/3 级不执行（handback 合同不成立），相关篇目停留在 `pending_fetch` 待人工 / 下一轮 Agent 编排。
+
+**handback 合同（落盘契约）**：
+- **移交（pipeline.js 写）**：1 级失败 → `pending_fetch/<url>.md` 含 `<!-- NEEDS_FETCH -->` 标记 + 原 URL + 失败原因 + 已试层级。
+- **回交（Agent 写）**：经 2/3 级取到正文后，把文章 markdown 覆写同一 `<url>.md`（**去除 `<!-- NEEDS_FETCH -->` 标记**）；文件名须与移交时一致（pipeline.js 据文件名消费）。
+- **消费（pipeline.js 读）**：`--ingest-pending` 读取 `pending_fetch/*.md`；仍含 `<!-- NEEDS_FETCH -->` 视为 stub（Agent 未取回）→ 跳过；否则视为 handback → 过滤 + 闸门 → 入库或标记失败。
+
 ## 规则与知识库
 
 ### 检索执行规则
 
-- **优先 `-c` 接口（Cookie 绕过会话维反爬）**：调用检索前，先尝试从 wechat-article-search 的脚本目录取得 `weixin.sogou.com` 的 Cookie：`CK=$(node [search_script_dir]/get_sogou_cookie.js 2>/dev/null)`；取得后以 `-c` 传入：`node [search_script_dir]/search_wechat.js "[关键词]" -n [max_results] -r -c "$CK" -o "[workspace]/[关键词].json"`。Cookie 仅缓解**会话维**反爬（antispider 验证码拦截），是本技能与 wechat-article-search 契约的优先路径。
-  - **文件名安全化**：`[关键词]` 用于输出文件名前，须将其中的文件系统非法字符（`\ / : * ? " < > |`）替换为下划线，避免 `[workspace]/[关键词].json` 路径畸形。
-  - **凭据安全**：Cookie 为会话级凭据，禁止写入进度文件或日志；以命令行参数传入时避免在标准输出/日志中回显 `$CK` 明文。
-  - **Cookie 齐全性校验（2026-11-02 实测沉淀）**：提取后先核对关键键齐全（至少含 `SNUID` 与 `SUID`）再传 `-c`；仅访问搜索结果页直提通常只得到访客标识 `SUV`，属残缺 Cookie，直接检索大概率仍被反爬拦截。补救：先在浏览器访问 `weixin.sogou.com` 首页完成一次正常浏览（种全套会话 Cookie），再重新提取。`get_sogou_cookie.js` 检出残缺时以退出码 3 告警（**Cookie 串不再输出**，避免调用方误用残缺串），检索脚本对残缺 `-c` 也会在标准错误给出告警。
-  - **提取与检索必须两段式（F5 禁止 `&&` 短路）**：先把 `CK` 存入变量并判定 `rc==0` 且 `CK` 非空，再决定带 `-c` 检索或转免 Cookie 降级；**严禁 `CK=$(...) && search_wechat.js` 串联**——前段失败（退出 2/3）会静默短路，使搜索脚本根本未执行，整体退出码被误显为「搜索 ANTI_SPIDER」。范式：
-    ```bash
-    CK=$(node [search_script_dir]/get_sogou_cookie.js 2>/dev/null); rc=$?
-    if [ $rc -eq 0 ] && [ -n "$CK" ]; then
-      node [search_script_dir]/search_wechat.js "[关键词]" -n [max_results] -r -c "$CK" -o "[workspace]/[关键词].json"
-    else
-      echo "[告警] Cookie 提取失败(rc=$rc)，转免 Cookie 降级检索"; node [search_script_dir]/search_wechat.js "[关键词]" -n [max_results] -r -o "[workspace]/[关键词].json"
-    fi
-    ```
-- **回退（免 Cookie）**：若 `get_sogou_cookie.js` 失败（chrome-devtools 不可用 / 浏览器未开调试端口 / 未取得有效 Cookie），则免 Cookie 调用 `node [search_script_dir]/search_wechat.js "[关键词]" -n [max_results] -r -o "[workspace]/[关键词].json"`（不带 `-c`）；此时命中 antispider 的概率上升，属预期降级，不视为本技能故障，按下方「退出码 / `ANTI_SPIDER` 判据表」进入限流退避。
+> 检索与 Cookie 提取的**完整命令、两段式（`&&` 短路禁止）约束、Cookie 完备性校验、免 Cookie 回退**等步骤由 `wechat-article-search` 技能 `SKILL.md` 规定，本技能不重复其指令与流程（避免冗余复述第三方技能内部步骤，见「下级路由」）。本技能仅规定与 `wechat-article-search` 的**契约**：
+
+- **优先 `-c` 接口（Cookie 绕过会话维反爬）**：检索脚本目录 `[search_script_dir]` 来自 `wechat-article-search/scripts`；Cookie 经其 `get_sogou_cookie.js` 取得后按需以 `-c` 传入 `search_wechat.js`。Cookie 仅缓解**会话维**反爬（antispider 验证码拦截），是本技能与 wechat-article-search 契约的优先路径；`chrome-devtools` 未就绪 / 未取得 Cookie 时转免 Cookie 降级检索。Cookie 为会话级凭据，禁止写入进度文件或日志、禁止回显明文。
 - 运行检索或抓取脚本时，禁止使用会提前关闭管道的写法（例如把输出管道给只取前若干行的命令）。管道被关闭会中断进程，导致落盘失败、整批结果丢失。应当先重定向到日志文件，再读取日志。
 - **退出码 / `ANTI_SPIDER` 判据表**（wechat-article-search 契约，必须据此分流，禁止一律当限流）：
 
@@ -300,20 +314,19 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 抓取降级链
 
-> **实装范围（代码级，单一事实源 = `scripts/pipeline.js`）**：0 级（中转链接解析）、1 级（原生网页抓取）、3 级（firecrawl 抓取兜底）已由 `pipeline.js` 实装并自动串联；**2 级（浏览器自动化）为 Agent 手动兜底路径（非代码自动路径）**——当 1 级与 3 级均失败、且确需该篇时，由 Agent 经 chrome-devtools 调试浏览器打开直链提取正文，不在 `pipeline.js` 内自动执行。
+> **实装范围（代码级，单一事实源 = `scripts/pipeline.js`）**：0 级（中转链接解析）+ 1 级（原生网页抓取）由 `pipeline.js` 自动串联实装；**2 级（web-search→firecrawl）与 3 级（chrome-devtools）为 Agent 编排路径（非代码自动路径）** —— `pipeline.js` 在 1 级失败时不自动调用任何第三方技能，而是落盘 `pending_fetch/<url>.md` 移交 Agent 编排（见「下级路由」「硬门禁」）。
 
-0. **零级（前置必做）：中转链接解析**。搜狗结果中 `url_resolved=false` 的条目，其 `url` 为 `weixin.sogou.com/link?url=…` 中转链接，且其中的 `&` 被写作 HTML 实体 `&amp;`——**不解码则 URL 畸形**，直连会被重定向到 `weixin.sogou.com/antispider/`（反爬页），正文永远取不到。必须先经浏览器自动化导航该中转链接、待其 JS 跳转完成后取 `location.href`（`mp.weixin.qq.com/s?…` 形态）作为真实直链。
+0. **零级（代码实装）：中转链接解析**。搜狗结果中 `url_resolved=false` 的条目，其 `url` 为 `weixin.sogou.com/link?url=…` 中转链接，且其中的 `&` 被写作 HTML 实体 `&amp;`——**不解码则 URL 畸形**，直连会被重定向到 `weixin.sogou.com/antispider/`（反爬页），正文永远取不到。
    - **执行入口**：`scripts/resolve_midlink.js`（零依赖，走 Chrome DevTools HTTP 端点 `/json/new` + `/json/list` + `/json/close`，**不需要 WebSocket、不依赖 chrome-devtools MCP**）。
    - **用法**：单条 `node scripts/resolve_midlink.js "<中转链接>"` → stdout 输出真实直链；批量 `node scripts/resolve_midlink.js --file "<检索结果.json>" [--out "<映射.json>"]`；探活 `node scripts/resolve_midlink.js --check`。
    - **端口**：环境变量 `SOGOU_CDP_PORT`（与 `get_sogou_cookie.js` 同一契约），缺省 9223。
    - 解析失败时以**已解码**的原中转链接直接尝试抓取，最终以「完整性闸门」判定。
    - 检索命令已带 `-r` 且结果 `url_resolved=true` 时已是真实直链，无需本级解析。
-
-1. 一级：使用原生网页抓取能力直接读取真实文章直链，获取标题、来源公众号、作者、发布时间与正文。检索结果中已包含 `title`、`url`、`summary`、`datetime`、`date_text`、`date_description`、`source` 字段，可直接作为元数据头的输入来源。由 `pipeline.js` 的 `fetchArticle()` 实装。
-2. 二级（Agent 手动兜底，非代码自动路径）：仅当 1 级与 3 级均失败、且确需该篇时，由 Agent 经 chrome-devtools 调试浏览器打开该直链提取正文。代码层不自动执行本路径——`pipeline.js` 在 1 级与 3 级都失败后标记该篇抓取失败（移入 `failed_quarantine/` 供人工补做），不自动切到浏览器自动化。
-3. 三级（代码实装，复用 web-search/firecrawl）：前两级（0/1）失败或返回空时，由 `pipeline.js` 的 `fetchViaFirecrawl()` 复用 `web-search/firecrawl` 适配层封装的官方 `firecrawl` CLI（`firecrawl scrape <URL>`）抓取，密钥优先取 `FIRECRAWL_API_KEY` 环境变量、回退读 `web-search/.env`（与 firecrawl 适配层 `_load_firecrawl_key` 同语义，不回显明文）。**前置可用性由 `check-deps.js` 探测**：`firecrawl` CLI 未安装或 `FIRECRAWL_API_KEY` 缺失则本 tier 标记不可用并直接降级，避免无谓调用；该接口返回限流/错误时立即放弃本 tier，禁止连续硬重试。成功时其输出（markdown）直接作为正文（经「元数据头」包装入库）。
-4. 单篇抓取策略：`pipeline.js` 对本篇候选直链先走 0 级解析（如有）+ 1 级原生抓取；1 级失败即尝试 3 级（firecrawl）；3 级不可用或失败则该篇标记抓取失败。不自动整体切换浏览器自动化（2 级），避免单篇偶发就换道或触发反爬。
-5. **零级失败不得直接判失败**：须先走一级直连（原中转链接，已解码），再走三级兜底。
+1. **一级（代码实装）：原生网页抓取**。`pipeline.js` 的 `fetchArticle()` 直接读取真实文章直链，获取标题、来源、作者、发布时间与正文（`js_content` 为空或过短判失败）。检索结果中已含 `title`、`url`、`summary`、`datetime`、`date_text`、`source` 字段，可直接作为元数据头输入。
+2. **二级（Agent 编排，非代码自动）：web-search → firecrawl 正文抓取**。**仅用于文章正文抓取，不把关键词检索交给 web-search**（关键词检索仍由 wechat-article-search 负责）。`pipeline.js` 1 级失败 → 落盘 `pending_fetch/<url>.md` → Agent 读取 `web-search` 技能主 `SKILL.md` 后按其 `firecrawl` 适配层工序执行 `firecrawl scrape <URL>` 取正文。**本技能代码不自动调用 firecrawl**（避免跨技能代码耦合与冗余密钥读取）。
+3. **三级（Agent 编排，非代码自动）：chrome-devtools**。`pipeline.js` 1 级失败、且 2 级仍不可得时，Agent 读取 `chrome-devtools` 技能主 `SKILL.md`，经其 MCP / 调试浏览器真实打开直链提取正文，覆写 `pending_fetch/<url>.md`。
+4. **单篇抓取策略（代码内）**：对每篇候选直链先走 0 级解析（如有）+ 1 级原生抓取；1 级失败即落盘 `pending_fetch` 移交 Agent 编排，**不自动切换浏览器自动化、不自动调用 firecrawl**。不达标即降级移交，禁止代码内连续硬重试。
+5. **Agent 编排回交（handback）**：Agent 经 2/3 级抓到正文后，把文章 markdown 覆写回 `pending_fetch/<url>.md`（去除 `<!-- NEEDS_FETCH -->` 标记）；`pipeline.js` 由 `--ingest-pending` 模式消费该 handback，重跑过滤 + 完整性闸门（G3 强制复验）后入库。**无 Agent 在场时（无头模式）仅 0/1 级生效，2/3 级不执行**——见「硬门禁·G3 / Agent-present 假设」。
 
 ### 完整性闸门
 
@@ -489,6 +502,10 @@ allowed-tools: Bash Read Write Edit WebFetch
 | `tests/test_pipeline_contract.js` | 回归（离线） | 响应解析层、过滤分层语义、闸门辅助判据、元数据头内联形态、文件名安全化、CLI 契约 |
 | `tests/test_fetch_failure_taxonomy.js` | 回归（离线）+ 真实态 | 抓取失败五类归因分类器（样本 `tests/fixtures/fetch_response_samples.json`）+ `url_resolved` 交叉表 |
 | `tests/test_kb_consistency.js` | 回归（离线）+ 真实态 | ima 库五维一致性审计（重复条目 / front-matter 污染 / 截断 / 非笔记媒体类型 / 幽灵记录 / 孤儿条目；样本 `tests/fixtures/kb_snapshot_sample.json`） |
+| `tests/test_concurrent_lock.js` | 回归（离线） | 并发安全：多进程并发写进度文件，验证每卡文件锁（fs.openSync 'wx' 自管互斥、陈旧锁自动回收）、原子写不损坏、reset-card 只清目标卡 |
+| `tests/test_fetch_diagnosis.js` | 回归（离线） | 抓取失败原因保真（`buildFetchFailureReason` 原生 + Agent 编排兜底（2/3 级）双原因分离不吞 HTTP 状态码）+ 微信直连 Referer 头注入 |
+| `tests/test_aux_markdown.js` | 回归（离线） | `auxCriteria` 对 markdown 源（Agent 编排 2/3 级 handback）按 markdown 语法判辅助判据（列表 / 标题 / 表格），不再恒为 0 误关优质 md |
+| `tests/test_pending_handback.js` | 回归（离线） | Phase 7 handback 合同：`pendingKeyOf` 确定性 + 防碰撞、`emitNeedsFetch` 落盘 stub（NEEDS_FETCH 标记 + url/候选/原因）、`isPendingStub` 对 stub/handback 判别 |
 
 ## 输出格式约束
 
