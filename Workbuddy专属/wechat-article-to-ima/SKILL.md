@@ -102,10 +102,10 @@ allowed-tools: Bash Read Write Edit WebFetch
 ## 工作流
 
 1. 执行「前置依赖检查」（`node scripts/check-deps.js`）：第 1、2 项（硬依赖）齐全方可继续，否则终止本轮；第 3、4 项（可选）缺失仅告警并降级运行。
-2. 读取 `[workspace]` 根目录下的进度文件 `_progress.json`。文件不存在时按「进度文件模板」创建；文件损坏或字段缺失时，按模板重建并将各任务卡的上次运行日期置空、轮转序号置 0。
+2. 读取 `[workspace]` 根目录下的每卡进度文件 `_progress_<card>.json`（A/B/C 各一份）。文件不存在时按「进度文件模板」创建；文件损坏或字段缺失时，按模板重建并将该任务卡的上次运行日期置空、轮转序号置 0。
    2.1 读取项目级记忆文件：检查 `[workspace]/.workbuddy/memory/` 目录，读取其中最新的记忆文件（按文件名时间排序取最新者；若目录不存在或为空，则跳过本次校验，不视为异常）。对读取到的记忆文件执行以下校验：
    - 检查上次运行的任务卡与本次是否一致，若一致则核对上次运行的入库数量与本次是否可衔接（避免同一轮重复入库）；
-   - 检查上次运行遗留的临时文件清单，若工区根目录中存在除 `_progress.json` 和 `.workbuddy/` 以外的文件，则判定为上次清扫未完成，记录告警并在本轮收尾清扫时一并彻底清除；
+   - 检查上次运行遗留的临时文件清单，若工区根目录中存在除 `_progress_*.json` 和 `.workbuddy/` 以外的文件，则判定为上次清扫未完成，记录告警并在本轮收尾清扫时一并彻底清除；
    - 若记忆文件中记录了上次未完成的任务卡或限流状态，与进度文件中的对应字段交叉核对，不一致时以进度文件为准并记录差异。
 3. 按「任务卡轮转规则」确定本轮执行的任务卡、目标子目录与关键词簇。
 4. 对 `[keywords]` 中的每个关键词串行执行检索（优先 `-c` 接口，见「检索执行规则」，**提取与检索须两段式、禁止 `&&` 串联**），捕获检索脚本的退出码与标准错误，按「退出码 / `ANTI_SPIDER` 判据表」分流：退出码 2 立即中止本轮并报告；退出码 1 + 含 `ANTI_SPIDER` 立即终止该关键词本轮（仅记 1 次尝试，不累加 attempts）并据会话级熔断规则判断是否整体终止；退出码 1 无 `ANTI_SPIDER`（网络故障）按限流退避并累加 attempts；退出码 0 且 `total:0` 标记「服务端零收录」并继续下一关键词（不累加 attempts）。每次检索后等待 `[cool_down_seconds]` 秒。对 `url_resolved=true` 的结果直接保留；对 `url_resolved=false` 的结果（搜狗中转链接）**不立即丢弃**，纳入「抓取降级链」由一级 / 二级尝试打开中转链接解析真实内容，最终以「完整性闸门」判定是否入库——取到完整正文则入库，取不到则标记失败并继续，禁止静默丢弃。
@@ -127,7 +127,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 8. 将通过闸门的文件按「入库流程」逐篇存入 `[knowledge_base_id]` 下 `[folder_id]` 指定的子目录，每篇处理完立即写回进度文件。
 9. 执行「复验」，输出**增强四栏清单**（2026-11-05 强化）：必须以 `state.js report` 产出，**不得手工拼凑**。强烈建议带 `--kb-id` / `--folder-id` 走 KB 复核模式：
    ```bash
-   node scripts/state.js --progress "[workspace]/_progress.json" report \
+   node scripts/state.js --progress "[workspace]/_progress_[card].json" report \
      --kb-id "[knowledge_base_id]" --folder-id "[folder_id]" [--ima-api "<ima_api.cjs 路径>"]
    ```
    该清单须包含：① 四栏计数（应入库 / 实入库 / 被过滤 / 失败）；② **被过滤栏**逐条列出标题与命中原因（词族 + 标题层/正文层）；③ **失败栏**逐条列出标题与失败原因（抓取失败 / 闸门未过 / 入库失败）；④ **实入库栏**须为 **KB 复核确认数**（经 `get_knowledge_list` 复核 `media_type===11` 真实存在）、并标注**目标子目录 `folder_id`**；⑤ **应入库但未入库**差额及其根因拆解（失败数 / 幽灵记录数 / 待入库卡死数）；⑥ 若存在**幽灵记录**（进度声称 `ingested` 但 KB 子目录查无此文）须**显式标注**并附 note 明细。未带 KB 参数时 report 降级为离线模式，实入库为进度声称值、幽灵检测不可用——此时须显式告警并提示补 `--kb-id/--folder-id` 复验。
@@ -144,14 +144,14 @@ allowed-tools: Bash Read Write Edit WebFetch
 11. 执行「收尾清扫」：
     - 遍历 `[workspace]` 根目录下的所有条目；
     - 保留以下两项：
-      a. `_progress.json` 文件；
+      a. `_progress_*.json` 文件（每卡一份）；
       b. `.workbuddy/` 目录及其内部全部内容（隐藏工作区元数据目录）；
     - 删除所有其他文件和目录，但**严禁删除尚未成功入库的本地 `.md` 文章副本**：此类文件须移动到 `[workspace]/failed_quarantine/` 子目录保留（供人工补做或下一轮续跑）；可安全删除的仅限检索结果中间文件（如 `[关键词].json`）、临时日志与其它过程文件；
     - 删除操作必须为彻底删除（不进入回收站），但出于安全考虑，先移动到临时 quarantine 目录再删除，确认无误后清空 quarantine；
-    - 清扫完成后输出保留文件清单（含 `_progress.json`、`.workbuddy/` 目录，以及 `failed_quarantine/`（若存在））。
+    - 清扫完成后输出保留文件清单（含 `_progress_*.json`、`.workbuddy/` 目录，以及 `failed_quarantine/`（若存在））。
 12. 按「任务卡轮转规则」更新该卡的上次运行日期、下次到期日与轮转序号。**该步骤的写入必须经 `scripts/state.js update-card` 执行**（F9 唯一入口），示例：
     ```bash
-    node scripts/state.js --progress "[workspace]/_progress.json" update-card --card A \
+    node scripts/state.js --progress "[workspace]/_progress_A.json" update-card --card A \
       --last-run 2026-11-05 --next-due 2026-11-15 --rotate-index 0 \
       --status completed --note "本轮要点" --pending-keywords "EPC,总包"
     ```
@@ -171,7 +171,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ## 断点续跑与续跑守护
 
-本技能的运行由调度方（WorkBuddy / 任一 Agent）编排，关键词检索在技能**外部**（`wechat-article-search` 的 `search_wechat.js`）逐词完成，每词结果再由 `pipeline.js --search` 入库。因此「断点续跑」的全部**可机读信号都必须落在 `_progress.json`**，由 `state.js` 承载，调度方据其决策，而非依赖运行日志（改动 B 根治「续跑漏卡」根因）。
+本技能的运行由调度方（WorkBuddy / 任一 Agent）编排，关键词检索在技能**外部**（`wechat-article-search` 的 `search_wechat.js`）逐词完成，每词结果再由 `pipeline.js --search` 入库。因此「断点续跑」的全部**可机读信号都必须落在 `_progress_<card>.json`（每卡一份）**，由 `state.js` 承载，调度方据其决策，而非依赖运行日志（改动 B 根治「续跑漏卡」根因）。
 
 ### 触发场景（deep-discuss 收敛的边界）
 - 场景一：完成某卡**部分关键词**搜索（尚有另一部分关键词未搜），但未下载命中文章、也未入库；
@@ -186,7 +186,7 @@ allowed-tools: Bash Read Write Edit WebFetch
   - 永久不可恢复（凭据失效 / 鉴权错误）：`--status interrupted --failure-class permanent`（**不写 `nextRetryAt`**），交人工；守护见到 `failureClass=permanent` 必须**停止续跑并提示用户**，不得反复重试。
 
 ### 续跑步骤（守护 / 下一轮照此执行）
-1. 读 `_progress.json`，判定该卡 `status`：
+1. 读 `_progress_<card>.json`，判定该卡 `status`：
    - `failureClass=permanent`（`interrupted`）→ **停止续跑，提示人工处理凭据**；
    - `partial` / `pending` / `antispider_partial` / `limited` → 进入续跑。
 2. `state.js diff-keywords --card <卡> --keywords "<该卡全量关键词（取自任务卡配置表）>"` 取**尚未搜索**的差集，只搜剩余词（已搜词跳过，避免重触发限流）；
@@ -206,21 +206,25 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ```
 0. node scripts/check-deps.js --json
-1. 进度文件就绪（不存在创建 / 损坏重建）。
+1. 进度文件就绪：若 [WS]/_progress_A.json 不存在创建 / 损坏重建。
 2. 取 A 卡全量关键词（主词簇 + 变体词簇逐一全搜 = 全量；不传 --rotate-index）。
 3-5. 对每个关键词循环：
    3. 两段式检索 → [WS]/[关键词].json（间隔 cool_down）
    4. node scripts/pipeline.js --workspace "[WS]" --card A --search "[WS]/[关键词].json" --kb-id "[KB]" --folder-id "folder_7511772189689986"
-   5. node scripts/state.js --progress "[WS]/_progress.json" update-card --card A --searched-keywords "[该关键词]"
+   5. node scripts/state.js --progress "[WS]/_progress_A.json" update-card --card A --searched-keywords "[该关键词]"
 4b. node scripts/pipeline.js --workspace "[WS]" --card A --ingest-quarantine --kb-id "[KB]" --folder-id "folder_7511772189689986"
-6. node scripts/state.js --progress "[WS]/_progress.json" report --kb-id "[KB]" --folder-id "folder_7511772189689986"
-7. 收尾清扫（删除中间 .json；核对无游离 .md）。
-8. node scripts/state.js --progress "[WS]/_progress.json" update-card --card A --last-run [今天] --next-due [今天+cycle_days] --rotate-index 0 --status completed
+6. node scripts/state.js --progress "[WS]/_progress_A.json" report --kb-id "[KB]" --folder-id "folder_7511772189689986"
+7. 收尾清扫（删除中间 .json、_process_summary_A.json；核对无游离 .md）。
+8. node scripts/state.js --progress "[WS]/_progress_A.json" update-card --card A --last-run [今天] --next-due [今天+cycle_days] --rotate-index 0 --status completed
 ```
+
+> 进度文件按卡文件名隔离（`[WS]/_progress_A.json` / `_progress_B.json` / `_progress_C.json`），三卡互不污染；每卡文件自带互斥锁 + 原子写，并发写同卡不会整文件级丢失更新（lost update）。
 
 ### 引导词 续跑守护 —— 对 A/B/C 断点续跑
 
-前置：`[WS]`=工作区，`[KB]`=知识库 ID。**逐卡（A → B → C）执行**；目标让三卡全部完整执行。
+前置：`[WS]`=工作区，`[KB]`=知识库 ID。**逐卡（A → B → C）串行核查与续跑（不并行）**；目标让三卡全部完整执行。
+
+> 零 Agent 表述：本引导词仅描述执行逻辑（对哪些卡、什么顺序、是否并行），**不指派执行主体**；执行体由调度方经引导词传入并自行错开并发。同一 `[WS]` 下三卡进度文件经文件名隔离互不干扰，故无论何种执行拓扑都不会跨卡污染。
 
 ```
 1. 判定该卡是否需要续跑（满足任一即进入续跑）：
@@ -229,12 +233,12 @@ allowed-tools: Bash Read Write Edit WebFetch
    - 或 diff-keywords --card [卡] --keywords "[该卡全量关键词]" 返回非空（仍有未搜词）；
    - 或 [WS]/failed_quarantine/[卡]__*.md 存在残留（历史入库失败待补入）。
    （判定不依赖单一 status：搜索已完成但入库失败残留的场景，仅靠 status 会漏判，须结合差集与隔离区残差。）
-2. node scripts/state.js --progress "[WS]/_progress.json" diff-keywords --card [卡] --keywords "[该卡全量关键词（主词簇+变体词簇）]"
+2. node scripts/state.js --progress "[WS]/_progress_[卡].json" diff-keywords --card [卡] --keywords "[该卡全量关键词（主词簇+变体词簇）]"
 3. node scripts/pipeline.js --workspace "[WS]" --card [卡] --search "[WS]/[剩余词].json" --kb-id "[KB]" --folder-id "[该卡 folder]"
-   每搜完一词：node scripts/state.js --progress "[WS]/_progress.json" update-card --card [卡] --searched-keywords "[该关键词]"
+   每搜完一词：node scripts/state.js --progress "[WS]/_progress_[卡].json" update-card --card [卡] --searched-keywords "[该关键词]"
 4. node scripts/pipeline.js --workspace "[WS]" --card [卡] --ingest-quarantine --kb-id "[KB]" --folder-id "[该卡 folder]"
 5. node scripts/state.js classify-failure --reason "..."（transient / permanent 决策）。
-6. node scripts/state.js --progress "[WS]/_progress.json" update-card --card [卡] --status completed（仍剩余则维持 partial）。
+6. node scripts/state.js --progress "[WS]/_progress_[卡].json" update-card --card [卡] --status completed（仍剩余则维持 partial）。
 ```
 
 ## 规则与知识库
@@ -416,7 +420,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 进度文件模板
 
-进度文件位于 `[workspace]/_progress.json`，由「任务卡配置表」动态生成全部卡片（A/B/C 三卡，下表以 A 卡为例展示字段结构，B/C 卡结构相同仅 `name`/`folder_id` 不同），结构如下：
+每卡进度文件位于 `[workspace]/_progress_<card>.json`（A/B/C 各一份，下文以 A 卡为例展示单卡文件字段结构；B/C 卡结构相同仅 `name`/`folder_id` 不同），结构如下：
 
 ```json
 {
@@ -442,12 +446,13 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 进度文件写操作纪律（F9 硬约束）
 
-`_progress.json` 的**任何**写操作（追加 / 修改 `articles` 条目、标记 `ingested` / `failed` / `filtered`、设置 / 重置 `attempts`、更新卡级字段、轮转状态）**必须且只能通过 `scripts/state.js` 执行**，禁止直接手工编辑 JSON。其强约束如下（违反即拒绝写入并报错）：
+`_progress_<card>.json` 的**任何**写操作（追加 / 修改 `articles` 条目、标记 `ingested` / `failed` / `filtered`、设置 / 重置 `attempts`、更新卡级字段、轮转状态）**必须且只能通过 `scripts/state.js` 执行**，禁止直接手工编辑 JSON。其强约束如下（违反即拒绝写入并报错）：
 
 - `mark-ingested` **默认联机复核**（调 `openapi/wiki/v1/get_knowledge_list` 确认目标条目 `media_type===11` 真实存在于知识库），复核不通过即拒绝写入；仅在显式 `--no-verify` 时跳过（2026-11-05 实测修正：历史进度中曾出现「声称已入库但 KB 全库查无此文」的幽灵记录，成因即 `mark-ingested` 默认不复核）；
 - `gate_failed`（闸门未通过）或被标记 `failed` / `filtered` 的条目**严禁**标记为 `ingested`；
 - `pending` 与已尝试次数须一致（`attempts` 仅由 `set-attempts` / `reset-attempts` 改写）；
 - 每轮结算的四栏清单须由 `state.js report` 产出，不得手工拼凑。
+- 解析出的工作区 / 进度目录**严禁落在技能自身目录树内**（R8 防护：`state.js` 与 `pipeline.js` 均内置校验，命中即拒绝写入，防运行产物污染技能仓库；`[WS]` 须指向技能目录之外的独立工作区）。
 
 `state.js` 用法（须在 `wechat-article-to-ima/scripts/` 下以 Node 运行，传入 `--progress <路径>`）：
 
@@ -479,7 +484,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 | 脚本 | 职责 | 关键约束 |
 | --- | --- | --- |
-| `scripts/state.js` | `_progress.json` 唯一读写入口（F9） | 导出 `dedupKey()` / `TITLE_CAP` / `locateImaApi()` / `classifyReport()` / `classifyFailure()`，供流水线复用；`report` 子命令产出增强四栏清单（KB 复核 + 幽灵记录标注 + 逐条原因）；`diff-keywords` 输出未搜词差集、`classify-failure` 判定 transient/permanent；**不得**由其他脚本另写一份去重键或路径解析 |
+| `scripts/state.js` | `_progress_<card>.json` 唯一读写入口（F9） | 导出 `dedupKey()` / `TITLE_CAP` / `locateImaApi()` / `classifyReport()` / `classifyFailure()`，供流水线复用；`report` 子命令产出增强四栏清单（KB 复核 + 幽灵记录标注 + 逐条原因）；`diff-keywords` 输出未搜词差集、`classify-failure` 判定 transient/permanent；**不得**由其他脚本另写一份去重键或路径解析 |
 | `scripts/check-deps.js` | 前置依赖**代码级**核查器（硬依赖阻断、软依赖告警） | 复用 `resolve_midlink.js` 的 `checkBrowser` 与 `state.js` 的 `locateImaApi`；解析并输出 `search_script_dir` / `ima_api` 路径 / `cdp_port`；硬依赖缺失退出码 1，软依赖缺失仅告警 |
 | `scripts/resolve_midlink.js` | 中转链接 → 真实直链（降级链零级） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；`--check` 为端口探活 |
 | `scripts/pipeline.js` | 抓取 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限）；`--ingest-quarantine` 模式消费 `failed_quarantine/` 未入库 `.md` 直接补入库而不重搜（改动 B·③） |
@@ -508,7 +513,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ## 收尾清扫
 
-1. 工区保留：进度文件 `_progress.json`、工作区元数据目录 `.workbuddy/`；此外**必须保留尚未成功入库的本地 `.md` 文章副本**（移至 `failed_quarantine/` 子目录，禁止随过程文件一并删除，避免内容不可逆丢失）。（与「入库流程」步骤 4 一致：仅「成功入库」的 `.md` 删除，未成功者在此保留。）
+1. 工区保留：每卡进度文件 `_progress_*.json`、工作区元数据目录 `.workbuddy/`；此外**必须保留尚未成功入库的本地 `.md` 文章副本**（移至 `failed_quarantine/` 子目录，禁止随过程文件一并删除，避免内容不可逆丢失）。（与「入库流程」步骤 4 一致：仅「成功入库」的 `.md` 删除，未成功者在此保留。）
 2. 可清除：检索结果中间文件（如 `[关键词].json`）、临时日志与其余过程文件；清除须先移至临时 quarantine 再彻底删除。
 3. Markdown 文件成功入库后不在工区保留副本（由「入库流程」步骤 4 删除）。
 4. 清扫完成后输出保留文件清单。

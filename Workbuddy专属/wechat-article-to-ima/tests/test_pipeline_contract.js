@@ -111,7 +111,7 @@ const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'wai-pipe-test-'));
 try {
   const searchFile = path.join(TMP, 's.json');
   fs.writeFileSync(searchFile, JSON.stringify({ query: 'q', total: 1, articles: [{ title: '某标题', url: 'https://mp.weixin.qq.com/s?x=1', source: 's', datetime: 'd' }] }), 'utf8');
-  const progFile = path.join(TMP, '_progress.json');
+  const progFile = path.join(TMP, '_progress_A.json');
   fs.writeFileSync(progFile, JSON.stringify({ schema: '1.1', updatedAt: '', cards: { A: { name: 'A', folder_id: 'f', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0 } }, articles: [] }), 'utf8');
   r = pipe(['--workspace', TMP, '--card', 'A', '--search', searchFile, '--dry-run']);
   check('--dry-run 正常退出', r.code === 0, r.err);
@@ -162,17 +162,21 @@ try {
   // 旧式无前缀残留（模拟修复前遗留文件）
   fs.writeFileSync(path.join(qDir, '旧文.md'), '# 旧文\n\n来源：Y\n\n正文...', 'utf8');
 
-  const progB = path.join(WS2, '_progress.json');
-  fs.writeFileSync(progB, JSON.stringify({
+  // 文件名隔离：每卡独立进度文件（_progress_<card>.json）。卡 A 含待补入记录，卡 B 为空（无任何条目）。
+  const progA = path.join(WS2, '_progress_A.json');
+  fs.writeFileSync(progA, JSON.stringify({
     schema: '1.1', updatedAt: '',
-    cards: {
-      A: { name: 'A', folder_id: 'fa', status: 'pending', attempts: 0, searchedKeywords: [], failureClass: '' },
-      B: { name: 'B', folder_id: 'fb', status: 'pending', attempts: 0, searchedKeywords: [], failureClass: '' }
-    },
+    cards: { A: { name: 'A', folder_id: 'fa', status: 'pending', attempts: 0, searchedKeywords: [], failureClass: '' } },
     articles: [
-      // 卡 A 有该标题记录（failed），卡 B 无 → 卡 B 跑时应全部跳过
+      // 卡 A 有该标题记录（failed）→ 卡 A 跑时应成功补入
       { card: 'A', title: '跨卡文章', fetchStatus: 'ok', filterResult: 'kept', gateResult: 'pass', ingestStatus: 'failed', note: '' }
     ]
+  }), 'utf8');
+  const progB = path.join(WS2, '_progress_B.json');
+  fs.writeFileSync(progB, JSON.stringify({
+    schema: '1.1', updatedAt: '',
+    cards: { B: { name: 'B', folder_id: 'fb', status: 'pending', attempts: 0, searchedKeywords: [], failureClass: '' } },
+    articles: []  // 卡 B 无任何条目 → 卡 B 跑时应全部跳过（跨卡残留 + 孤立文件）
   }), 'utf8');
 
   // 卡 B 跑隔离补入：本应跳过全部（跨卡残留带前缀 + 旧式无前缀无记录）
@@ -182,8 +186,11 @@ try {
   check('★ 跨卡残留文件 A__跨卡文章.md 未被删除（闸1 跨卡前缀防护生效）', fs.existsSync(path.join(qDir, 'A__跨卡文章.md')), '');
   check('★ 旧式无前缀残留 旧文.md 未被删除（闸2 无记录防护生效）', fs.existsSync(path.join(qDir, '旧文.md')), '');
   const pB = JSON.parse(fs.readFileSync(progB, 'utf8'));
-  check('★ 卡 B 进度未被污染（articles 仍仅卡 A 1 条，卡 B 无新增 ingested）',
-    pB.articles.length === 1 && pB.articles[0].card === 'A', JSON.stringify(pB.articles));
+  check('★ 卡 B 进度未被污染（_progress_B.json 无任何 articles）',
+    pB.articles.length === 0, JSON.stringify(pB.articles));
+  const pApre = JSON.parse(fs.readFileSync(progA, 'utf8'));
+  check('★ 卡 A 进度文件未被卡 B 跑污染（仍仅含卡 A 记录）',
+    pApre.articles.length === 1 && pApre.articles[0].card === 'A', JSON.stringify(pApre.articles));
   check('★ 卡 B 跑隔离补入日志含跳过提示', /\[跳过\]/.test(rB.stdout || ''), (rB.stdout || '').slice(-300));
 
   // 卡 A 跑隔离补入：本应成功补入并移除本卡文件（证明同卡正向路径不被误伤）
@@ -191,7 +198,7 @@ try {
     { encoding: 'utf-8', env: Object.assign({}, process.env, { IMA_API_CJS: stubApi }) });
   check('★ 卡 A 跑隔离补入：退出码 0', rA.status === 0, (rA.stderr || '').slice(0, 200));
   check('★ 卡 A 的隔离文件已补入并移除', !fs.existsSync(path.join(qDir, 'A__跨卡文章.md')), '');
-  const pA = JSON.parse(fs.readFileSync(progB, 'utf8'));
+  const pA = JSON.parse(fs.readFileSync(progA, 'utf8'));
   const aArticle = pA.articles.find((a) => a.card === 'A' && a.title === '跨卡文章');
   check('★ 卡 A 进度已标 ingested', !!aArticle && aArticle.ingestStatus === 'ingested', JSON.stringify(aArticle));
   check('★ 旧式无前缀孤立文件 旧文.md 仍不被误食（两卡跑完仍残留）', fs.existsSync(path.join(qDir, '旧文.md')), '');
@@ -229,7 +236,7 @@ try {
   // 卡 X 的历史入库失败残留（带卡前缀），标题与进度条目一致
   fs.writeFileSync(path.join(qDir3, 'X__我的文章.md'), '# 我的文章\n\n来源：Z\n\n正文...', 'utf8');
 
-  const progX = path.join(WS3, '_progress.json');
+  const progX = path.join(WS3, '_progress_X.json');
   // status=completed 模拟「搜索已完成」但入库失败残留仍待补入；证明残差检测不依赖 status（守护须结合隔离区残差判定）
   fs.writeFileSync(progX, JSON.stringify({
     schema: '1.1', updatedAt: '',
