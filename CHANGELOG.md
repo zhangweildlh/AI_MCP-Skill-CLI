@@ -1,5 +1,12 @@
 ---
 
+## [2026-11-10]
+
+### Added
+- **dir/Workbuddy专属：wechat-article-to-ima 落地四套引导词（引导词.md）+ SKILL.md 调用示例，修 reset-card 措辞，补 G4 回归（PR #201，`83ccdba`）**：新增 `引导词.md`——沉淀修正后四套引导词（引导词 A/B/C 各自针对卡片 A/B/C 全量采集，平行关系、进度按卡隔离互不污染；续跑守护针对 A/B/C 断点续跑，以 `diff-keywords` 取差集 + `--ingest-quarantine` 消费本卡隔离区，检测信号 = `status` ∪ `diff-keywords` 差集 ∪ 隔离区残差，修正仅看 `status` 的漏判）。`SKILL.md` 新增「调用示例」章节（引导词 A + 续跑守护全文）；修正 `reset-card` 措辞（重跑前重置；续跑请用 `diff-keywords`、勿调 `reset-card`）。`tests/test_pipeline_contract.js` 新增 ⑩ 隔离区残差消费不依赖 `status`（G4 回归，搜索完成但入库失败残留仍须被续跑守护消费）。验证：`test_state.js` 76/0、`test_pipeline_contract.js` 57/0（新增 4 项）；pre-commit 门禁（Tier0 密钥/忽略、Tier1 结构冒烟、scope 校验 dir/Workbuddy专属）全过；部署态经 `scripts/deploy.js` 从 main blob 逐字节重建 16/16 一致（含新 `引导词.md`），保留 `ima_credentials.json`。
+
+---
+
 ## [2026-11-09]
 
 ### Fixed
