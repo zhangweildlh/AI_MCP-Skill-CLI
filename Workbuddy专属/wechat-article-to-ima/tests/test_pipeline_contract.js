@@ -10,6 +10,7 @@
  *   ⑤ 元数据头 buildMd（内联形态、禁 YAML front-matter、原文直链取解析后直链）
  *   ⑥ 文件名安全化 safeFile
  *   ⑦ CLI 契约（缺参即报错退出、--dry-run 不写盘、--ingest-pending 合法模式）
+ *   ⑪ 引导词.md 契约覆盖（4 套自含 / 命令参数白名单 / E-23·E-24 端到端实跑）
  *
  * 纪律：零第三方依赖；不反向依赖仓库级入口；临时文件自清理（§9.5）；无绝对路径/网络/随机。
  * 运行：node tests/test_pipeline_contract.js
@@ -294,6 +295,117 @@ try {
 } finally {
   try { fs.rmSync(WS3, { recursive: true, force: true }); } catch (_) { /* ignore */ }
   try { fs.rmSync(stubDirG4, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+}
+
+console.log('\n=== ⑪ 引导词.md 契约覆盖（E-23/E-24 防漂移；此前两层测试零读取此文件）===');
+// 背景：四套引导词是「调度方直接复制执行的命令清单」，但仓库级 scripts/smoke/ 与本技能 tests/
+// 此前都未读过 引导词.md，导致「文档写着能跑、实跑 exit=1」的 E-23（--ingest-pending 被守卫拒绝）
+// 与 E-24（classify-failure 被 --progress 必填拦住）长期无人察觉。本章节把引导词当契约来测。
+const GUIDE_MD = path.join(SKILL_DIR, '引导词.md');
+const GUIDE = fs.readFileSync(GUIDE_MD, 'utf8');
+check('★ 引导词.md 存在且非空（此前零测试读取）', GUIDE.length > 1000, String(GUIDE.length));
+check('★ 引导词.md 纯 LF', !GUIDE.includes('\r'));
+
+const parts = GUIDE.split(/^## 引导词 /m).slice(1);
+check('★ 恰含 4 套引导词（A / B / C / 续跑守护）', parts.length === 4, String(parts.length));
+if (parts.length === 4) {
+  check('★ 4 套标题顺序正确',
+    /^A /.test(parts[0]) && /^B /.test(parts[1]) && /^C /.test(parts[2]) && /^续跑守护/.test(parts[3]),
+    parts.map((p) => p.split('\n')[0]).join(' | '));
+}
+['A', 'B', 'C'].forEach((card, i) => {
+  const seg = parts[i] || '';
+  check(`★ 引导词 ${card} 自含 --card ${card} 与 _progress_${card}.json`,
+    seg.includes(`--card ${card}`) && seg.includes(`_progress_${card}.json`));
+  check(`★ 引导词 ${card} 用 folder_name 且无硬编码 folder_id`,
+    /folder_name=/.test(seg) && !/folder_[0-9]{6,}/.test(seg));
+  check(`★ 引导词 ${card} 含 --ingest-pending / --ingest-quarantine 两条回收命令`,
+    seg.includes('--ingest-pending') && seg.includes('--ingest-quarantine'));
+  check(`★ 引导词 ${card} 收尾 completed / partial 二选一`,
+    seg.includes('--status completed') && seg.includes('--status partial'));
+  check(`★ 引导词 ${card} 闭环判据含第五栏 + 两类残留 + 两词簇`,
+    seg.includes('移交Agent编排') && seg.includes('闭环判定') &&
+    seg.includes('pending_fetch/') && seg.includes('failed_quarantine/') && seg.includes('两词簇'));
+});
+const GUARD = parts[3] || '';
+check('★ 续跑守护禁用 reset-card 且用 diff-keywords 取差集',
+  GUARD.includes('不调用 `reset-card`') && !GUARD.includes('reset-card --card') && GUARD.includes('diff-keywords'));
+check('★ 声明唯一事实源分工（不复述 SKILL.md 流程）',
+  GUIDE.includes('唯一事实源分工') && GUIDE.includes('以 `SKILL.md` 为唯一事实源'));
+check('★ 路径三占位符齐备且全局禁止硬编码 folder_id',
+  ['[WS]', '[SKILL]', '[FID]'].every((x) => GUIDE.includes(x)) &&
+  GUIDE.includes('禁止硬编码 `folder_id`') && !/folder_[0-9]{6,}/.test(GUIDE));
+
+// 命令参数契约：从脚本 parseArgs 源码抽白名单，逐条比对引导词里的命令行（确定性静态判据）
+const CMD_RE = /`(node "\[SKILL\]\/scripts\/[^`]+)`/g;
+const CMDS = [...GUIDE.matchAll(CMD_RE)].map((m) => m[1]);
+check('★ 抽取到 >= 20 条可执行 node 命令', CMDS.length >= 20, String(CMDS.length));
+function allowedFlags(rel) {
+  const src = fs.readFileSync(path.join(SKILL_DIR, 'scripts', rel), 'utf8');
+  const set = new Set(); const re = /a\s*===\s*'--([a-z-]+)'/g; let m;
+  while ((m = re.exec(src))) set.add('--' + m[1]);
+  return set;
+}
+const FLAGS = { pipeline: allowedFlags('pipeline.js'), state: allowedFlags('state.js'), deps: allowedFlags('check-deps.js') };
+check('★ 白名单判据自身有效（三脚本参数均已解析）',
+  FLAGS.pipeline.size >= 8 && FLAGS.state.size >= 15 && FLAGS.deps.size >= 3,
+  `pipeline=${FLAGS.pipeline.size} state=${FLAGS.state.size} deps=${FLAGS.deps.size}`);
+function tokenize(cmd) {
+  const out = []; let cur = '', q = null;
+  for (const ch of cmd) {
+    if (q) { if (ch === q) q = null; else cur += ch; }
+    else if (ch === '"' || ch === "'") q = ch;
+    else if (/\s/.test(ch)) { if (cur) { out.push(cur); cur = ''; } }
+    else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+const BAD_FLAGS = [];
+for (const cmd of CMDS) {
+  const t = tokenize(cmd); const s = t[1] || '';
+  const f = s.includes('pipeline.js') ? FLAGS.pipeline : s.includes('state.js') ? FLAGS.state : s.includes('check-deps.js') ? FLAGS.deps : null;
+  if (!f) { BAD_FLAGS.push('未知脚本 ' + s); continue; }
+  for (let i = 2; i < t.length; i++) if (t[i].startsWith('--') && !f.has(t[i])) BAD_FLAGS.push(t[i] + ' @ ' + cmd.slice(0, 50));
+}
+check('★ 引导词全部命令参数均在脚本 parseArgs 白名单内（零错误参数）',
+  BAD_FLAGS.length === 0, BAD_FLAGS.slice(0, 3).join(' ; '));
+const PIPE_CMDS = CMDS.filter((c) => c.includes('pipeline.js'));
+check('★ 每条 pipeline.js 命令都带 --workspace/--card/--kb-id/--folder-id',
+  PIPE_CMDS.length >= 8 && PIPE_CMDS.every((c) => ['--workspace', '--card', '--kb-id', '--folder-id'].every((x) => c.includes(x))),
+  String(PIPE_CMDS.length));
+const RECYCLE = CMDS.filter((c) => c.includes('--ingest-pending') || c.includes('--ingest-quarantine'));
+check('★ handback / 隔离区回收命令全部带 --card',
+  RECYCLE.length >= 8 && RECYCLE.every((c) => c.includes('--card')), String(RECYCLE.length));
+const CF = CMDS.filter((c) => c.includes('classify-failure'));
+check('★ classify-failure 纯离线：不带 --progress / --card（E-24 静态判据）',
+  CF.length === 1 && !CF[0].includes('--progress') && !CF[0].includes('--card'));
+const RESET = CMDS.filter((c) => c.includes('reset-card'));
+check('★ reset-card 仅 3 套全量采集使用（续跑守护零调用）', RESET.length === 3, String(RESET.length));
+
+// 端到端行为判据：把引导词里的命令实例化后真跑，锁死「文档写着能跑」这件事
+function instantiate(cmd, ws) {
+  return cmd.replace(/\[SKILL\]/g, SKILL_DIR).replace(/\[WS\]/g, ws)
+    .replace(/\[FID\]/g, 'folder_test').replace(/"<失败原因>"/g, '"平台限流，请稍后再试"');
+}
+const TMPG = fs.mkdtempSync(path.join(os.tmpdir(), 'wai-guide-'));
+const STUBG = path.join(TMPG, 'ima_api_stub.cjs');
+fs.writeFileSync(STUBG, 'module.exports = { imaApi: function () { return "{}"; } };\n', 'utf8');
+try {
+  const pend = CMDS.find((c) => c.includes('--ingest-pending') && c.includes('--card A'));
+  const rp = pend ? spawnSync('node', tokenize(instantiate(pend, TMPG)).slice(1),
+    { encoding: 'utf-8', env: Object.assign({}, process.env, { IMA_API_CJS: STUBG }) }) : { status: -1, stdout: '', stderr: '未找到命令' };
+  check('★ E-23 端到端：引导词里的 --ingest-pending 命令实跑不再被守卫拒绝',
+    rp.status === 0 && !/用法：node pipeline\.js/.test(rp.stderr || '') && /=== 消费 Agent 编排 handback/.test(rp.stdout || ''),
+    'code=' + rp.status + ' err=' + String(rp.stderr || '').slice(0, 160));
+  const cfCmd = CF[0];
+  const rc = cfCmd ? spawnSync('node', tokenize(instantiate(cfCmd, TMPG)).slice(1), { encoding: 'utf-8' })
+    : { status: -1, stdout: '', stderr: '未找到命令' };
+  check('★ E-24 端到端：引导词里的 classify-failure 免 --progress 实跑输出 transient',
+    rc.status === 0 && String(rc.stdout || '').trim() === 'transient',
+    'code=' + rc.status + ' out=' + String(rc.stdout || '').trim() + ' err=' + String(rc.stderr || '').slice(0, 160));
+} finally {
+  try { fs.rmSync(TMPG, { recursive: true, force: true }); } catch (_) { /* ignore */ }
 }
 
 console.log('\n=== 汇总 ===');
