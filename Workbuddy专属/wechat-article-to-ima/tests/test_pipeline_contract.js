@@ -10,7 +10,7 @@
  *   ⑤ 元数据头 buildMd（内联形态、禁 YAML front-matter、原文直链取解析后直链）
  *   ⑥ 文件名安全化 safeFile
  *   ⑦ CLI 契约（缺参即报错退出、--dry-run 不写盘、--ingest-pending 合法模式）
- *   ⑪ 引导词.md 契约覆盖（4 套自含 / 命令参数白名单 / E-23·E-24 端到端实跑）
+ *   ⑪ 引导词.md 契约覆盖（4 套章节级自含 / 共享区下沉 / 零跨段引用 / 命令参数白名单 / E-23·E-24 端到端实跑）
  *
  * 纪律：零第三方依赖；不反向依赖仓库级入口；临时文件自清理（§9.5）；无绝对路径/网络/随机。
  * 运行：node tests/test_pipeline_contract.js
@@ -330,16 +330,58 @@ if (parts.length === 4) {
 const GUARD = parts[3] || '';
 check('★ 续跑守护禁用 reset-card 且用 diff-keywords 取差集',
   GUARD.includes('不调用 `reset-card`') && !GUARD.includes('reset-card --card') && GUARD.includes('diff-keywords'));
-check('★ 声明唯一事实源分工（不复述 SKILL.md 流程）',
-  GUIDE.includes('唯一事实源分工') && GUIDE.includes('以 `SKILL.md` 为唯一事实源'));
-check('★ 路径三占位符齐备且全局禁止硬编码 folder_id',
-  ['[WS]', '[SKILL]', '[FID]'].every((x) => GUIDE.includes(x)) &&
-  GUIDE.includes('禁止硬编码 `folder_id`') && !/folder_[0-9]{6,}/.test(GUIDE));
+
+// —— 章节级自含判据 ——
+// 原实现用 GUIDE.includes() 全文全局断言：只要任意一套或共享区出现某符号即判通过，
+// 结构上检不出「某一套缺失符号定义」。共享前置区清零后必须改成逐套断言。
+const SELF_CONTAINED = [
+  '唯一权威', '单段自含', '可独立复制粘贴',
+  '已加载本技能', 'knowledge_base_id=ima_kb_QFSIbCma',
+  '唯一事实源分工', '以 `SKILL.md` 为唯一事实源', '不复述',
+  '`[WS]` =', '`[SKILL]` =', '`[FID]` =',
+  '不依赖当前工作目录', '禁止硬编码 `folder_id`',
+  '禁止伪造 completed', '四栏齐全 ≠ 闭环', '须另核',
+];
+parts.forEach((seg, i) => {
+  const miss = SELF_CONTAINED.filter((x) => !seg.includes(x));
+  check(`★ 第 ${i + 1} 套自含共享区 ${SELF_CONTAINED.length} 项必要内容（零跨段取值）`,
+    miss.length === 0, miss.slice(0, 3).join(' ; '));
+});
+check('★ 顶部共享区已清零：无「路径约定（四套通用）」/「四套同构」',
+  !GUIDE.includes('路径约定（四套通用）') && !GUIDE.includes('四套通用') && !GUIDE.includes('四套同构'));
+const PREAMBLE = GUIDE.split(/^## 引导词 /m)[0];
+check('★ 顶部不再承载任何符号定义 / 调用契约',
+  !['`[WS]` =', '`[SKILL]` =', '`[FID]` =', 'resolve-folder', 'reset-card'].some((x) => PREAMBLE.includes(x)));
+const CROSS_REF = ['见上方', '见共享区', '按「路径约定', '路径约定（四套通用）', '四套通用',
+  '四套同构', '顶部', '上节', '如前所述', '参见本文件', '见第 3 行', '共享区'];
+parts.forEach((seg, i) => {
+  const hit = CROSS_REF.filter((x) => seg.includes(x));
+  check(`★ 第 ${i + 1} 套零跨段引用（复制单段后无外部指向）`, hit.length === 0, hit.join(' ; '));
+});
+const IMPL_DETAIL = ['cool_down_seconds', 'min_chars', 'min_periods', 'import_doc', 'add_knowledge',
+  'NEEDS_FETCH', 'listAllKb', 'get_knowledge_list', 'matchFilter', 'dedupKey', 'js_content', 'media_type'];
+parts.forEach((seg, i) => {
+  const hit = IMPL_DETAIL.filter((x) => seg.includes(x));
+  check(`★ 第 ${i + 1} 套不复述 SKILL.md 实现细节`, hit.length === 0, hit.join(' ; '));
+});
+parts.forEach((seg, i) => {
+  check(`★ 第 ${i + 1} 套无硬编码 folder_id`, !/folder_[0-9]{6,}/.test(seg));
+});
+const FOLDER_NAME = ['工程总承包EPC', '城市更新', '全域土地和生态修复'];
+['A', 'B', 'C'].forEach((card, i) => {
+  const seg = parts[i] || '';
+  check(`★ 引导词 ${card} 的 resolve-folder --name 与 folder_name 一致`,
+    seg.includes(`resolve-folder --name "${FOLDER_NAME[i]}"`) && seg.includes(`folder_name=${FOLDER_NAME[i]}`));
+});
 
 // 命令参数契约：从脚本 parseArgs 源码抽白名单，逐条比对引导词里的命令行（确定性静态判据）
 const CMD_RE = /`(node "\[SKILL\]\/scripts\/[^`]+)`/g;
 const CMDS = [...GUIDE.matchAll(CMD_RE)].map((m) => m[1]);
-check('★ 抽取到 >= 20 条可执行 node 命令', CMDS.length >= 20, String(CMDS.length));
+check('★ 判据自身有效：抽取到 >= 30 条可执行 node 命令（防 CMD_RE 失效）', CMDS.length >= 30, String(CMDS.length));
+parts.forEach((seg, i) => {
+  const n = [...seg.matchAll(CMD_RE)].length;
+  check(`★ 第 ${i + 1} 套单段命令数 >= 8（切断全文后仍可独立执行）`, n >= 8, String(n));
+});
 function allowedFlags(rel) {
   const src = fs.readFileSync(path.join(SKILL_DIR, 'scripts', rel), 'utf8');
   const set = new Set(); const re = /a\s*===\s*'--([a-z-]+)'/g; let m;
