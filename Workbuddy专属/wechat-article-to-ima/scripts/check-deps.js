@@ -132,15 +132,16 @@ async function main() {
   // 本技能代码不自行读 local-config.json / 不自行拉起（避免重复造轮子 + 陈旧配置误报）。
   // 硬门禁 = chrome-devtools 委派目标（技能目录）存在；端口连通性仅作实时信息（以编排回传的 SOGOU_CDP_PORT 探活）。
   const { checkBrowser } = require(RESOLVE_JS);
-  let cdOk = null, cdPort = null, cdInstalled = false;
+  let cdOk = null, cdPort = null, cdInstalled = false, cdReason = '';
   if (base) {
     cdInstalled = relExists(base, 'chrome-devtools/localization/start.cjs', true)
       && relExists(base, 'chrome-devtools/local-config.json', true);
     // 实时探活编排回传的端口（SOGOU_CDP_PORT，缺省 9222）；不读陈旧 local-config.json。
     const chk = await checkBrowser();
-    cdOk = chk.ok; cdPort = chk.ok ? chk.port : null;
+    cdOk = chk.ok; cdPort = chk.port != null ? chk.port : null;
+    cdReason = chk.reason || '';
   }
-  result.soft.chromeDevtools = { installed: cdInstalled, cdpReachable: cdOk, port: cdPort,
+  result.soft.chromeDevtools = { installed: cdInstalled, cdpReachable: cdOk, port: cdPort, reason: cdReason || undefined,
     delegated: '端口探查与调试浏览器拉起经 Agent 编排委派 chrome-devtools（MCP 连接器）；本技能仅按编排回传的 SOGOU_CDP_PORT 连接，不自行发现/拉起',
     fallback: '端口不可达 → 检索走免 Cookie 降级；中转链接解析失败 → 用解码后原始链接兜底（pipeline 已实现）' };
   if (!cdInstalled) result.soft.chromeDevtools.note = '委派目标未安装：调试浏览器不可用，Cookie 提取与中转链接解析将整体降级（需 Agent 经 chrome-devtools 技能拉起）';
@@ -186,7 +187,8 @@ async function main() {
     L.push('');
     L.push('【软依赖 · 缺失仅告警 + 文档回退】');
     L.push('  chrome-devtools       : 安装=' + (result.soft.chromeDevtools.installed ? '✅' : '❌')
-      + ' 端口可达=' + (result.soft.chromeDevtools.cdpReachable ? '✅:' + result.soft.chromeDevtools.port : '⚠️ 不可达'));
+      + ' 调试浏览器就绪=' + (result.soft.chromeDevtools.cdpReachable ? '✅:' + result.soft.chromeDevtools.port : '⚠️ 否'));
+    if (cdReason) L.push('    原因 : ' + cdReason);
     L.push('  web-search            : ' + (result.soft.webSearch.present ? '✅' : '❌（2 级兜底委派目标不可用）'));
     L.push('  firecrawl(委派web-search): ' + (result.soft.firecrawl.usable ? '✅ 可用' : '⚠️ 不可用')
       + '（skill=' + result.soft.firecrawl.skillPresent + ' Key=' + result.soft.firecrawl.keyPresent + '）');

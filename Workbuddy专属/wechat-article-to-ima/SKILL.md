@@ -225,38 +225,9 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ## 调用示例（引导词）
 
-> 以下完整内联「引导词 A」与「续跑守护」全文，与 [`引导词.md`](./引导词.md) 逐字一致；引导词 B / C 与四套完整版见该文件。
-
-## 引导词 A —— 卡片 A（总包）全量采集
-
-调用 `wechat-article-to-ima` 对**卡片 A（总包）**执行**全量采集、从头强制全量重搜**：
-
-- **工作区与知识库**：`[WS]=D:\Documents\AI_Work_Temp\ima+WorkBuddy`；目标知识库 `knowledge_base_id=ima_kb_QFSIbCma`。
-- **本卡参数**：卡片 `A`（总包）；目标子目录 `folder_name=工程总承包EPC`（经 `state.js resolve-folder --name "工程总承包EPC" --kb-id ima_kb_QFSIbCma` 实时解析为 `folder_id`，**禁止硬编码**）；全量关键词簇 = 主词簇（工程总承包、EPC、总包）+ 变体词簇（总承包EPC、EPC总承包），两簇逐一全搜。
-- **第一步·强制全量重搜**：先执行 `node scripts/state.js --progress "[WS]/_progress_A.json" reset-card --card A`（清空 A 卡文章记录并重置 `searchedKeywords=[]` / `failureClass=''`，确保本轮不被旧差集误导、从头全搜）。
-- **执行采集工作流**：按 SKILL.md「采集工作流」步骤 1–12 端到端执行并闭环（前置依赖检查 → 读 `_progress_A.json` → 两词簇逐关键词串行检索 → 去重过滤 → 抓取落 MD → 完整性闸门 → 入 `folder_7511772189689986` → 复验 → 写记忆 → 收尾清扫 → 轮转收尾），全程必带 `--card A`；每完成一个关键词检索即 `state.js update-card --searched-keywords "<该关键词>"` 累积并集。
-- **关键命令**：
-  - 复验：`node scripts/state.js --progress "[WS]/_progress_A.json" report --kb-id ima_kb_QFSIbCma --folder-id folder_7511772189689986`
-  - 收尾轮转：`node scripts/state.js --progress "[WS]/_progress_A.json" update-card --card A --last-run <今天> --next-due <今天+10天> --rotate-index 0 --status completed --note "本轮要点"`
-- **闭环判据**：本卡 `status=completed`、复验四栏齐全（应入库 / 实入库 / 被过滤 / 失败）、`failed_quarantine/` 中 `A__` 前缀残留清零（仅余 `permanent` 交人工）。未达闭环判据即视为断点。
-- **隔离区要点**：`failed_quarantine/` 按卡加前缀，A 卡残留不误入 B/C；补入历史失败残留时 `ingest-quarantine` **必须带 `--card A`**，严禁不带 `--card` 跑。
-
-## 引导词 续跑守护 —— 对 A/B/C 断点续跑
-
-**断点续跑定义**：任一 Agent 未能完整执行 引导词 A/B/C，包含但不仅限于——某一卡片的词簇未能全部完整搜索；某一关键词搜到的命中文章未能全部下载；某一文章未能完整下载到本地 MD 文件；下载到本地的 MD 文件未能真实入库 ima；运行中被限流熔断 / 网络或凭据异常中断等。
-
-调用 `wechat-article-to-ima` 续跑守护：
-
-- **逐卡串行**（A → B → C，不并行）核查与续跑，目标三卡全部完整执行。
-- **每卡执行**（必带 `--card <卡>`；`[WS]=D:\Documents\AI_Work_Temp\ima+WorkBuddy`；`knowledge_base_id=ima_kb_QFSIbCma`）：
-  1. 读 `_progress_<卡>.json` 判定 `status`：`failureClass=permanent`（`interrupted`）→ **停止续跑并提示人工处理凭据**；`partial` / `pending` / `antispider_partial` / `limited` → 进入续跑。
-  2. `node scripts/state.js --progress "[WS]/_progress_<卡>.json" diff-keywords --card <卡> --keywords "<该卡全量关键词（主+变体，取自 SKILL.md「任务卡配置表」）>"` 取尚未搜索的差集，只搜剩余词（已搜词跳过，避免重触限流）。
-  3. 补搜命中结果 JSON 逐个跑 `node scripts/pipeline.js --search "<x.json>"`。
-  4. `node scripts/pipeline.js --ingest-quarantine --card <卡> --kb-id ima_kb_QFSIbCma --folder-id <该卡 folder_id>`：消费 `failed_quarantine/` 下未入库的 `.md` 直接补入库（闸门未过的质量失败篇目自动跳过，仅重入「闸门通过但入库失败」篇目）。**严禁不带 `--card` 跑**（否则误食他卡残留）。
-  5. 全部完成后按「任务卡轮转规则」用 `state.js update-card` 收尾（成功则 `status=completed`；仍有剩余则维持 `partial`）。
-- **闭环判据**：三卡皆 `status=completed`、各自 `failed_quarantine/` 残差清零（仅余 `permanent` 交人工）。
-
-> 失败原因分类可用 `node scripts/state.js classify-failure --reason "..."` 离线判定 `transient` / `permanent`，供调度方统一决策。
+> 四套调用范式（引导词 A / B / C / 续跑守护）的**唯一权威**是 [`引导词.md`](./引导词.md)；本文件**不内联复刻**（同一指令两处定义会双源漂移，实测曾出现内联版用 `folder_name`、`引导词.md` 用硬编码 `folder_id` 且续跑命令缺 `--workspace/--card` 的分歧）。执行前直接读该文件对应章节，各套自含本卡参数、关键命令与闭环判据。
+> 上方「断点续跑与续跑守护」章只定义状态机信号与续跑语义，不是调用范式，二者不重复。
+> `引导词.md` 只声明「对哪张卡、什么模式、调度方须手工落地的动作、关键命令、闭环判据」；采集工作流 12 步、过滤 / 闸门 / 降级链 / 入库 / 状态机 / 收尾清扫规则一律以本文件与 `scripts/` 代码为唯一事实源。
 
 ## 第三方技能编排（Agent 路由与硬门禁）
 
@@ -287,8 +258,8 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 **handback 合同（落盘契约）**：
 - **移交（pipeline.js 写）**：1 级失败 → `pending_fetch/<url>.md` 含 `<!-- NEEDS_FETCH -->` 标记 + 原 URL + 失败原因 + 已试层级。
-- **回交（Agent 写）**：经 2/3 级取到正文后，把文章 markdown 覆写同一 `<url>.md`（**去除 `<!-- NEEDS_FETCH -->` 标记**）；文件名须与移交时一致（pipeline.js 据文件名消费）。
-- **消费（pipeline.js 读）**：`--ingest-pending` 读取 `pending_fetch/*.md`；仍含 `<!-- NEEDS_FETCH -->` 视为 stub（Agent 未取回）→ 跳过；否则视为 handback → 过滤 + 闸门 → 入库或标记失败。
+- **回交（Agent 写）**：经 2/3 级取到正文后，把文章 markdown 覆写同一 `<url>.md`（**去除 `<!-- NEEDS_FETCH -->` 标记**）；文件名须与移交时一致（pipeline.js 据文件名消费）。回交物须同时满足：① 含 `# 文章标题` 元数据头；② `原文直链` 为 `mp.weixin.qq.com` 真实直链，不得仍是搜狗中转 / 反爬链接；③ 不得回交反爬验证码页。
+- **消费（pipeline.js 读）**：`--ingest-pending` 读取 `pending_fetch/*.md`；仍含 `<!-- NEEDS_FETCH -->` 视为 stub（Agent 未取回）→ 跳过；否则经 `validateHandback()` 形态验收（不合格者**拒收并保留文件**待重新回交，绝不进入 `import_doc`）→ 过滤 + 闸门 → 入库或标记失败。
 
 ## 规则与知识库
 
@@ -366,6 +337,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 每份 Markdown 文件须满足以下判定，否则标记内容不完整（**软硬结合**）：
 
+0. **错误页语义否决（最高优先，审计 E-17）**：命中 `VerifyCode` / `antispider` / `此验证码用于确认` / `需要您协助验证` 等反爬验证码页特征（`scripts/pipeline.js` 的 `looksLikeErrorPage()`）即直接判定不完整，**优先于一切长度 / 句号 / 辅助判据**。2 级 firecrawl 抓搜狗中转链接会返回 `exit=0` 但内容实为反爬页，该页长度与段落数均可满足辅助判据，若不经本条否决即可通过闸门并写入 KB（不可逆）。
 1. **硬下限（防纯垃圾）**：正文字符数不小于 `[min_chars]`；未达直接判定不完整。
 2. **软告警（句号数不再硬拒）**：正文句号数不小于 `[min_periods]` 为理想态；若不足但满足任一**辅助判据**，标记 `periods_low` 交人工复核、**不自动拒**：
    - 正文段落数 ≥ 3；或
@@ -389,7 +361,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 2. 重名检查与去重（**按媒体类型分流，关键陷阱**）：
 
    - **文件类（media_type ≠ 11）**：调用 `openapi/wiki/v1/check_repeated_names` 接口，检查目标子目录下是否已存在同名条目（避免重复入库）。须同时满足：① 接口路径带版本前缀（实测有效完整路径为 `openapi/wiki/v1/check_repeated_names`）；② 参数结构为重名参数数组，每项含名称与媒体类型，字段名不可替换；③ 名称必须带 `.md` 扩展名（不带会误判为未重复）。
-   - **笔记类（media_type = 11，本技能入库模式）**：`check_repeated_names` **仅适用于文件类型，对笔记会误判「未重复」**，可能造成重复入库。**笔记去重须改用 `openapi/wiki/v1/get_knowledge_list`**：取目标子目录全量条目（`knowledge_base_id` + `folder_id` + `cursor` 空串 + `limit` ≤ 50），以条目 `title` 比对本次待入库标题，命中即跳过。
+   - **笔记类（media_type = 11，本技能入库模式）**：`check_repeated_names` **仅适用于文件类型，对笔记会误判「未重复」**，可能造成重复入库。**笔记去重须改用 `openapi/wiki/v1/get_knowledge_list` 游标分页拉全量条目**（`scripts/pipeline.js` 的 `listAllKb()`：`limit` ≤ 50、循环至 `is_end`，**禁止单页 `cursor:''` 比对**——子目录 >50 条时单页漏判即重复入库且不可逆），以条目 `title` 比对本次待入库标题，命中即跳过。
      > ⚠️ **不可用「整标题精确比对」**：ima 服务端会把条目 `title` **截断到 30 个字符并追加 `...`**（实测 28 条中 11 条被截断）。故必须用**前缀去重键**：
      > ```js
      > const TITLE_CAP = 30;
@@ -427,7 +399,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 **第四步：入库复验**
 
-关联完成后，调用 `openapi/wiki/v1/get_knowledge_list` 接口（body 传 `knowledge_base_id`、`folder_id`、`cursor` 空串、`limit` 不超过 50）列出目标子目录内容，须命中本次入库条目且其 `media_type` 为 `11`（确为笔记而非 URL 书签）；命中即复验通过。需要进一步核对元数据时，可再调用 `openapi/wiki/v1/get_media_info`（body 传 `{"media_id":"<条目id>"}`）。复验未命中时将该篇标记为失败并计入失败清单，禁止计为成功。
+关联完成后，经 `listAllKb()` **游标分页拉全量**目标子目录条目（**禁止单页 `limit:50`**：`import_doc` + `add_knowledge` 已真实写库，单页漏判会把成功条目误判为「复验未命中」→ 进度记失败 + 隔离区留副本，三态不一致且无 delete 端点），须命中本次入库条目且其 `media_type` 为 `11`（确为笔记而非 URL 书签）；命中即复验通过。需要进一步核对元数据时，可再调用 `openapi/wiki/v1/get_media_info`（body 传 `{"media_id":"<条目id>"}`）。复验未命中时将该篇标记为失败并计入失败清单，禁止计为成功。
 
 > **复验结果必须回写进度文件，且回写本身带复核**：`state.js mark-ingested` **默认联机复核**该条目 `media_type===11` 真实存在于目标子目录，复核不通过即拒绝写入（见「进度文件写操作纪律」）。禁止以「接口返回 code=0」代替内容核对——历史进度中曾出现声称已入库而 KB 全库查无此文的幽灵记录。
 >
@@ -453,7 +425,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 进度文件模板
 
-每卡进度文件位于 `[workspace]/_progress_<card>.json`（A/B/C 各一份，下文以 A 卡为例展示单卡文件字段结构；B/C 卡结构相同仅 `name`/`folder_id` 不同），结构如下：
+每卡进度文件位于 `[workspace]/_progress_<card>.json`（A/B/C 各一份，下文以 A 卡为例展示单卡文件字段结构；B/C 卡结构相同仅 `name` 不同）。`folder_id` 初值为空，**运行时由 `state.js resolve-folder --name "<folder_name>"` 实时解析后写入，禁止在模板或调用指令中硬编码**。
 
 ```json
 {
@@ -462,7 +434,7 @@ allowed-tools: Bash Read Write Edit WebFetch
   "cards": {
     "A": {
       "name": "总包",
-      "folder_id": "folder_7511772189689986",
+      "folder_id": "",
       "lastRun": "",
       "nextDue": "",
       "rotateIndex": 0,
@@ -521,7 +493,6 @@ allowed-tools: Bash Read Write Edit WebFetch
 | `scripts/check-deps.js` | 前置依赖**代码级**核查器（硬依赖阻断、软依赖告警） | firecrawl / chrome-devtools 的「CLI 探查 / 端口探查 / 浏览器拉起」均经 Agent 编排委派对应技能，本检查器只判定「委派目标存在 + 密钥就绪」硬门禁（**不自行 spawn firecrawl、不读 local-config.json**），消除 Windows 下误报；解析并输出 `search_script_dir` / `ima_api` 路径 / `cdp_port` |
 | `scripts/resolve_midlink.js` | 中转链接 → 真实直链（降级链零级） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；端口仅取编排回传的 `SOGOU_CDP_PORT`（缺省 9222），**不读 local-config.json、不自行扫描/拉起**；`--check` 为端口探活 |
 | `scripts/pipeline.js` | 抓取 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限）；`--ingest-quarantine` 模式消费 `failed_quarantine/` 未入库 `.md` 直接补入库而不重搜 |
-| `scripts/test_filter_rules.js` | 过滤规则回归测试 | 断言 29 条历史误杀样本不再拦截 + 3 条真命中仍拦截 + 11 条子串边界用例 |
 | `scripts/deploy.js` | 开发态 → 部署态 一键同步（零依赖） | 走 `git cat-file blob` 逐字节重建（**不经工作树**，避免 `core.autocrlf` 带入 CRLF，§7.3）；`ima_credentials.json` 为部署态专有物，保留不覆盖；`--dry-run` 预演、`--ref main` 指定来源引用 |
 
 ### 测试资产（`tests/`）

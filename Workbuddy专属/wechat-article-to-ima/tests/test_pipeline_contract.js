@@ -9,7 +9,7 @@
  *   ④ 正文提取与 HTML→文本 htmlToText / extractContent / extractAuthor
  *   ⑤ 元数据头 buildMd（内联形态、禁 YAML front-matter、原文直链取解析后直链）
  *   ⑥ 文件名安全化 safeFile
- *   ⑦ CLI 契约（缺参即报错退出、--dry-run 不写盘）
+ *   ⑦ CLI 契约（缺参即报错退出、--dry-run 不写盘、--ingest-pending 合法模式）
  *
  * 纪律：零第三方依赖；不反向依赖仓库级入口；临时文件自清理（§9.5）；无绝对路径/网络/随机。
  * 运行：node tests/test_pipeline_contract.js
@@ -101,8 +101,8 @@ check('替换非法字符', !/[\\/:*?"<>|]/.test(P.safeFile('a/b:c*d?e"f<g>h|i')
 check('压缩空白并截断长度', P.safeFile('a   b').includes('a b') && P.safeFile('x'.repeat(300)).length <= 120, String(P.safeFile('x'.repeat(300)).length));
 
 console.log('\n=== ⑦ CLI 契约 ===');
-function pipe(args) {
-  const r = spawnSync('node', [PIPE_JS, ...args], { encoding: 'utf-8' });
+function pipe(args, extraEnv) {
+  const r = spawnSync('node', [PIPE_JS, ...args], Object.assign({ encoding: 'utf-8' }, extraEnv ? { env: Object.assign({}, process.env, extraEnv) } : {}));
   return { code: r.status, out: (r.stdout || '').trim(), err: (r.stderr || '').trim() };
 }
 let r = pipe([]);
@@ -120,6 +120,19 @@ try {
     return Array.isArray(p.articles) && p.articles.length === 0 && p.updatedAt === '';
   })(), fs.readFileSync(progFile, 'utf8').slice(0, 200));
   check('★ --dry-run 不落盘 .md', fs.readdirSync(TMP).filter((f) => f.endsWith('.md')).length === 0, fs.readdirSync(TMP).join(','));
+
+  // 审计 E-23：--ingest-pending 曾被参数守卫误拦（守卫只认 --search / --ingest-quarantine），
+  // 使引导词中的 handback 回收命令 exit=1 只打印用法。双层判据：源码级确定性 + CLI 行为级。
+  const guardSrc = fs.readFileSync(PIPE_JS, 'utf8');
+  check('★ E-23：参数守卫纳入 opt.ingestPending（源码级确定性判据）',
+    /if \(!opt\.search && !opt\.ingestPending && !opt\.ingestQuarantine\)/.test(guardSrc));
+  const stubApiE23 = path.join(TMP, 'ima_api_stub.cjs');
+  fs.writeFileSync(stubApiE23, 'module.exports = { imaApi: function () { return "{}"; } };\n', 'utf8');
+  r = pipe(['--workspace', TMP, '--card', 'A', '--ingest-pending', '--kb-id', 'K', '--folder-id', 'F'],
+    { IMA_API_CJS: stubApiE23 });
+  check('★ E-23：--ingest-pending 不再被参数守卫拒绝（进入 handback 消费分支）',
+    r.code === 0 && !/用法：node pipeline\.js/.test(r.err) && /=== 消费 Agent 编排 handback/.test(r.out),
+    'code=' + r.code + ' err=' + r.err.slice(0, 160) + ' out=' + r.out.slice(0, 160));
 } finally {
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (_) { /* ignore */ }
 }
@@ -129,6 +142,30 @@ check('无进度记录 → 尝试重入（交入库流程判定）', P.shouldRei
 check('闸门未过（gateResult=fail:*）→ 跳过不重入（质量失败重入必再失败）', P.shouldReingest('t', { gateResult: 'fail:chars<800', ingestStatus: 'failed' }) === false);
 check('闸门通过但入库失败 → 尝试重入（多为瞬态）', P.shouldReingest('t', { gateResult: 'pass', ingestStatus: 'failed' }) === true);
 check('已入库 → 尝试重入（由 KB 去重兜底，不重复创建）', P.shouldReingest('t', { gateResult: 'pass', ingestStatus: 'ingested' }) === true);
+
+console.log('\n=== ⑧b 错误页 / handback 验收（审计 E-17、E-22 回归）===');
+const ANTI = 'IP：195.64.119.200\n\n访问时间：2026.11.11 13:11:26\n\nVerifyCode：aefc5810eff3\n\nFrom：weixin.sogou.com\n\n此验证码用于确认这些请求是您的正常行为而不是自动程序发出的，需要您协助验证。\n\n验证码：\n\n![](https://weixin.sogou.com/antispider/?from=x)\n\n提交提交后没解决问题？欢迎反馈。\n\n搜狗搜索';
+check('反爬验证码页 → looksLikeErrorPage=true', P.looksLikeErrorPage(ANTI) === true);
+check('正常长正文 → looksLikeErrorPage=false', P.looksLikeErrorPage('# 标题\n\n' + '正文内容。'.repeat(300)) === false);
+check('★ evaluateGate 对反爬页 pass=false（原闸门会因段落数放行）', (() => {
+  const g = P.evaluateGate(ANTI, '');
+  return g.pass === false && /error_page/.test(g.reason);
+})());
+check('★ validateHandback 拒收反爬验证码页', P.validateHandback(ANTI).ok === false);
+check('★ validateHandback 拒收仅含搜狗中转链接的回交',
+  P.validateHandback('# 标题\n\n原文直链：https://weixin.sogou.com/link?url=x\n\n正文').ok === false);
+check('★ validateHandback 拒收缺 # 标题的回交',
+  P.validateHandback('正文第一段。\n\n正文第二段。').ok === false);
+check('★ validateHandback 接纳合规 handback',
+  P.validateHandback('# 文章标题\n\n来源：某公众号\n发布时间：2026-11-11\n作者：某\n原文直链：https://mp.weixin.qq.com/s?x=1\n采集日期：2026-11-11\n\n' + '正文。'.repeat(300)).ok === true);
+// E-22 源码级确定性门禁：入库成功分支不得再引用未定义的 chars/periods
+const PIPE_SRC = fs.readFileSync(PIPE_JS, 'utf8');
+// 判据须精确命中「入库成功日志」这一处，不能用全文裸字符串判据：
+// evaluateGate 内部的 `chars=${chars}` 是合法引用（chars 定义在该函数作用域内），全文匹配会误伤。
+check('★ E-22：入库成功日志改用 gate.chars / gate.periods（正向判据）',
+  /chars=\$\{gate\.chars\}/.test(PIPE_SRC) && /periods=\$\{gate\.periods\}/.test(PIPE_SRC));
+check('★ E-22：入库成功日志不得残留裸 chars 引用',
+  !/\| chars=\$\{chars\}/.test(PIPE_SRC));
 
 console.log('\n=== ⑨ 隔离区跨卡污染防护（缺陷 C 回归）===');
 // 桩 ima_api.cjs：get_knowledge_list 返回已入库条目（让 mark-ingested 联机复核通过），import/add 返回成功。

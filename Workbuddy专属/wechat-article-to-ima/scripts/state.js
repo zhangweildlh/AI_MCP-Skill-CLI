@@ -133,7 +133,7 @@ function usage() {
   classify-failure --reason "R"                           判定 transient / permanent
 
 通用选项：
-  --progress <路径>   必填。_progress.json 路径。
+  --progress <路径>   读写进度文件的子命令必填；resolve-folder / classify-failure 为纯离线命令，无需此参数。
   -h, --help          打印本帮助。`);
 }
 
@@ -430,8 +430,16 @@ function cmdResetCard(opt, data) {
   const card = ensureCard(data, opt.card);
   card.searchedKeywords = [];
   card.failureClass = '';
+  // 审计 E-07：原实现不清 status/note/attempts/pendingKeywords，reset 后 status 仍为上一轮
+  // `completed` → 续跑守护误判「已完成」而跳过续跑（静默不可恢复断点），旧 note 还会污染步骤 10 记忆。
+  // 强制全量重搜须把状态机一并归零；lastRun/nextDue 属调度信息，由步骤 12 收尾轮转覆盖，此处保留。
+  card.status = 'pending';
+  card.note = '';
+  card.attempts = 0;
+  card.nextRetryAt = null;
+  card.pendingKeywords = [];
   saveProgress(opt.progress, data);
-  console.error(`✅ 已清空 card=${opt.card} 的文章记录：${before} → ${data.articles.length}；并重置 searchedKeywords=[]、failureClass=''`);
+  console.error(`✅ 已清空 card=${opt.card} 的文章记录：${before} → ${data.articles.length}；并重置 searchedKeywords=[]、failureClass=''、status=pending、note=''、attempts=0、pendingKeywords=[]、nextRetryAt=null`);
 }
 
 function cmdUpdateCard(opt, data) {
@@ -589,6 +597,8 @@ function classifyReport(data, kbEntries, opts) {
     pending, ghost: ghostItems.length,
     ghostItems, filteredItems, failedItems, needsFetchItems,
     shouldButNotIngested,
+    // 审计 E-12：四栏齐全但「移交 Agent 编排」>0 / 待入库卡死 / 幽灵记录时不得判闭环。
+    closed: needsFetch === 0 && pending === 0 && ghostItems.length === 0,
   };
 }
 
@@ -619,6 +629,7 @@ function cmdReport(opt, data) {
   L.push(`   - 失败导致      : ${rep.failed} 篇（见失败明细）`);
   L.push(`   - 幽灵记录      : ${rep.ghost} 篇（进度声称 ingested，KB 查无）`);
   L.push(`   - 待入库/卡死   : ${rep.pending} 篇（通过闸门但 ingestStatus 仍为 pending）`);
+  L.push(`   - 移交Agent编排 : ${rep.needsFetch} 篇（第 5 栏，pending_fetch 待回交，不计入四栏）`);
   L.push('');
   L.push(`【被过滤明细】(${rep.filtered} 篇)`);
   rep.filteredItems.forEach((x, i) => L.push(`   ${i + 1}. [${x.card}] ${x.title} — 原因：${x.reason}`));
@@ -637,6 +648,16 @@ function cmdReport(opt, data) {
     L.push(`【幽灵记录明细】(${rep.ghost} 篇)  ⚠️`);
     rep.ghostItems.forEach((x, i) => L.push(`   ${i + 1}. [${x.card}] ${x.title} — ${x.reason}（note=${x.note || '(空)'}）`));
   }
+  L.push('');
+  // 审计 E-12：四栏全 0 + 移交 Agent 编排 >0 会呈现「零差额假闭环」。
+  // 输出显式闭环判定，调度方不得只看四栏齐全即写 status=completed。
+  const blockers = [];
+  if (rep.needsFetch) blockers.push(`移交Agent编排 ${rep.needsFetch} 篇`);
+  if (rep.pending) blockers.push(`待入库/卡死 ${rep.pending} 篇`);
+  if (rep.ghost) blockers.push(`幽灵记录 ${rep.ghost} 篇`);
+  L.push(blockers.length
+    ? `闭环判定 : ❌ 未闭环（${blockers.join('、')}）；四栏齐全≠闭环，禁止写 status=completed`
+    : '闭环判定 : ✅ 四栏无待办；仍须另核 pending_fetch/ 目录余量与本卡 failed_quarantine/ 残留');
   L.push('');
   if (rep.kbVerified) L.push('复核说明：实入库 ' + rep.confirmed + ' 篇均经 get_knowledge_list 复核 media_type===11 真实存在。');
   else L.push('⚠️ 离线模式：实入库为进度文件声称值，未经 KB 复核，幽灵记录检测不可用。请加 --kb-id/--folder-id（或 --kb-snapshot）复验。');
@@ -711,8 +732,11 @@ function cmdResolveFolder(opt) {
 function main() {
   const opt = parseArgs(process.argv.slice(2));
   if (!opt.command) { usage(); process.exit(2); }
-  // resolve-folder 不触碰进度文件，无需 --progress / 文件锁，提前分流
+  // 纯离线/无状态子命令：不触碰进度文件，无需 --progress / 文件锁，提前分流。
+  // 审计 E-24：classify-failure 仅做失败原因字符串分类，原实现却被下方 --progress 必填守卫拦住，
+  // 与 SKILL.md「离线判定」及引导词「无需 --progress / --card」自相矛盾，实跑必然 exit=1。
   if (opt.command === 'resolve-folder') { cmdResolveFolder(opt); return; }
+  if (opt.command === 'classify-failure') { cmdClassifyFailure(opt); return; }
   if (!opt.progress) fail('缺少必填 --progress <路径>。');
   if (!opt.command) { usage(); process.exit(2); }
   // R8 防护：先判定位（禁止在技能目录树内写任何产物，含锁文件），再持锁

@@ -65,6 +65,17 @@ try {
   check('去除标记的 handback → false（可消费）', P.isPendingStub(handback) === false);
   // 一致性：emitNeedsFetch 落盘内容须被 isPendingStub 判为 stub
   check('★ 一致性：emitNeedsFetch 产物恒被 isPendingStub 判为 stub', P.isPendingStub(raw) === true);
+
+  console.log('\n=== ④ handback 形态验收（审计 E-17 回归）===');
+  check('已导出 validateHandback', typeof P.validateHandback === 'function');
+  check('stub 含 handback-required 回交契约说明', raw.includes('handback-required'));
+  check('合规 handback 通过验收',
+    P.validateHandback('# 文章标题\n\n来源：某某公众号\n\n' + '正文。'.repeat(300)).ok === true);
+  check('★ 反爬验证码页被拒收',
+    P.validateHandback('# 搜狗搜索\n\nVerifyCode：abc\n\n此验证码用于确认这些请求是您的正常行为').ok === false);
+  check('★ 未解析的中转链接回交被拒收',
+    P.validateHandback('# 标题\n\n原文直链：https://weixin.sogou.com/link?url=x\n\n正文').ok === false);
+  check('★ 缺 # 标题被拒收', P.validateHandback('只有正文没有标题。').ok === false);
 } finally {
   fs.rmSync(tmpWs, { recursive: true, force: true });
 }

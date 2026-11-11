@@ -74,6 +74,14 @@ async function listTargets() {
 async function checkBrowser() {
   try {
     const v = JSON.parse(await httpReq('GET', '/json/version'));
+    // 审计 E-02/E-08：端口有响应 ≠ 是搜狗登录态调试浏览器。
+    // WorkBuddy 自身 Electron 常驻 9222 且不支持 /json/new（返回纯文本），
+    // 原判据仅探 /json/version 可达即 ok:true，把 0 级断点误报为「✅ 就绪」。
+    const ident = String(v.Browser || '') + ' ' + String(v['User-Agent'] || v.userAgent || '');
+    if (/WorkBuddy|Electron/i.test(ident)) {
+      return { ok: false, browser: v.Browser || '', port: CDP_PORT,
+        reason: 'workbuddy-electron（该端口是 WorkBuddy 自身 Electron，非调试浏览器；须经 Agent 编排拉起真实浏览器并注入 SOGOU_CDP_PORT）' };
+    }
     return { ok: true, browser: v.Browser || '', port: CDP_PORT };
   } catch (e) {
     return { ok: false, reason: e.message, port: CDP_PORT };
