@@ -169,6 +169,23 @@ TEST_ENTRIES = [
               "用法输出、-n 上限截断提示、Cookie 残缺告警不阻断、URL 实体解码静态断言；"
               "--allow-real 时追加 -o 落盘 JSON 结构与实体解码校验"),
 
+    dict(scope="dir/Workbuddy专属", name="wai-deploy-parity",
+         path="Workbuddy专属/wechat-article-to-ima/tests/test_deploy_parity.py",
+         cmd=[PYTHON, "Workbuddy专属/wechat-article-to-ima/tests/test_deploy_parity.py"], shell=False,
+         kind="regression", risk="offline",
+         note="部署态 ↔ main blob 三项判据校验 + AGENTS.md §7.2 复采值生成"
+              "（由外部工区一次性 _recapture_72.py 参数化回流，零硬编码路径）；"
+              "双模式（真实部署态 / 部署态缺失时由 blob 合成副本自检，绝不静默 SKIP）、"
+              "判据自身有效性下限、独立临时目录 1 字节腐坏反例注入验证检出力后逐字节还原；"
+              "--json 结构化输出；零网络零凭据，不依赖当前工作目录"),
+    dict(scope="dir/Workbuddy专属", name="wai-guide-reverse",
+         path="Workbuddy专属/wechat-article-to-ima/tests/test_guide_reverse.py",
+         cmd=[PYTHON, "Workbuddy专属/wechat-article-to-ima/tests/test_guide_reverse.py"], shell=False,
+         kind="regression", risk="offline",
+         note="引导词.md 契约门禁常驻反向测试（门禁铁律②；合并外部工区两份一次性脚本并去 worktree 时间戳硬编码）；"
+              "6 组缺陷注入 → 断言 test_pipeline_contract.js 如期输出 ✗ 判据名且 exit≠0 → 逐字节还原 → 基线复跑全绿；"
+              "直接跑被测门禁而非统一入口，避免自身被调度时递归；--json 结构化输出；零网络零凭据"),
+
     # ---- dir/tender-review-kit ----
     dict(scope="dir/tender-review-kit", name="trk-smoke", path="tender-review-kit/tests/test_smoke.py",
          cmd=[PYTHON, "tender-review-kit/tests/test_smoke.py"], shell=False,
