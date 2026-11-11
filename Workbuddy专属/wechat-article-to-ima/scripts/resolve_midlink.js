@@ -12,13 +12,14 @@
  *
  * 【实现方式】
  * 走 Chrome DevTools 的 HTTP 端点（`/json/new` + `/json/list` + `/json/close`），
- * 复用真实调试浏览器（chrome-devtools 拉起）的登录态与 JS 执行环境。
+ * 复用真实调试浏览器（由 chrome-devtools 经 Agent 编排拉起）的登录态与 JS 执行环境。
  * **不需要 WebSocket、不依赖 chrome-devtools MCP**，与 wechat-article-search 保持解耦。
  *
- * 【前置】
- * 调试浏览器须已就绪（chrome-devtools 的 start.cjs 拉起，端口写入 local-config.json）。
- * 端口解析：优先环境变量 SOGOU_CDP_PORT；缺省 9223。使用前建议先探活
- * `GET http://127.0.0.1:<port>/json/version`。
+ * 【端口契约（重要）】
+ * 调试浏览器端口由 chrome-devtools 经 Agent 编排负责探查与拉起（其 start.cjs 扫描 9222~9240 并回传真实端口），
+ * 本脚本**不自行读 local-config.json、不自行扫描端口、不自行拉起**——只连接编排回传的端口。
+ * 端口来源：环境变量 SOGOU_CDP_PORT（编排注入）；缺省 9222（chrome-devtools 扫描区间起点，真实监听端口）。
+ * 使用前建议先 `node resolve_midlink.js --check` 探活 `GET http://127.0.0.1:<port>/json/version`。
  *
  * 【用法】
  *   node resolve_midlink.js "<中转链接>"                  # 单条：成功输出真实直链（stdout）
@@ -35,25 +36,14 @@ const http = require('http');
 const path = require('path');
 
 /**
- * 解析调试浏览器端口（与 chrome-devtools 契约一致）：
- *   SOGOU_CDP_PORT 环境变量  >  chrome-devtools/local-config.json 的 debugPort  >  默认 9223
- * 历史坑（2026-11-05 实测）：local-config.json 的 debugPort 只是「上次写入的配置值」，
- * 与实际监听可能不一致；且 chrome-devtools 实际使用非 9223 端口时，若未显式设置
- * SOGOU_CDP_PORT，仅 fallback 到 9223 会探活到错误端口。故此处回退读取真实配置端口。
+ * 解析调试浏览器端口（仅取编排回传值，不自行发现/拉起）：
+ *   SOGOU_CDP_PORT 环境变量（由 Agent 编排调用 chrome-devtools 拉起后注入）→ 缺省 9222。
+ * 本脚本不读 chrome-devtools/local-config.json、不扫描端口——端口探查与浏览器拉起属 chrome-devtools 职责
+ * （经 Agent 编排的 MCP 连接器完成），避免「读陈旧配置 / 自行造轮子」导致的端口误报不可达。
  */
 function resolveCdpPort() {
-  if (process.env.SOGOU_CDP_PORT) return Number(process.env.SOGOU_CDP_PORT) || 9223;
-  try {
-    const up = process.env.USERPROFILE;
-    if (up) {
-      const cfg = path.join(up, '.workbuddy', 'skills', 'chrome-devtools', 'local-config.json');
-      if (fs.existsSync(cfg)) {
-        const j = JSON.parse(fs.readFileSync(cfg, 'utf8'));
-        if (j && Number(j.debugPort)) return Number(j.debugPort);
-      }
-    }
-  } catch (_) { /* 配置缺失/非法不阻断，回退默认端口 */ }
-  return 9223;
+  if (process.env.SOGOU_CDP_PORT) return Number(process.env.SOGOU_CDP_PORT) || 9222;
+  return 9222;
 }
 const CDP_PORT = resolveCdpPort();
 const HOST = '127.0.0.1';
@@ -160,7 +150,7 @@ function usage() {
   node resolve_midlink.js --check                           仅探活调试端口
 
 环境变量：
-  SOGOU_CDP_PORT   调试浏览器端口（缺省 9223）`);
+  SOGOU_CDP_PORT   调试浏览器端口（由 Agent 编排调用 chrome-devtools 拉起后注入；缺省 9222）`);
 }
 
 async function main() {
@@ -170,7 +160,7 @@ async function main() {
   if (args.includes('--check')) {
     const r = await checkBrowser();
     if (r.ok) { console.log(`OK 调试浏览器就绪：${r.browser} @ 127.0.0.1:${r.port}`); process.exit(0); }
-    console.error(`[不可达] 127.0.0.1:${r.port}：${r.reason}\n请先经 chrome-devtools 的 start.cjs 拉起调试浏览器。`);
+    console.error(`[不可达] 127.0.0.1:${r.port}：${r.reason}\n请经 Agent 编排调用 chrome-devtools（MCP 连接器）拉起调试浏览器并回传 SOGOU_CDP_PORT 后再探活（本脚本不自行拉起）。`);
     process.exit(2);
   }
 
