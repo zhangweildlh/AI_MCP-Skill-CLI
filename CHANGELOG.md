@@ -1,5 +1,12 @@
 ---
 
+## [2026-11-11]
+
+### Fixed
+- **dir/Workbuddy专属：wechat-article-to-ima 修复依赖误报 + folder_id 硬编码错位 + 去重分页缺陷（Issue 1/2/3/5，PR 待建）**：针对固化的 5 项问题中的三项代码级缺陷进行核查坐实与修复。① Issue1（firecrawl CLI 缺失误报）：`scripts/check-deps.js` 拆除裸 `spawnSync('firecrawl')` 误报根源 `firecrawlCliOk()`，firecrawl 改判「委派目标 web-search/firecrawl 存在 + 密钥就绪」硬门禁（`cliDelegated:true`、`usable=skillPresent&&keyPresent`），不再因 Windows 下全局无扩展名 bash 脚本 ENOENT 误报缺失。② Issue2（chrome-devtools 端口不可达误报）：`scripts/resolve_midlink.js` 移除读陈旧 `local-config.json` 的逻辑，`resolveCdpPort()` 改为「编排回传 `SOGOU_CDP_PORT` 优先、缺省 9222、绝不自行扫描/拉起」；`check-deps.js` 软依赖 chrome-devtools 仅判目录存在 + 实时探活编排回传端口，缺失仅告警并指回 Agent 编排拉起。③ Issue3（folder_id 配置错位）：`scripts/state.js` 新增 `resolve-folder` 子命令，按任务卡配置表的 `folder_name`（ima 实际子目录名）实时向 `openapi/wiki/v1/get_knowledge_list` 探查真实 `folder_id`（media_id），分页遍历根目录、仅匹配 `media_type!==11` 的文件夹、去重键归一化；`SKILL.md` 任务卡配置表 folder_id 列改为 folder_name（工程总承包EPC/城市更新/全域土地和生态修复），入库流程要求先经 `resolve-folder` 实时解析（禁止硬编码）。④ Issue5（去重分页缺陷）：`scripts/pipeline.js` 新增 `listAllKb(kbId, folderId)` 游标分页（保留 media_type，循环至 200 页），替换原 5 处单页 `limit:50` 调用，消除子目录笔记 >50 时去重/复验不全。另：`SKILL.md` 降级链与第三方技能编排章明确 2/3 级经 Agent 编排（硬门禁 G1/G2/G3）委派 web-search/firecrawl 与 chrome-devtools，本技能不再重复造轮子。新增离线回归 `tests/test_deps_and_folder.js`（30 断言，ima_api.cjs 由本地桩接管，覆盖 Issue1/2/3 契约）。验证：目录级 `run_all.py --scope dir/Workbuddy专属 --project-tests` PASS=12 FAIL=0（新增 1）；仓库级 `run_all.py --tier 0,1,2,3,4,5,6` 76 OK/0 FATAL；`test_manifest.py` 已补登（配套 meta 分支）。部署态待 dir PR 合并后经 `scripts/deploy.js` 从 main blob 逐字节重建并刷新 §7.2。
+
+---
+
 ## [2026-11-10]
 
 ### Added

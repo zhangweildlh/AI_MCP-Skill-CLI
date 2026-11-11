@@ -147,6 +147,14 @@ TEST_ENTRIES = [
          cmd=["node", "Workbuddy专属/wechat-article-to-ima/tests/test_aux_markdown.js"], shell=False,
          kind="regression", risk="offline",
          note="D3 auxCriteria 对 markdown 源（Agent 编排 2/3 级 handback）按 markdown 语法判辅助判据（列表/标题/表格），不再恒为 0 误关优质 md；离线单测 6 断言"),
+    dict(scope="dir/Workbuddy专属", name="wai-deps-and-folder",
+         path="Workbuddy专属/wechat-article-to-ima/tests/test_deps_and_folder.js",
+         cmd=["node", "Workbuddy专属/wechat-article-to-ima/tests/test_deps_and_folder.js"], shell=False,
+         kind="regression", risk="offline",
+         note="依赖委派 + 文件夹动态解析回归：Issue1(check-deps 拆除 firecrawl 裸 spawn、改委派 web-search 硬门禁)、"
+              "Issue2(resolve_midlink 端口不读 local-config/不硬编码、缺省 9222 + SOGOU_CDP_PORT 优先 + --check 委派文案)、"
+              "Issue3(state.js resolve-folder 按 ima 实际名实时解析 folder_id、分页遍历、仅匹配 media_type!=11 文件夹、dedupKey 归一化)；"
+              "ima_api.cjs 由本地桩接管，零网络；30 断言全绿"),
     dict(scope="dir/Workbuddy专属", name="was-search-tests",
          path="Workbuddy专属/wechat-article-search/tests/run_tests.js",
          cmd=["node", "Workbuddy专属/wechat-article-search/tests/run_tests.js"], shell=False,
