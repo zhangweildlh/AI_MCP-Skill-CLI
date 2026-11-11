@@ -129,6 +129,7 @@ function usage() {
   update-card   --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K] [--searched-keywords K] [--clear-searched] [--failure-class C]
   report [--kb-id K] [--folder-id F] [--kb-snapshot <json>] [--card C] [--json]
   diff-keywords --card C --keywords "K1;K2;K3" [--json]   输出尚未搜索的关键词差集（续跑只搜剩余词）
+  resolve-folder --name <ima实际子目录名> --kb-id K [--card C] [--json]   按名实时解析真实 folder_id（禁止硬编码）
   classify-failure --reason "R"                           判定 transient / permanent
 
 通用选项：
@@ -142,7 +143,7 @@ function fail(msg) {
 }
 
 function parseArgs(argv) {
-  const opt = { progress: '', command: '', card: '', title: '', mediaId: '', reason: '', n: null, verify: true, noVerify: false, imaApi: '', kbId: '', folderId: '', kbSnapshot: '', json: false, searchedKeywords: '', clearSearched: false, failureClass: '', keywords: '', skillBase: '' };
+  const opt = { progress: '', command: '', card: '', title: '', mediaId: '', reason: '', n: null, verify: true, noVerify: false, imaApi: '', kbId: '', folderId: '', kbSnapshot: '', json: false, searchedKeywords: '', clearSearched: false, failureClass: '', keywords: '', skillBase: '', name: '' };
   let i = 0;
   while (i < argv.length) {
     const a = argv[i];
@@ -169,6 +170,7 @@ function parseArgs(argv) {
     else if (a === '--folder-id') opt.folderId = argv[++i] || fail('缺少 --folder-id 值');
     else if (a === '--kb-snapshot') opt.kbSnapshot = argv[++i] || fail('缺少 --kb-snapshot 值');
     else if (a === '--keywords') opt.keywords = argv[++i] || '';
+    else if (a === '--name') opt.name = argv[++i] || fail('缺少 --name 值');
     else if (a === '--json') opt.json = true;
     else if (a === '--skill-base') opt.skillBase = argv[++i] || fail('缺少 --skill-base 值');
     else if (!opt.command) opt.command = a;
@@ -660,8 +662,57 @@ function cmdClassifyFailure(opt) {
   process.stdout.write(classifyFailure(opt.reason || '') + '\n');
 }
 
+/**
+ * resolve-folder：按「ima 实际子目录名」实时解析真实 folder_id（media_id）。
+ *
+ * 【为什么需要】
+ * 任务卡配置表不应硬编码 folder_id（子目录 media_id 服务端可变更，硬编码会随时失效）；
+ * 改为每次执行时按 folder_name 向 ima 开放接口实时探查，取出真实 folder_id。
+ *
+ * 【契约】
+ * 根目录列举（folder_id=''）返回文件夹 media_type=99、笔记 media_type=11；
+ * 仅匹配 media_type!==11 的文件夹，按归一化标题（dedupKey）与 --name 比对。
+ * 命中后将 folder_id 打印到 stdout（便于被 pipeline / Agent 直接消费）；--json 输出结构化。
+ */
+function cmdResolveFolder(opt) {
+  if (!opt.name) fail('resolve-folder 需要 --name <ima 实际子目录名>（按名实时解析 folder_id，禁止硬编码）。');
+  if (!opt.kbId) fail('resolve-folder 需要 --kb-id <knowledge_base_id>。');
+  if (!opt.imaApi) opt.imaApi = locateImaApi();
+  if (!opt.imaApi) fail('resolve-folder 无法定位 ima_api.cjs（设置 IMA_API_CJS 或确保 ima-skills 已安装）。');
+  const nameKey = dedupKey(opt.name);
+  const folders = [];
+  let cursor = '';
+  let pages = 0;
+  do {
+    const body = JSON.stringify({ knowledge_base_id: opt.kbId, folder_id: '', cursor, limit:50 });
+    const res = spawnSync('node', [opt.imaApi, 'openapi/wiki/v1/get_knowledge_list', body], { encoding: 'utf-8', timeout: 60000 });
+    if (res.error) fail('调用 ima_api.cjs 失败：' + res.error.message);
+    if (res.status !== 0) fail('ima_api.cjs 退出码 ' + res.status + '：' + (((res.stderr || '').trim() || (res.stdout || '').trim()).slice(0, 200)));
+    let json;
+    try { json = JSON.parse(res.stdout); } catch (e) { fail('ima_api.cjs 输出非 JSON：' + res.stdout.slice(0, 200)); }
+    const list = (json && json.data && (json.data.knowledge_list || json.data.list)) || [];
+    for (const it of list) {
+      if (Number(it.media_type) !== 11) folders.push({ media_id: String(it.media_id), title: it.title || '', media_type: it.media_type });
+    }
+    const next = (json && json.data && (json.data.cursor || json.data.next_cursor)) || '';
+    if (!next || next === cursor) break;
+    cursor = next; pages++;
+  } while (pages < 100);
+  const hit = folders.find((x) => dedupKey(x.title) === nameKey);
+  if (!hit) {
+    console.error('[resolve-folder] 未命中：在知识库根目录未找到与「' + opt.name + '」匹配的文件夹（已扫描 ' + folders.length + ' 个文件夹）。');
+    if (folders.length) console.error('[resolve-folder] 现有文件夹：' + folders.map((x) => x.title + '(' + x.media_id + ')').join('、'));
+    process.exit(1);
+  }
+  if (opt.json) console.log(JSON.stringify({ folder_id: hit.media_id, title: hit.title, card: opt.card || null }, null, 2));
+  else console.log(hit.media_id);
+}
+
 function main() {
   const opt = parseArgs(process.argv.slice(2));
+  if (!opt.command) { usage(); process.exit(2); }
+  // resolve-folder 不触碰进度文件，无需 --progress / 文件锁，提前分流
+  if (opt.command === 'resolve-folder') { cmdResolveFolder(opt); return; }
   if (!opt.progress) fail('缺少必填 --progress <路径>。');
   if (!opt.command) { usage(); process.exit(2); }
   // R8 防护：先判定位（禁止在技能目录树内写任何产物，含锁文件），再持锁
@@ -684,6 +735,7 @@ function main() {
     case 'update-card': cmdUpdateCard(opt, data); break;
     case 'report': cmdReport(opt, data); break;
     case 'diff-keywords': cmdDiffKeywords(opt, data); break;
+    case 'resolve-folder': cmdResolveFolder(opt); break;
     case 'classify-failure': cmdClassifyFailure(opt); break;
     default: fail(`未知子命令：${opt.command}`);
   }
@@ -693,4 +745,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { dedupKey, TITLE_CAP, cardOf, locateImaApi, classifyReport, fetchKbEntries, readKbSnapshot, parseMediaIdFromNote, classifyFailure, assertOutsideSkillDir };
+module.exports = { dedupKey, TITLE_CAP, cardOf, locateImaApi, classifyReport, fetchKbEntries, readKbSnapshot, parseMediaIdFromNote, classifyFailure, assertOutsideSkillDir, cmdResolveFolder };

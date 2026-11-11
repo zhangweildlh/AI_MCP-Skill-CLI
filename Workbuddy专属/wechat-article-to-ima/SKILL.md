@@ -31,7 +31,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 | workspace | 字符串 | D:/Documents/AI_Work_Temp/ima+WorkBuddy | 工区绝对路径。临时文件、状态文件、进度文件一律直接存放于该根目录，不建子目录 |
 | knowledge_base_id | 字符串 | ima_kb_QFSIbCma | 目标 ima 知识库标识（2026-11-02 经 ima 开放接口 `get_addable_knowledge_base_list` 实测更新；旧值 `eGuTHK4Ve1i9wX7bE4Sj7n2B_Jb1WnOdqYlGRo91RQM=` 已失效，服务端要求 `ima_kb_` 前缀加 8 位字母数字格式） |
 | card_id | 字符串 | 空值 | 任务卡标识。传入时执行该卡；留空时按进度文件自动轮转选择 |
-| folder_id | 字符串 | 由 card_id 经任务卡配置表推导 | 目标子目录标识。A 卡为 folder_7511772189689986 |
+| folder_id | 字符串 | **运行时由 `state.js resolve-folder` 按任务卡配置表的 folder_name 实时解析**（禁止硬编码） | 目标子目录标识。每次执行前经 `node scripts/state.js resolve-folder --name "<ima实际子目录名>" --kb-id [knowledge_base_id]` 取出真实 media_id |
 | keywords | 数组 | 由 card_id 与轮转序号推导 | 本轮检索的关键词簇。A 卡主词簇为工程总承包、EPC、总包 |
 | rotate_index | 整数 | 空值（两簇全搜） | 轮转序号，0=主词簇、1=变体词簇；传入时只检索该序号对应的词簇，未传入时主词簇与变体词簇逐一全搜（详见「任务卡轮转规则」） |
 | search_script_dir | 字符串 | 由前置依赖检查解析的技能基址下 `wechat-article-search/scripts`（即 `<技能基址>/wechat-article-search/scripts`） | 检索脚本所在目录，由该技能自身提供，本技能不内置该脚本；执行体须据此**绝对路径**拼接步骤 4 的命令，禁止将本描述原文当作路径 |
@@ -44,11 +44,11 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 任务卡配置表（目标子目录与关键词簇）
 
-| card_id | 名称 | folder_id（目标子目录） | 主词簇（轮转序号 0） | 变体词簇（轮转序号 1） |
+| card_id | 名称(展示) | folder_name（ima 实际子目录名，运行时经 resolve-folder 解析 folder_id） | 主词簇（轮转序号 0） | 变体词簇（轮转序号 1） |
 | ------ | ------ | ------ | ------ | ------ |
-| A | 总包 | folder_7511772189689986 | 工程总承包、EPC、总包 | 总承包EPC、EPC总承包 |
-| B | 城更 | folder_7512040100861636 | 城市更新、一老一小、小区改造、城中村改造、街区改造、社区改造、城市合伙人、智慧城市、海绵城市、基础设施改造 | 有机更新、微更新、城市双修、小区整治、城中村更新、街区整治、街区打造、社区整治、社区打造、基础设施更新 |
-| C | 全域土地 | folder_7512041610809167 | 全域土地综合整治、拆旧复垦、人居环境整治、千万工程、城乡融合发展、宜居宜业和美乡村、生态修复、耕地碎片化治理、智慧农业、智慧农田、山水林田湖草沙一体化、撂荒地治理 | 全域整治、生态保护修复 |
+| A | 总包 | 工程总承包EPC | 工程总承包、EPC、总包 | 总承包EPC、EPC总承包 |
+| B | 城更 | 城市更新 | 城市更新、一老一小、小区改造、城中村改造、街区改造、社区改造、城市合伙人、智慧城市、海绵城市、基础设施改造 | 有机更新、微更新、城市双修、小区整治、城中村更新、街区整治、街区打造、社区整治、社区打造、基础设施更新 |
+| C | 全域土地 | 全域土地和生态修复 | 全域土地综合整治、拆旧复垦、人居环境整治、千万工程、城乡融合发展、宜居宜业和美乡村、生态修复、耕地碎片化治理、智慧农业、智慧农田、山水林田湖草沙一体化、撂荒地治理 | 全域整治、生态保护修复 |
 
 轮转含义：轮转序号为 0 时用主词簇，为 1 时用变体词簇，每成功执行一轮后序号在 0 与 1 之间切换。变体不是删除，而是排到下一轮，因此长期覆盖不丢失。
 
@@ -82,10 +82,10 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ### 前置：chrome-devtools 调试浏览器就绪（与 wechat-article-search 呼应）
 
-> 本技能的 Cookie 提取依赖 chrome-devtools 已就绪的调试浏览器（含站点登录态 / Cookie）。其**拉起、端口探活、免 Cookie 降级等完整指令与流程由 `chrome-devtools` 技能 `SKILL.md` 规定**，本技能不重复其细节（避免冗余复述第三方技能内部步骤，见「下级路由」）。本技能仅约定与 `chrome-devtools` 的**契约**：
+> 本技能的 Cookie 提取依赖 chrome-devtools 已就绪的调试浏览器（含站点登录态 / Cookie）。其**拉起、端口探查、端口探活、免 Cookie 降级等完整指令与流程由 `chrome-devtools` 技能 `SKILL.md` 规定并经 Agent 编排调用**，本技能不重复其细节、也**不自行读 `local-config.json` / 不自行拉起**（避免重复造轮子 + 陈旧配置误报）。本技能仅约定与 `chrome-devtools` 的**契约**：
 
-- 连通性以实测为准：经 `scripts/resolve_midlink.js --check`（复用 Chrome DevTools HTTP 端点探活）确认端口连通；不得只读 `local-config.json` 的 `debugPort` 配置值即判定就绪（配置值与实际监听可能不一致，2026-11-05 实测修正）。`scripts/check-deps.js --fix-browser` 可一键「拉起 → 复探」。
-- 未就绪时记为告警 `browser_unavailable`，检索走免 Cookie 降级，并在四栏清单标注「降级链三级（浏览器解析）不可用」；具体拉起步骤见 `chrome-devtools` 技能 `SKILL.md`。
+- **端口由 Agent 编排回传**：调试浏览器端口探查与拉起经 Agent 编排调用 `chrome-devtools`（其 `start.cjs` 扫描 9222~9240 并回传真实端口，经 MCP 连接器拉起 360chrome）。本技能仅按编排回传的 `SOGOU_CDP_PORT` 连接，缺省 9222。`scripts/resolve_midlink.js --check` 仅做端口探活（探活对象须为编排回传的真实端口），**不得只读 `local-config.json` 的 `debugPort` 配置值即判定就绪**（配置值与实际监听可能不一致，2026-11-05 实测；现已去除本地读取）。
+- 未就绪时记为告警 `browser_unavailable`，检索走免 Cookie 降级，并在四栏清单标注「降级链三级（浏览器解析）不可用」；具体拉起步骤见 `chrome-devtools` 技能 `SKILL.md`，由 Agent 编排执行。
 - Cookie 提取后置 `-c` 传给 `search_wechat.js`；两段式取法与 ANTI_SPIDER 即停试策略见「检索执行规则」。
 
 ### 缺失处置
@@ -119,7 +119,7 @@ allowed-tools: Bash Read Write Edit WebFetch
    ```
    > `原文直链` 一律填**解析后的真实直链**（`mp.weixin.qq.com/s?…`），中转链接未解析成功时填已解码的原链接。
 7. 对每份 Markdown 文件执行「完整性闸门」，未通过者标记为失败并跳过，禁止入库。
-8. 将通过闸门的文件按「入库流程」逐篇存入 `[knowledge_base_id]` 下 `[folder_id]` 指定的子目录，每篇处理完立即写回进度文件。
+8. 将通过闸门的文件按「入库流程」逐篇存入 `[knowledge_base_id]` 下 `[folder_id]` 指定的子目录，每篇处理完立即写回进度文件。**`[folder_id]` 须先经 `state.js resolve-folder --name "<任务卡配置表的 folder_name>" --kb-id [knowledge_base_id]` 实时解析**（见「任务卡配置表」，禁止硬编码 media_id），解析结果填入本步与第 9 步的 `--folder-id`。
 9. 执行「复验」，输出**增强四栏清单**（2026-11-05 强化）：必须以 `state.js report` 产出，**不得手工拼凑**。强烈建议带 `--kb-id` / `--folder-id` 走 KB 复核模式：
    ```bash
    node scripts/state.js --progress "[workspace]/_progress_[card].json" report \
@@ -200,7 +200,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 调用 `wechat-article-to-ima` 对**卡片 A（总包）**执行**全量采集、从头强制全量重搜**：
 
 - **工作区与知识库**：`[WS]=D:\Documents\AI_Work_Temp\ima+WorkBuddy`；目标知识库 `knowledge_base_id=ima_kb_QFSIbCma`。
-- **本卡参数**：卡片 `A`（总包）；目标子目录 `folder_id=folder_7511772189689986`；全量关键词簇 = 主词簇（工程总承包、EPC、总包）+ 变体词簇（总承包EPC、EPC总承包），两簇逐一全搜。
+- **本卡参数**：卡片 `A`（总包）；目标子目录 `folder_name=工程总承包EPC`（经 `state.js resolve-folder --name "工程总承包EPC" --kb-id ima_kb_QFSIbCma` 实时解析为 `folder_id`，**禁止硬编码**）；全量关键词簇 = 主词簇（工程总承包、EPC、总包）+ 变体词簇（总承包EPC、EPC总承包），两簇逐一全搜。
 - **第一步·强制全量重搜**：先执行 `node scripts/state.js --progress "[WS]/_progress_A.json" reset-card --card A`（清空 A 卡文章记录并重置 `searchedKeywords=[]` / `failureClass=''`，确保本轮不被旧差集误导、从头全搜）。
 - **执行采集工作流**：按 SKILL.md「采集工作流」步骤 1–12 端到端执行并闭环（前置依赖检查 → 读 `_progress_A.json` → 两词簇逐关键词串行检索 → 去重过滤 → 抓取落 MD → 完整性闸门 → 入 `folder_7511772189689986` → 复验 → 写记忆 → 收尾清扫 → 轮转收尾），全程必带 `--card A`；每完成一个关键词检索即 `state.js update-card --searched-keywords "<该关键词>"` 累积并集。
 - **关键命令**：
@@ -319,11 +319,11 @@ allowed-tools: Bash Read Write Edit WebFetch
 0. **零级（代码实装）：中转链接解析**。搜狗结果中 `url_resolved=false` 的条目，其 `url` 为 `weixin.sogou.com/link?url=…` 中转链接，且其中的 `&` 被写作 HTML 实体 `&amp;`——**不解码则 URL 畸形**，直连会被重定向到 `weixin.sogou.com/antispider/`（反爬页），正文永远取不到。
    - **执行入口**：`scripts/resolve_midlink.js`（零依赖，走 Chrome DevTools HTTP 端点 `/json/new` + `/json/list` + `/json/close`，**不需要 WebSocket、不依赖 chrome-devtools MCP**）。
    - **用法**：单条 `node scripts/resolve_midlink.js "<中转链接>"` → stdout 输出真实直链；批量 `node scripts/resolve_midlink.js --file "<检索结果.json>" [--out "<映射.json>"]`；探活 `node scripts/resolve_midlink.js --check`。
-   - **端口**：环境变量 `SOGOU_CDP_PORT`（与 `get_sogou_cookie.js` 同一契约），缺省 9223。
+   - **端口**：环境变量 `SOGOU_CDP_PORT`（由 Agent 编排调用 chrome-devtools 拉起后注入），缺省 9222；本脚本**不读 `local-config.json`、不自行扫描端口、不自行拉起**，只连接编排回传的端口。
    - 解析失败时以**已解码**的原中转链接直接尝试抓取，最终以「完整性闸门」判定。
    - 检索命令已带 `-r` 且结果 `url_resolved=true` 时已是真实直链，无需本级解析。
 1. **一级（代码实装）：原生网页抓取**。`pipeline.js` 的 `fetchArticle()` 直接读取真实文章直链，获取标题、来源、作者、发布时间与正文（`js_content` 为空或过短判失败）。检索结果中已含 `title`、`url`、`summary`、`datetime`、`date_text`、`source` 字段，可直接作为元数据头输入。
-2. **二级（Agent 编排，非代码自动）：web-search → firecrawl 正文抓取**。**仅用于文章正文抓取，不把关键词检索交给 web-search**（关键词检索仍由 wechat-article-search 负责）。`pipeline.js` 1 级失败 → 落盘 `pending_fetch/<url>.md` → Agent 读取 `web-search` 技能主 `SKILL.md` 后按其 `firecrawl` 适配层工序执行 `firecrawl scrape <URL>` 取正文。**本技能代码不自动调用 firecrawl**（避免跨技能代码耦合与冗余密钥读取）。
+2. **二级（Agent 编排，非代码自动）：web-search → firecrawl 正文抓取**。**仅用于文章正文抓取，不把关键词检索交给 web-search**（关键词检索仍由 wechat-article-search 负责）。`pipeline.js` 1 级失败 → 落盘 `pending_fetch/<url>.md` → Agent 读取 `web-search` 技能主 `SKILL.md` 后按其 `firecrawl` 适配层工序执行 `firecrawl scrape <URL>` 取正文。**firecrawl 官方 CLI 的「存在性探查 / 调用」统一由 web-search 完成（其 firecrawl 适配层），本技能 `check-deps.js` 仅校验「web-search/firecrawl 委派目标存在 + `FIRECRAWL_API_KEY` 就绪」这一硬门禁，不自行 `spawn` firecrawl**（避免 Windows 下裸 spawn 全局无扩展名脚本误报缺失 + 跨技能代码耦合）**。
 3. **三级（Agent 编排，非代码自动）：chrome-devtools**。`pipeline.js` 1 级失败、且 2 级仍不可得时，Agent 读取 `chrome-devtools` 技能主 `SKILL.md`，经其 MCP / 调试浏览器真实打开直链提取正文，覆写 `pending_fetch/<url>.md`。
 4. **单篇抓取策略（代码内）**：对每篇候选直链先走 0 级解析（如有）+ 1 级原生抓取；1 级失败即落盘 `pending_fetch` 移交 Agent 编排，**不自动切换浏览器自动化、不自动调用 firecrawl**。不达标即降级移交，禁止代码内连续硬重试。
 5. **Agent 编排回交（handback）**：Agent 经 2/3 级抓到正文后，把文章 markdown 覆写回 `pending_fetch/<url>.md`（去除 `<!-- NEEDS_FETCH -->` 标记）；`pipeline.js` 由 `--ingest-pending` 模式消费该 handback，重跑过滤 + 完整性闸门（G3 强制复验）后入库。**无 Agent 在场时（无头模式）仅 0/1 级生效，2/3 级不执行**——见「硬门禁·G3 / Agent-present 假设」。
@@ -483,9 +483,9 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 | 脚本 | 职责 | 关键约束 |
 | --- | --- | --- |
-| `scripts/state.js` | `_progress_<card>.json` 唯一读写入口（F9） | 导出 `dedupKey()` / `TITLE_CAP` / `locateImaApi()` / `classifyReport()` / `classifyFailure()`，供流水线复用；`report` 子命令产出增强四栏清单（KB 复核 + 幽灵记录标注 + 逐条原因）；`diff-keywords` 输出未搜词差集、`classify-failure` 判定 transient/permanent；**不得**由其他脚本另写一份去重键或路径解析 |
-| `scripts/check-deps.js` | 前置依赖**代码级**核查器（硬依赖阻断、软依赖告警） | 复用 `resolve_midlink.js` 的 `checkBrowser` 与 `state.js` 的 `locateImaApi`；解析并输出 `search_script_dir` / `ima_api` 路径 / `cdp_port`；硬依赖缺失退出码 1，软依赖缺失仅告警 |
-| `scripts/resolve_midlink.js` | 中转链接 → 真实直链（降级链零级） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；`--check` 为端口探活 |
+| `scripts/state.js` | `_progress_<card>.json` 唯一读写入口（F9） | 导出 `dedupKey()` / `TITLE_CAP` / `locateImaApi()` / `classifyReport()` / `classifyFailure()`，供流水线复用；`report` 子命令产出增强四栏清单（KB 复核 + 幽灵记录标注 + 逐条原因）；`diff-keywords` 输出未搜词差集、`classify-failure` 判定 transient/permanent；**`resolve-folder` 子命令按 ima 实际子目录名实时解析真实 `folder_id`（禁止硬编码）**；**不得**由其他脚本另写一份去重键或路径解析 |
+| `scripts/check-deps.js` | 前置依赖**代码级**核查器（硬依赖阻断、软依赖告警） | firecrawl / chrome-devtools 的「CLI 探查 / 端口探查 / 浏览器拉起」均经 Agent 编排委派对应技能，本检查器只判定「委派目标存在 + 密钥就绪」硬门禁（**不自行 spawn firecrawl、不读 local-config.json**），消除 Windows 下误报；解析并输出 `search_script_dir` / `ima_api` 路径 / `cdp_port` |
+| `scripts/resolve_midlink.js` | 中转链接 → 真实直链（降级链零级） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；端口仅取编排回传的 `SOGOU_CDP_PORT`（缺省 9222），**不读 local-config.json、不自行扫描/拉起**；`--check` 为端口探活 |
 | `scripts/pipeline.js` | 抓取 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限）；`--ingest-quarantine` 模式消费 `failed_quarantine/` 未入库 `.md` 直接补入库而不重搜（改动 B·③） |
 | `scripts/test_filter_rules.js` | 过滤规则回归测试 | 断言 29 条历史误杀样本不再拦截 + 3 条真命中仍拦截 + 11 条子串边界用例 |
 | `scripts/deploy.js` | 开发态 → 部署态 一键同步（零依赖） | 走 `git cat-file blob` 逐字节重建（**不经工作树**，避免 `core.autocrlf` 带入 CRLF，§7.3）；`ima_credentials.json` 为部署态专有物，保留不覆盖；`--dry-run` 预演、`--ref main` 指定来源引用 |

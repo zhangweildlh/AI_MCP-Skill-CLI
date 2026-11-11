@@ -330,7 +330,7 @@ async function main() {
   const WS = opt.workspace;
   // STATE_EXTRA：将 agent 引导词传入的 --skill-base 透传给每个 state.js 子进程（传入 > 内置默认）
   STATE_EXTRA = opt.skillBase ? ['--skill-base', opt.skillBase] : [];
-  const { dedupKey, locateImaApi, assertOutsideSkillDir } = require(STATE_JS);
+  const { dedupKey, TITLE_CAP, locateImaApi, assertOutsideSkillDir } = require(STATE_JS);
   const { resolveMidLink, isMidLink } = require(RESOLVE_JS);
   // R8 防护：工作区严禁落在技能自身目录树内，否则 .md / 进度 / 隔离区会污染技能仓库
   assertOutsideSkillDir(WS);
@@ -361,6 +361,27 @@ async function main() {
    */
   async function imaCall(apiPath, body) {
     return parseImaResponse(apiPath, await imaApi(apiPath, body, {}));
+  }
+
+  /**
+   * 联机拉取目标子目录全量条目（游标分页），返回原始条目数组（保留 media_id/title/media_type）。
+   * 修复：原内联调用均为单页 limit:50 无游标循环，子目录条目 >50 时去重/复验不全 → 重复入库（不可逆）。
+   * 统一改用本分页函数（与 state.js fetchKbEntries 同分页契约：limit=50、循环至 is_end / 无 next_cursor）。
+   */
+  async function listAllKb(kbId, folderId) {
+    const all = [];
+    let cursor = '';
+    for (let page = 0; page < 200; page++) {
+      const r = await imaCall('openapi/wiki/v1/get_knowledge_list',
+        { knowledge_base_id: kbId, folder_id: folderId, cursor, limit: 50 });
+      const list = (r.data?.knowledge_list || []);
+      if (list.length) all.push(...list);
+      const next = (r.data?.next_cursor) || (r.data?.cursor) || '';
+      const isEnd = r.data?.is_end === true || !next || next === cursor;
+      if (isEnd) break;
+      cursor = next;
+    }
+    return all;
   }
 
   // 隔离区补入模式（定向续跑③）：消费 failed_quarantine/ 下未入库的 .md，直接补入库而非重搜。
@@ -404,11 +425,10 @@ async function main() {
         continue;
       }
       stat.attempted++;
-      // KB 去重：已存在则不重入，直接标 ingested 并移除隔离
+      // KB 去重：已存在则不重入，直接标 ingested 并移除隔离（全量分页，避免 >50 篇漏判）
       let kbHit = null;
       try {
-        const list = await imaCall('openapi/wiki/v1/get_knowledge_list', { knowledge_base_id: opt.kbId, folder_id: opt.folderId, cursor: '', limit: 50 });
-        const entries = (list.data?.knowledge_list || []);
+        const entries = await listAllKb(opt.kbId, opt.folderId);
         kbHit = entries.find((x) => dedupKey(x.title) === dedupKey(title)) || null;
       } catch (e) { console.log('[KB] 读取现有条目失败（继续，入库时复验）：' + e.message); }
       if (kbHit) {
@@ -427,8 +447,8 @@ async function main() {
           knowledge_base_id: opt.kbId, folder_id: opt.folderId,
         });
         const mediaId = add.data?.media_id || add.data?.knowledge_id || add.data?.id;
-        const vl = await imaCall('openapi/wiki/v1/get_knowledge_list', { knowledge_base_id: opt.kbId, folder_id: opt.folderId, cursor: '', limit: 50 });
-        const hit = (vl.data?.knowledge_list || []).find((x) => String(x.media_id) === String(mediaId));
+        const vl = await listAllKb(opt.kbId, opt.folderId);
+        const hit = vl.find((x) => String(x.media_id) === String(mediaId));
         if (!hit) throw new Error('复验未命中：media_id 不在目标子目录');
         if (Number(hit.media_type) !== 11) throw new Error('复验 media_type=' + hit.media_type + ' 非笔记(11)');
         state('mark-ingested', markIngestedArgs(mediaId, title), true);
@@ -509,8 +529,8 @@ async function main() {
           folder_id: opt.folderId,
         });
         const mediaId = add.data?.media_id || add.data?.knowledge_id || add.data?.id;
-        const vl = await imaCall('openapi/wiki/v1/get_knowledge_list', { knowledge_base_id: opt.kbId, folder_id: opt.folderId, cursor: '', limit: 50 });
-        const hit = (vl.data?.knowledge_list || []).find((x) => String(x.media_id) === String(mediaId));
+        const vl = await listAllKb(opt.kbId, opt.folderId);
+        const hit = vl.find((x) => String(x.media_id) === String(mediaId));
         if (!hit) throw new Error('复验未命中：media_id 不在目标子目录');
         if (Number(hit.media_type) !== 11) throw new Error('复验 media_type=' + hit.media_type + ' 非笔记(11)');
         stat.ingested++;
@@ -562,17 +582,16 @@ async function main() {
   console.log(`[去重] ${arts.length} → ${uniq.length}`);
   const queue = opt.limit > 0 ? uniq.slice(0, opt.limit) : uniq;
 
-  // KB 现有条目（前缀去重键，规避服务端 30 字符截断）
+  // KB 现有条目（前缀去重键，规避服务端 30 字符截断）——全量分页拉取，避免 >50 篇时去重不全
   const kb = new Map();
   if (opt.kbId && opt.folderId) {
     try {
-      const list = await imaCall('openapi/wiki/v1/get_knowledge_list',
-        { knowledge_base_id: opt.kbId, folder_id: opt.folderId, cursor: '', limit: 50 });
-      (list.data?.knowledge_list || []).forEach((x) => {
+      const entries = await listAllKb(opt.kbId, opt.folderId);
+      entries.forEach((x) => {
         const k = dedupKey(x.title);
         if (!kb.has(k)) kb.set(k, { mediaId: x.media_id, stored: x.title });
       });
-      console.log(`[KB] 目标子目录现有条目 ${kb.size} 条（去重键=归一化标题前 30 字符）`);
+      console.log(`[KB] 目标子目录现有条目 ${kb.size} 条（全量分页去重键=归一化标题前 ${TITLE_CAP} 字符）`);
     } catch (e) {
       console.log('[KB] 读取现有条目失败（继续，入库时逐篇复验）：' + e.message);
     }

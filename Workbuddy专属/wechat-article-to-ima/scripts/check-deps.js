@@ -6,18 +6,21 @@
  * SKILL.md 的「前置依赖检查」原是一段长散文，全靠 Agent 手动逐条执行，易漏导致运行期
  * 才暴露依赖缺失（静默失败）。本脚本把它固化为**确定性、可机器判定的核查**：
  *   - 硬依赖（缺失即阻断）：ima-skills（提供 ima_api.cjs）、wechat-article-search（提供检索/取 Cookie 脚本）。
- *   - 软依赖（缺失仅告警 + 记录文档回退，不阻断）：chrome-devtools（调试浏览器端口）、
- *     web-search / web-search/firecrawl（3 级抓取兜底）、firecrawl 官方 CLI。
+ *   - 软依赖（缺失仅告警 + 记录文档回退，不阻断，均经 Agent 编排委派，本技能代码不自行探查/调用）：
+ *     chrome-devtools（调试浏览器端口探查与拉起经 Agent 编排委派 chrome-devtools MCP 连接器）、
+ *     web-search / web-search/firecrawl（2 级抓取兜底，firecrawl 官方 CLI 探查/调用经 Agent 编排委派 web-search）。
  *
  * 【复用】
  *   - checkBrowser：复用 resolve_midlink.js 的 CDP 端口探活（避免重复实现）。
  *   - locateImaApi：复用 state.js 的定位逻辑（单一事实源，避免两份路径解析漂移）。
  *
  * 【用法】
- *   node scripts/check-deps.js [--json] [--base <技能基址>] [--skills-dir <DIR>] [--fix-browser]
+ *   node scripts/check-deps.js [--json] [--base <技能基址>] [--skills-dir <DIR>]
  *   --json        仅输出 JSON 结果（便于被其它脚本消费）
- *   --fix-browser 端口不可达且 chrome-devtools 已安装时，按 chrome-devtools 流程重新拉起并复探（以连通性为准）
  *   退出码：0 = 硬依赖齐全；1 = 任一硬依赖缺失
+ *
+ * 注：firecrawl / chrome-devtools 的「CLI 探查 / 端口探查 / 浏览器拉起」均经 Agent 编排委派对应技能完成，
+ * 本检查器只判定「委派目标是否存在 + 密钥是否就绪」这一硬门禁，避免本技能重复造轮子并消除 Windows 下的误报。
  *
  * 注意：不使用 $HOME（执行沙箱中 $HOME 被虚拟化为 /HOME，会误判缺失）；
  * 技能基址解析与 SKILL.md §59-64 完全一致。
@@ -26,7 +29,6 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
 
 const __dirname_ = __dirname;
 const STATE_JS = path.join(__dirname_, 'state.js');
@@ -38,7 +40,6 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') o.json = true;
-    else if (a === '--fix-browser') o.fixBrowser = true;
     else if (a === '--base') o.base = argv[++i] || '';
     else if (a === '--skills-dir') o.skillsDir = argv[++i] || '';
   }
@@ -75,7 +76,10 @@ function relExists(base, rel, expectFile) {
   return expectFile ? fileOk(full) : dirHasSkill(full);
 }
 
-// firecrawl 密钥探测（只判有无，不读取值、不回显）
+// firecrawl 密钥探测（只判有无，不读取值、不回显）。
+// 注意：firecrawl 官方 CLI 的「存在性探查 / 调用」统一经 Agent 编排委派 web-search 完成（web-search 的 firecrawl 适配层封装），
+// 本技能代码不自行 spawn firecrawl（Windows 下裸 spawn 全局无扩展名 bash 脚本会 ENOENT 误报缺失，属重复造轮子），
+// 故此处仅校验「委派目标（web-search/firecrawl 技能）存在 + 密钥就绪」这一硬门禁，CLI 可用性交由 web-search 运行时判定。
 function firecrawlKeyPresent(base) {
   if (process.env.FIRECRAWL_API_KEY) return true;
   const envPath = path.join(base, 'web-search', '.env');
@@ -83,12 +87,6 @@ function firecrawlKeyPresent(base) {
   try {
     const txt = fs.readFileSync(envPath, 'utf8');
     return txt.split('\n').some((l) => /^\s*FIRECRAWL_API_KEY\s*=\s*.+/i.test(l));
-  } catch (_) { return false; }
-}
-function firecrawlCliOk() {
-  try {
-    const r = spawnSync(process.env.FIRECRAWL_BIN || 'firecrawl', ['--version'], { encoding: 'utf-8', timeout: 15000 });
-    return r.status === 0;
   } catch (_) { return false; }
 }
 
@@ -130,57 +128,45 @@ async function main() {
   if (!wasOk || !wasScripts.search || !wasScripts.cookie) result.hardMissing.push('wechat-article-search');
 
   // ── 软依赖 ──
-  // chrome-devtools：提供调试浏览器端口（Cookie 提取 + 中转链接解析的基础）
+  // chrome-devtools：调试浏览器端口探查与拉起经 Agent 编排委派 chrome-devtools MCP 连接器完成，
+  // 本技能代码不自行读 local-config.json / 不自行拉起（避免重复造轮子 + 陈旧配置误报）。
+  // 硬门禁 = chrome-devtools 委派目标（技能目录）存在；端口连通性仅作实时信息（以编排回传的 SOGOU_CDP_PORT 探活）。
   const { checkBrowser } = require(RESOLVE_JS);
   let cdOk = null, cdPort = null, cdInstalled = false;
-  let cdLaunchInfo = null;
   if (base) {
     cdInstalled = relExists(base, 'chrome-devtools/localization/start.cjs', true)
       && relExists(base, 'chrome-devtools/local-config.json', true);
+    // 实时探活编排回传的端口（SOGOU_CDP_PORT，缺省 9222）；不读陈旧 local-config.json。
     const chk = await checkBrowser();
     cdOk = chk.ok; cdPort = chk.ok ? chk.port : null;
   }
-  // 端口不可达且显式 --fix-browser：按 chrome-devtools 流程尝试重新拉起并复探（对齐 SKILL.md:91）。
-  // 该动作仅在用户显式传 --fix-browser 时执行，且以连通性为准——拉起后必须再次探活，不读配置值即判定成功。
-  if (!cdOk && opt.fixBrowser && cdInstalled && base) {
-    const startCjs = path.join(base, 'chrome-devtools', 'localization', 'start.cjs');
-    try {
-      const r = spawnSync('node', [startCjs], { encoding: 'utf-8', timeout: 30000, stdio: 'ignore' });
-      const chk2 = await checkBrowser();
-      if (chk2.ok) { cdOk = true; cdPort = chk2.port; cdLaunchInfo = '已重新拉起并复探成功'; }
-      else { cdLaunchInfo = `拉起脚本已执行（退出码 ${r.status}）但复探仍不可达`; }
-    } catch (e) {
-      cdLaunchInfo = '拉起失败：' + e.message;
-    }
-  }
   result.soft.chromeDevtools = { installed: cdInstalled, cdpReachable: cdOk, port: cdPort,
-    fixBrowser: opt.fixBrowser, autoLaunch: cdLaunchInfo,
+    delegated: '端口探查与调试浏览器拉起经 Agent 编排委派 chrome-devtools（MCP 连接器）；本技能仅按编排回传的 SOGOU_CDP_PORT 连接，不自行发现/拉起',
     fallback: '端口不可达 → 检索走免 Cookie 降级；中转链接解析失败 → 用解码后原始链接兜底（pipeline 已实现）' };
-  if (!cdInstalled) result.soft.chromeDevtools.note = '技能未安装：调试浏览器不可用，Cookie 提取与中转链接解析将整体降级';
-  else if (!cdOk && !opt.fixBrowser) {
-    result.soft.chromeDevtools.launchCommand = `node ${(path.join(base, 'chrome-devtools', 'localization', 'start.cjs'))}`;
-    result.soft.chromeDevtools.note = '端口不可达：可加 --fix-browser 自动按 chrome-devtools 流程拉起并复探，或手动执行上方 launchCommand 后再探活';
+  if (!cdInstalled) result.soft.chromeDevtools.note = '委派目标未安装：调试浏览器不可用，Cookie 提取与中转链接解析将整体降级（需 Agent 经 chrome-devtools 技能拉起）';
+  else if (!cdOk) {
+    result.soft.chromeDevtools.note = '委派目标已安装但当前端口未连通：请经 Agent 编排调用 chrome-devtools 拉起调试浏览器并回传 SOGOU_CDP_PORT 后再探活';
   }
 
-  // web-search / firecrawl：3 级抓取兜底
+  // web-search / firecrawl：2 级抓取兜底（经 Agent 编排委派 web-search，firecrawl CLI 探查/调用由 web-search 完成）
   const wsOk = base ? relExists(base, 'web-search', false) : false;
   const fcSkillOk = base ? relExists(base, 'web-search/firecrawl', false) : false;
-  const fcCli = firecrawlCliOk();
   const fcKey = base ? firecrawlKeyPresent(base) : false;
   result.soft.webSearch = { present: wsOk };
   result.soft.firecrawl = {
     skillPresent: fcSkillOk,
-    cliAvailable: fcCli,
     keyPresent: fcKey,
-    usable: fcCli && fcKey,
-    fallback: '不可用 → 1 级失败即标记抓取失败，2 级（浏览器自动化）留作 Agent 手动兜底',
+    cliDelegated: true,
+    usable: fcSkillOk && fcKey,
+    delegatedTo: 'web-search（Agent 编排调用，firecrawl CLI 探查/调用由 web-search 的 firecrawl 适配层负责，本技能不自行 spawn）',
+    fallback: '不可用 → 1 级失败即移交 Agent 编排（pending_fetch），2 级留作 Agent 经 web-search 兜底',
   };
 
   // ── 解析对外产物 ──
   result.resolved.searchScriptDir = base ? path.join(base, 'wechat-article-search', 'scripts') : null;
   result.resolved.imaApiCjs = imaApiPath;
   result.resolved.cdpPort = cdPort;
-  result.resolved.firecrawlUsable = fcCli && fcKey;
+  result.resolved.firecrawlUsable = fcSkillOk && fcKey;
 
   result.ok = result.hardMissing.length === 0;
 
@@ -201,10 +187,9 @@ async function main() {
     L.push('【软依赖 · 缺失仅告警 + 文档回退】');
     L.push('  chrome-devtools       : 安装=' + (result.soft.chromeDevtools.installed ? '✅' : '❌')
       + ' 端口可达=' + (result.soft.chromeDevtools.cdpReachable ? '✅:' + result.soft.chromeDevtools.port : '⚠️ 不可达'));
-    if (result.soft.chromeDevtools.autoLaunch) L.push('                        自动拉起：' + result.soft.chromeDevtools.autoLaunch);
-    if (result.soft.chromeDevtools.launchCommand) L.push('                        手动拉起：' + result.soft.chromeDevtools.launchCommand);
-    L.push('  web-search            : ' + (result.soft.webSearch.present ? '✅' : '❌（3 级兜底不可用）'));
-    L.push('  firecrawl(CLI+Key)    : ' + (result.soft.firecrawl.usable ? '✅ 可用' : '⚠️ 不可用（CLI=' + result.soft.firecrawl.cliAvailable + ' Key=' + result.soft.firecrawl.keyPresent + '）'));
+    L.push('  web-search            : ' + (result.soft.webSearch.present ? '✅' : '❌（2 级兜底委派目标不可用）'));
+    L.push('  firecrawl(委派web-search): ' + (result.soft.firecrawl.usable ? '✅ 可用' : '⚠️ 不可用')
+      + '（skill=' + result.soft.firecrawl.skillPresent + ' Key=' + result.soft.firecrawl.keyPresent + '）');
     L.push('');
     L.push('【解析产物】');
     L.push('  search_script_dir : ' + (result.resolved.searchScriptDir || '—'));
@@ -224,4 +209,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('[FATAL]', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { resolveSkillsBase, relExists, firecrawlKeyPresent, firecrawlCliOk };
+module.exports = { resolveSkillsBase, relExists, firecrawlKeyPresent };
