@@ -115,6 +115,31 @@ function matchFilter(text, layer) {
 const MIN_CHARS = 800;
 const MIN_PERIODS = 5;
 
+// ── 错误页 / 反爬页语义否决（审计 E-17）──
+// 2 级 firecrawl 抓搜狗中转链接会返回 exit=0 但内容实为 antispider 验证码页；
+// 该页 chars≥MIN_CHARS 且段落数≥3 会命中 aux.met 豁免 MIN_PERIODS，原闸门判 pass=true，
+// 一旦经 handback 回交即被 import_doc 写进 KB（开放接口无 delete，不可逆）。
+const ERROR_PAGE_MARKERS = [
+  'VerifyCode', 'antispider', '此验证码用于确认', '需要您协助验证',
+  '提交后没解决问题', '搜狗搜索',
+];
+function looksLikeErrorPage(text) {
+  const s = String(text || '');
+  let hits = 0;
+  for (const m of ERROR_PAGE_MARKERS) if (s.includes(m)) hits++;
+  return hits >= 2 || s.includes('此验证码用于确认') || s.includes('VerifyCode');
+}
+/** Agent 回交 handback 的形态验收（G3 增强，审计 E-17）：不合格一律拒收并保留文件。 */
+function validateHandback(raw) {
+  const s = String(raw || '');
+  if (looksLikeErrorPage(s)) return { ok: false, reason: '命中反爬/验证码页语义（禁止入库，避免不可逆污染）' };
+  if (/weixin\.sogou\.com\/(?:link\?|antispider)/i.test(s) && !/mp\.weixin\.qq\.com/i.test(s)) {
+    return { ok: false, reason: '原文直链仍为搜狗中转/反爬链接，未取回真实正文' };
+  }
+  if (!/^#\s+\S/m.test(s)) return { ok: false, reason: '缺少 `# 文章标题` 元数据头（不符合 SKILL.md 锁定格式）' };
+  return { ok: true };
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 微信文章直连需带 Referer（否则易被反爬/防盗链拦截返回空正文或验证页；
@@ -292,6 +317,7 @@ function emitNeedsFetch(a, candidates, reason, ws) {
     `<!-- tried: 0(midlink),1(native) -->`,
     `<!-- created: ${new Date().toISOString()} -->`,
     '',
+    '<!-- handback-required: 覆写本文件时须 ① 去除 NEEDS_FETCH 标记 ② 保留 `# 文章标题` 元数据头 ③ 原文直链填 mp.weixin.qq.com 真实直链 ④ 严禁回交反爬/验证码页；不合格者 --ingest-pending 一律拒收 -->',
     '等待 Agent 编排（2 级 web-search→firecrawl / 3 级 chrome-devtools）抓取正文后，',
     `将本文件覆写为文章 markdown（保留文件名 ${key}.md），pipeline.js 经 --ingest-pending 消费。`,
   ];
@@ -305,6 +331,10 @@ function isPendingStub(content) {
 function evaluateGate(text, html) {
   const chars = text.replace(/\s/g, '').length;
   const periods = (text.match(/。/g) || []).length;
+  // ★ 错误页语义否决优先于一切数值判据（审计 E-17）：反爬页可能 chars/段落均达标。
+  if (looksLikeErrorPage(text)) {
+    return { chars, periods, pass: false, reason: 'error_page(反爬/验证码/错误页语义命中，禁止入库)' };
+  }
   const aux = auxCriteria(html || '', text);
   let pass = true, reason = '';
   if (chars < MIN_CHARS) {
@@ -320,11 +350,13 @@ function evaluateGate(text, html) {
 async function main() {
   const opt = parseArgs(process.argv.slice(2));
   if (!opt.workspace || !opt.card) {
-    console.error('用法：node pipeline.js --workspace <工区> --card <卡> (--search "<检索结果.json>" | --ingest-quarantine) [--kb-id K] [--folder-id F] [--limit N] [--dry-run]');
+    console.error('用法：node pipeline.js --workspace <工区> --card <卡> (--search "<检索结果.json>" | --ingest-pending | --ingest-quarantine) [--kb-id K] [--folder-id F] [--limit N] [--dry-run]');
     process.exit(1);
   }
-  if (!opt.search && !opt.ingestQuarantine) {
-    console.error('用法：node pipeline.js --workspace <工区> --card <卡> --search "<检索结果.json>" [--kb-id K] [--folder-id F] [--limit N] [--dry-run]');
+  // 三种合法模式：--search（主流程）/ --ingest-pending（handback 回收）/ --ingest-quarantine（隔离区补入）。
+  // 审计 E-23：原守卫漏了 ingestPending，导致引导词中的 handback 回收命令 exit=1 只打印用法。
+  if (!opt.search && !opt.ingestPending && !opt.ingestQuarantine) {
+    console.error('用法：node pipeline.js --workspace <工区> --card <卡> (--search "<检索结果.json>" | --ingest-pending | --ingest-quarantine) [--kb-id K] [--folder-id F] [--limit N] [--dry-run]');
     process.exit(1);
   }
   const WS = opt.workspace;
@@ -399,28 +431,36 @@ async function main() {
     //   闸 1：文件名带 __ 前缀但非本卡前缀 → 跨卡残留，跳过（不读内容、不调用 ima）；
     //   闸 2：无本卡进度记录的（他卡残留/孤立文件）→ 跳过，绝不触发 shouldReingest 误入本卡。
     const ownPrefix = opt.card ? safeFile(opt.card) + '__' : null;
-    const stat = { attempted: 0, ingested: 0, skipped: 0, failed: 0 };
+    const stat = { attempted: 0, ingested: 0, skipped: 0, failed: 0, admittedOrphans: 0, skippedOtherCard: 0, skippedNoProgress: 0, skippedGate: 0 };
     for (const f of files) {
       const fp = path.join(quarantine, f);
       // 闸 1：带前缀但非本卡 → 跨卡残留，直接跳过
       const hasPrefix = /__.+\.md$/.test(f);
       if (ownPrefix && hasPrefix && !f.startsWith(ownPrefix)) {
-        stat.skipped++;
+        stat.skipped++; stat.skippedOtherCard++;
         console.log(`[跳过] 非本卡(${opt.card})隔离残留：${f.slice(0, 40)}`);
         continue;
       }
       const raw = fs.readFileSync(fp, 'utf8');
       const m = raw.match(/^#\s*(.+?)\s*$/m);
       const title = (m ? m[1] : f.replace(/\.md$/, '')).trim();
-      const art = (data.articles || []).find((a) => a.card === opt.card && a.title === title);
-      // 闸 2：无本卡进度记录 → 他卡残留/孤立文件，跨卡污染防护，跳过（不触发 shouldReingest）
+      let art = (data.articles || []).find((a) => a.card === opt.card && a.title === title);
+      // 闸 2：无本卡进度记录 → 他卡残留/孤立文件，跨卡污染防护，跳过。
+      // ★ 审计 E-16 例外：文件名带**本卡前缀**的历史残留，在 reset-card 清空 articles 后
+      //   恰恰没有进度记录；若一并跳过，则「强制全量重搜 + 隔离残留清零」永远不可达。
+      //   闸 1 已拦下所有非本卡前缀，故此处按文件内容重建最小进度条目，交后续闸门/KB 去重判定。
       if (!art) {
-        stat.skipped++;
-        console.log(`[跳过] 无本卡(${opt.card})进度记录，疑似他卡残留/孤立文件：${title.slice(0, 40)}`);
-        continue;
+        if (!(ownPrefix && f.startsWith(ownPrefix))) {
+          stat.skipped++; stat.skippedNoProgress++;
+          console.log(`[跳过] 无本卡(${opt.card})进度记录，疑似他卡残留/孤立文件：${title.slice(0, 40)}`);
+          continue;
+        }
+        art = { card: opt.card, title, fetchStatus: 'ok', filterResult: 'kept', gateResult: 'pass', ingestStatus: 'pending' };
+        stat.admittedOrphans++;
+        console.log(`[接纳] 本卡前缀历史残留，重建最小进度记录：${title.slice(0, 40)}`);
       }
       if (!shouldReingest(title, art)) {
-        stat.skipped++;
+        stat.skipped++; stat.skippedGate++;
         console.log(`[跳过] 闸门未过/质量失败，重入库无意义：${title.slice(0, 40)}`);
         continue;
       }
@@ -464,7 +504,11 @@ async function main() {
     console.log('\n=== 隔离区补入统计 ===');
     console.log(`尝试 : ${stat.attempted}`);
     console.log(`补入成功 : ${stat.ingested}`);
-    console.log(`跳过(质量失败) : ${stat.skipped}`);
+    console.log(`跳过合计 : ${stat.skipped}`);
+    console.log(`  其中 跨卡残留(闸1) : ${stat.skippedOtherCard}`);
+    console.log(`  其中 无进度记录且非本卡前缀(闸2) : ${stat.skippedNoProgress}`);
+    console.log(`  其中 闸门未过/质量失败 : ${stat.skippedGate}`);
+    console.log(`接纳本卡前缀孤立残留(E-16) : ${stat.admittedOrphans}`);
     console.log(`仍失败 : ${stat.failed}`);
     if (opt.kbId && opt.folderId) {
       const rr = spawnSync('node', [STATE_JS, '--progress', progressPath, ...STATE_EXTRA, 'report', '--kb-id', opt.kbId, '--folder-id', opt.folderId], { encoding: 'utf-8', timeout: 120000 });
@@ -484,7 +528,7 @@ async function main() {
     if (!fs.existsSync(dir)) { console.log('[pending] 无 pending_fetch/，跳过。'); return; }
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
     if (!files.length) { console.log('[pending] 无 .md 待消费。'); return; }
-    const stat = { attempted: 0, ingested: 0, skipped: 0, filtered: 0, failed: 0, stillPending: 0 };
+    const stat = { attempted: 0, ingested: 0, skipped: 0, filtered: 0, failed: 0, stillPending: 0, rejected: 0 };
     for (const f of files) {
       const fp = path.join(dir, f);
       const raw = fs.readFileSync(fp, 'utf8');
@@ -492,6 +536,15 @@ async function main() {
       if (isPendingStub(raw)) {
         stat.skipped++; stat.stillPending++;
         console.log(`[跳过] 仍为 stub，Agent 尚未抓取：${f.slice(0, 40)}`);
+        continue;
+      }
+      // G3 增强：handback 形态验收（审计 E-17）。不合格者保留文件供 Agent 重新回交，
+      // 绝不进入 import_doc —— 反爬验证码页一旦入库即不可逆（无 delete 端点）。
+      const hv = validateHandback(raw);
+      if (!hv.ok) {
+        stat.rejected++;
+        state('mark-failed', ['--card', opt.card, '--title', f.replace(/\.md$/, ''), '--reason', 'handback 验收未过:' + hv.reason], true);
+        console.log(`[拒收] ${hv.reason} | ${f.slice(0, 40)}（文件保留待重新回交）`);
         continue;
       }
       const m = raw.match(/^#\s*(.+?)\s*$/m);
@@ -550,6 +603,7 @@ async function main() {
     console.log(`被过滤 : ${stat.filtered}`);
     console.log(`失败 : ${stat.failed}`);
     console.log(`待 Agent 抓取(stub) : ${stat.stillPending}`);
+    console.log(`handback 验收拒收 : ${stat.rejected}（文件保留，需重新回交）`);
     if (opt.kbId && opt.folderId) {
       const rr = spawnSync('node', [STATE_JS, '--progress', progressPath, ...STATE_EXTRA, 'report', '--kb-id', opt.kbId, '--folder-id', opt.folderId], { encoding: 'utf-8', timeout: 120000 });
       if (rr.status === 0) console.log('\n' + (rr.stdout || '').trim());
@@ -731,9 +785,10 @@ async function main() {
       const mediaId = add.data?.media_id || add.data?.knowledge_id || add.data?.id;
 
       // 复验：确认 media_type===11 真实存在于目标子目录
-      const vl = await imaCall('openapi/wiki/v1/get_knowledge_list',
-        { knowledge_base_id: opt.kbId, folder_id: opt.folderId, cursor: '', limit: 50 });
-      const hit = (vl.data?.knowledge_list || []).find((x) => String(x.media_id) === String(mediaId));
+      // 审计 E-06：原单页 limit:50 复验在 folder >50 条时会把真实已入库条目误判「未命中」，
+      // 而 import_doc/add_knowledge 已写 KB（无 delete 端点）→ 三态不一致。统一改全量分页。
+      const vl = await listAllKb(opt.kbId, opt.folderId);
+      const hit = vl.find((x) => String(x.media_id) === String(mediaId));
       if (!hit) throw new Error('复验未命中：media_id 不在目标子目录');
       if (Number(hit.media_type) !== 11) throw new Error('复验 media_type=' + hit.media_type + ' 非笔记(11)');
 
@@ -742,7 +797,9 @@ async function main() {
       state('mark-ingested', markIngestedArgs(mediaId, title), true);
       kb.set(dedupKey(title), { mediaId, stored: title + '.md' });
       fs.unlinkSync(mdPath); // 成功入库 → 删除本地副本
-      console.log(`${tag} ✅ 入库 ${title.slice(0, 40)} | chars=${chars} periods=${periods}${gateReason ? ' | ' + gateReason : ''}`);
+      // 审计 E-22：原写法引用未定义的 chars/periods（二者只存在于 evaluateGate 内部），
+      // 会在入库成功后抛 ReferenceError 并被本 try 的 catch 误判为「入库失败」→ 三态不一致。
+      console.log(`${tag} ✅ 入库 ${title.slice(0, 40)} | chars=${gate.chars} periods=${gate.periods}${gateReason ? ' | ' + gateReason : ''}`);
     } catch (e) {
       stat.failed++; detail.failed.push({ title, reason: '入库失败：' + e.message });
       fs.mkdirSync(quarantine, { recursive: true });
@@ -784,4 +841,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('FATAL', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, shouldReingest, buildFetchFailureReason, buildFetchHeaders, WECHAT_REFERER, emitNeedsFetch, isPendingStub, pendingKeyOf, evaluateGate, PENDING_DIR, NEEDS_FETCH_MARKER, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };
+module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, shouldReingest, buildFetchFailureReason, buildFetchHeaders, WECHAT_REFERER, emitNeedsFetch, isPendingStub, pendingKeyOf, evaluateGate, looksLikeErrorPage, validateHandback, PENDING_DIR, NEEDS_FETCH_MARKER, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };

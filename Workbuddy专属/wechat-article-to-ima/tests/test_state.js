@@ -5,7 +5,7 @@
  * 覆盖 state.js 的全部子命令与强约束：
  *   validate / migrate / mark-ingested / mark-failed / mark-filtered
  *   set-attempts / reset-attempts / reset-card / update-card / report
- *   以及导出的 dedupKey() 去重键语义。
+ *   以及导出的 dedupKey() 去重键语义、classify-failure 裸 CLI 免 --progress（E-24）。
  *
  * 纪律：
  *   - 零第三方依赖，仅用 Node 内置模块；
@@ -160,10 +160,22 @@ check('★ reset-card 清空目标卡 failureClass=\'\'（解除旧失败类锁�
 check('reset-card 不影响他卡累积态（searchedKeywords/failureClass 不变）',
   JSON.stringify(p.cards.B.searchedKeywords) === JSON.stringify(['bk']) && p.cards.B.failureClass === 'transient',
   JSON.stringify(p.cards.B));
+// ★ 审计 E-07 回归：reset-card 须把状态机归零，否则续跑守护误判「已完成」而跳过续跑
+check('★ reset-card 把 status 归零为 pending（防旧 completed 误判）', p.cards.A.status === 'pending',
+  String(p.cards.A.status));
+check('★ reset-card 清旧 note/attempts/nextRetryAt/pendingKeywords',
+  p.cards.A.note === '' && p.cards.A.attempts === 0 && !p.cards.A.nextRetryAt
+  && Array.isArray(p.cards.A.pendingKeywords) && p.cards.A.pendingKeywords.length === 0,
+  JSON.stringify(p.cards.A));
 
 console.log('\n=== ⑦ dedupKey 去重键语义（服务端截断 30 字符）===');
 const { dedupKey, TITLE_CAP, classifyReport, classifyFailure } = require(STATE_JS);
 check('TITLE_CAP = 30', TITLE_CAP === 30, String(TITLE_CAP));
+// ★ 审计 E-12 回归：classifyReport 须给出闭环标志，四栏齐全不再等于闭环
+check('★ classifyReport 输出 closed 字段（无待办 → true）',
+  classifyReport({ articles: [] }, null, {}).closed === true);
+check('★ classifyReport 有 needs-fetch 待办 → closed=false',
+  classifyReport({ articles: [{ card: 'A', title: 't', fetchStatus: 'needs-fetch', filterResult: 'kept', gateResult: 'pass', ingestStatus: 'pending' }] }, null, {}).closed === false);
 check('长标题取前 30 字符', dedupKey('A'.repeat(50)).length === 30, String(dedupKey('A'.repeat(50)).length));
 check('库内截断形态（…）与原始标题同键',
   dedupKey('标题内容'.repeat(10)) === dedupKey('标题内容'.repeat(10) + '...'),
@@ -223,6 +235,7 @@ r = state('report', []);
 check('CLI 离线 report 退出码 0', r.code === 0, r.err);
 check('CLI 离线 report 提示未 KB 复核', /离线模式/.test(r.out), r.out);
 check('CLI 离线 report 被过滤计数正确', /被过滤 : 1/.test(r.out), r.out);
+check('★ E-12：report 输出显式闭环判定行（四栏齐全≠闭环）', /闭环判定/.test(r.out), r.out);
 
 // CLI --card 过滤
 r = state('report', ['--kb-snapshot', SNAP, '--card', 'B']);
@@ -259,6 +272,12 @@ r = state('classify-failure', ['--reason', '平台限流，请稍后再试']);
 check('classify-failure 限流 → transient', r.out.trim() === 'transient', r.out);
 r = state('classify-failure', ['--reason', '某未知错误']);
 check('classify-failure 未知 → unknown', r.out.trim() === 'unknown', r.out);
+// 审计 E-24：classify-failure 是纯离线命令，SKILL.md 与引导词均声明「无需 --progress / --card」；
+// 原实现因 main() 的 --progress 必填守卫而 exit=1。以下用裸 CLI（不带 --progress）锁定该契约。
+const rawClassify = spawnSync('node', [STATE_JS, 'classify-failure', '--reason', '平台限流，请稍后再试'], { encoding: 'utf-8' });
+check('★ E-24：classify-failure 不带 --progress 仍可执行（纯离线提前分流）',
+  rawClassify.status === 0 && (rawClassify.stdout || '').trim() === 'transient',
+  'code=' + rawClassify.status + ' out=' + (rawClassify.stdout || '').trim() + ' err=' + (rawClassify.stderr || '').trim().slice(0, 160));
 check('classifyFailure(凭据) = permanent', classifyFailure('鉴权失败 client_id 无效') === 'permanent');
 check('classifyFailure(网络) = transient', classifyFailure('econnreset 网络连接超时') === 'transient');
 check('classifyFailure(未知) = unknown', classifyFailure('锅里的错误') === 'unknown');
