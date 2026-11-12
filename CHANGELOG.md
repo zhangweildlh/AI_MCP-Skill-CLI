@@ -29,6 +29,10 @@
 
 - **meta：AGENTS.md §7.2 映射表随 PR #241 重新复采刷新**：`wechat-article-to-ima` 行实测由 24 文件 / 349468 B / 5291 行 / 聚合 md5 `d00648cf…` 更新为 **25 文件 / 363616 B / 5483 行 / 0 CR / 聚合 md5 `f748c900…`**；4 个变更文件 blob sha 同步更新（SKILL.md `2670755a…`→`debb2733…`、scripts/check-deps.js `e22b49e4…`→`82c552d3…`、scripts/state.js `621776bc…`→`605b4fef…`、引导词.md `d3f7f439…`→`0934b089…`）+ 新增 tests/test_reset_card_cleanup.js `fe56b2c8…`，其余 20 文件 sha 不变；「项目级测试 12 套」同步校正为 13 套，写后校验 24/24→25/25。部署态经 `scripts/deploy.js --ref main` 从 main blob 逐字节重建（写入 5 / 未变化 20 / 失败 0），写后校验 25/25；§7.3 三项判据全过：部署态逐字节 == blob 25/25、`git hash-object --no-filters` == blob sha 25/25、CR=0。
 
+- **dir/Workbuddy专属：wechat-article-search E3 从根因消除 Cookie 缺 SUV（PR #244，`adc0b4b`）**：`scripts/get_sogou_cookie.js` 关键 Cookie 完整性校验集合 `KEY_COOKIE_NAMES` 原仅含 `[SNUID, SUID]`，缺失反爬熔断关键会话标识 **SUV**，致退出码 3 把「仅 SNUID/SUID、缺 SUV」的残缺 Cookie 误判为完整、放行流入下游检索，稳定触发搜狗反爬验证码（E3 根因）。修复：① `KEY_COOKIE_NAMES` 提升为模块级常量并补入 `'SUV'`；② 抽取纯函数 `evaluateKeyCookies(seen)`（缺失键判定）并 `module.exports` 导出，供离线回归复用；③ 增加 `require.main === module` 守卫，被 `require` 时不自动启动 `main()` 连接浏览器；④ 错误文案显式点名 SUV 为反爬会话级访客标识。`tests/run_tests.js` 新增 `[Step4/E3]` 离线回归（零网络）断言四态判定。验证：目录级 `node tests/run_tests.js` **59/59 全部通过**（含 E3/E3a/E3b/E3c/E3d 共 5 项断言）；pre-commit 冒烟 31 OK/0 FATAL、scope 校验 `dir/Workbuddy专属` 通过；因 `Workbuddy专属/` 顶层无 SKILL.md 被 scope-map 判为 meta，本 PR 触发**全量** tier0-3+5+6 且三项全绿。部署态待合并后经 `scripts/deploy.js` 从 main blob 逐字节重建并刷新 §7.2（13 文件）。
+
+- **meta：AGENTS.md §7.2 映射表随 PR #244 重新复采刷新**：`wechat-article-search` 行实测由 13 文件 / 114460 B / 2339 行 / 聚合 md5 `01cdb0fa…` 更新为 **13 文件 / 117930 B / 2389 行 / 0 CR / 聚合 md5 `71af7cfc…`**；2 个变更文件 blob sha 同步更新（scripts/get_sogou_cookie.js `2ba333d3…`→`b7ce89f2…`、tests/run_tests.js `3f43ab20…`→`a83113c5…`），其余 11 文件 sha 不变；项目级测试仍为 2 套（E3 回归并入 `run_tests.js`，未新增文件）。部署态经 `scripts/deploy.js --ref main` 从 main blob 逐字节重建（写入 2 / 未变化 11 / 失败 0），写后校验 13/13；§7.3 三项判据全过（复采从 main blob 逐字节复采完成）。
+
 ---
 
 ## [2026-11-11]
