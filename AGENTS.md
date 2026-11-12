@@ -75,10 +75,11 @@
 - 5.4 测试约定：本仓库自动化冒烟集中在 `scripts/smoke/`（tier0-6，`run_all.py` 支持 `--scope` 按 scope 过滤；其中 `tier6` 为版本锁一致性门禁，仅对含 `version-lock.md` 的技能生效，主干锁与 main HEAD 不一致且未标注历史快照时致命阻断，且对 `version-lock.md` 显式声明为「运行时探测依赖（非版本锁定）」的模块豁免首行版本标记要求（此类模块非 git 上游模块，无固定 commit 可锁）；`tier5` 另校验 §2.1/§2.2 标题声明的计数与该节实际登记条目数一致（计数漂移即致命阻断）；提交前可本地运行 `uv run --with requests python scripts/smoke/run_all.py --tier 0,1 --staged`（本机禁裸 python，一律经 uv 调用，工程路径为本机环境事实，其他机器按各自环境调整）；CI 按变更 scope 触发对应检查，meta 变更触发全量；各 Skill 自带测试（如 `github-personal-manager/smoke`、`web-search/tests` 等）保留在各自 Skill 目录内自包含，调度统一收拢到 `scripts/smoke` 入口（唯一测试源与四类测试入口、扫描优先/复用优先、收尾打扫、资产管理详见第 9 章 测试资产纪律）。
 - 5.5 **docs-sync gate 与目录型提交的交互（操作指引）**：
   - `sop_docs_sync_check.sh`（docs-sync gate）依据改动类型分层检查。当变更无法被归类为 command/config/feature/behavior/dependency/rename/copy/example/docs 中的任何一种时（如**文件删除**、图片/数据资源变更），脚本将其标为 `UNKNOWN`，**保守触发全部 Tier 1/2/3 检查**，包括 Tier 1 的 README/CHANGELOG/AGENTS.md 同步要求。
-  - **目录型 commit 与 docs(meta) commit 的成对模式**：目录型 Skill 的 worktree 分支提交时，pre-commit hook 的 scope 校验仅允许 `<scope_dir>/*` 下的文件（见 §3.2），CHANGELOG.md 等 meta 文件无法随目录型提交一起暂存。因此，当目录型 Skill 内发生文件删除或内容修改时：
-    1. 在 worktree 中仅提交 Skill 目录内的变更（不含 CHANGELOG/README）；
-    2. docs-sync gate 可能会返回退出码 2（Tier 1 未同步）——这是**预期行为**，不是错误。CHANGELOG/README 的同步修改保留在 worktree 工作树中不提交；
-    3. 目录型 PR 合并后，在主工作树（或 meta 分支）上提交独立的 `docs(meta)` commit，补齐 CHANGELOG/README 更新。
+  - **目录型 commit 与 docs(meta) commit 的「单 PR 闭环」与「成对模式」（两种合规形态）**：目录型 / 单文件型 Skill 改动时，pre-commit hook 的 scope 校验仅允许 `<scope_dir>/*`（或根级单文件本体）随技能 commit 暂存（见 §3.2/§4.3），CHANGELOG.md / README.md / §7.2 等 meta 文件无法与技能 commit 同暂存，故「技能变更」与「注册表 / 流水维护」**至少分两个 commit**。两 commit 是否分属两个 PR 由纪律措辞决定，现明确两种合规形态：
+    1. 在 worktree 中仅提交 Skill 目录（或根级单文件本体）内的变更（不含 CHANGELOG/README/§7.2）；docs-sync gate 可能会返回退出码 2（Tier 1 未同步）——这是**预期行为**，不是错误。
+    2. **形态 A（推荐 · 单 PR 闭环）**：技能 commit 后，**切回主工作树对该分支追加**一个独立的 `docs(meta)` commit（仅 CHANGELOG/README/§7.2 等 meta 文件），随后从**同一分支**开**一个 PR**，即完成「技能变更 + 注册表维护」闭环。meta commit 的 §7.2 实测值须以本 PR 合入后该技能文件的**最终内容**填写（PR 评审/合入后即等于 merged main blob 状态，符合 §7.2「记当前实测状态」）；docs-sync gate 对技能 commit 返回的退出码 2 由同 PR 内 meta commit 抹平。
+    3. **形态 B（meta 批量归集）**：若需将多个技能变更的注册表 / 流水刷新归集到一条 meta PR（参见 §7.4「同一条 meta PR 按序多提交」），则各技能 PR 合并后，于 meta 分支提交独立 docs(meta) commit 补齐。适用于跨多个技能的统一登记更新，不强制每技能各开一 meta PR。
+    4. 两形态均满足 commit 级 scope 纯一（hook 强制，不可削弱）；形态 A 仅将旧规「合并后另开独立 meta PR」放宽为「同分支按序两 commit、单 PR 闭环」，不削弱任何安全 / 校验门禁。
   - **提交被拦截时的诊断顺序**：
     1. 确认报错来源：是 `sop_docs_sync_check.sh`（docs-sync gate）还是 pre-commit hook 的 scope 校验；
     2. 若是 docs-sync gate：检查 Tier 1 条目（README/CHANGELOG/AGENTS.md）是否已同步。若本次变更是纯目录型 Skill 内变更，可忽略 gate（合并后走 meta commit 补齐）；
@@ -105,7 +106,7 @@
   | name | 开发态（仓库内相对路径） | 部署态（用户级 skills 目录） | 开发态形态 | 部署态形态 | 实测（文件 / 字节 / CR / 聚合 md5） | 判定 |
   |---|---|---|---|---|---|---|
 | `chrome-devtools` | `chrome-devtools/` | `chrome-devtools/` | 目录型 | 目录型 | 26 文件 / 250519 B / 3826 行 / 0 CR；聚合 md5 `ee597195…`（`localization/install.cjs` `620c9be1…`、`README.md` `8554131a…`、`SKILL.md` `56d2ae09…`） | 实质一致（逐字节 == main blob；§7.3 三项判据全过）。部署方式：经 §7.7 唯一入口由 main blob 逐字节重建（不经工作树）。`localization/install.cjs`（原 `deploy.cjs`，PR #236 按实际功能改名）是**部署态内部安装器**、不承担副本同步；部署态专有物 `local-config.json`/`mcp-local-config.json`（本机配置，不入库、不随主副本分发，§7.1） |
-| `skill-forge` | `Skill-元技能，Skill创建校验器.md` | `skill-forge/SKILL.md` | 根级单文件 | 目录（仅 SKILL.md） | 1 文件 / 43220 B / 0 CR；聚合 md5 `7ec93d52…` | 实质一致（逐字节 == main blob；§7.3 三项判据全过）。部署态 `skill-forge/SKILL.md` 由根级单文件复制而来 |
+| `skill-forge` | `Skill-元技能，Skill创建校验器.md` | `skill-forge/SKILL.md` | 根级单文件 | 目录（仅 SKILL.md） | 1 文件 / 47275 B / 0 CR；聚合 md5 `5d3c0ab2…` | 实质一致（逐字节 == main blob；§7.3 三项判据全过）。部署态 `skill-forge/SKILL.md` 由根级单文件复制而来 |
 | `memory-consolidate` | `Workbuddy专属/Skill-memory-consolidate.md` | `memory-consolidate/SKILL.md` | 合集目录内单文件 | 目录（仅 SKILL.md） | 47533 B / 364 行 / 0 CR；md5 `3ef2e91e…` | 实质一致（逐字节 == main blob；§7.3 三项判据全过）。部署副本物理上为一份（NTFS Junction） |
 | `workflow-distill` | `Workbuddy专属/Skill-workflow-distill.md` | `workflow-distill/SKILL.md` | 合集目录内单文件 | 目录（仅 SKILL.md） | 1 文件 / 17805 B / 0 CR；md5 `63b09729…` | 实质一致（逐字节 == main blob；§7.3 三项判据全过） |
 | `task-methodology-consolidation` | `Skill-对当前对话会话做经验沉淀和方法论固化.md` | `task-methodology-consolidation/SKILL.md` | 根级单文件 | 目录（仅 SKILL.md） | 1 文件 / 25989 B / 0 CR；md5 `6154318e…` | 实质一致（逐字节 == main blob；§7.3 三项判据全过）（单文件→目录形态转换） |
@@ -167,7 +168,7 @@
   - 7.6.3 **部署态写操作（例外，须授权）**：仅当存在不可避免的必须因素（如开发态不具备完整审计 / 测试条件、需在运行态复现）时，方可在部署态写。**动手前必须用大白话告知用户**：写哪个目录、写哪些文件、为什么开发态做不了、会不会碰专有物；取得用户显式授权后方可执行。禁止把「覆盖部署」当作日常改写手段；部署态专有物（`.env`、`ima_credentials.json`、`local-config.json`、`mcp-local-config.json`、`tests/audit/` 等）一律保留、不覆盖、不删除。
     - **闭环后回流（强制）**：部署态写相关任务闭环（含测试、改写、复测）后，Agent 必须逐项分析「哪些信息与代码有回流价值」，按实际情况修改后回流到开发态副本；纯部署流程引入、无法由源码修复者按 §2-5 的 B 类如实记录根因 / 证据 / 影响 / 缓解方案，**不得标记为源码修复完成**。
   - 7.6.4 **审计 / 测试位置与收尾打扫**：审计与测试**优先在开发态副本**进行（静态审计、契约核对、离线回归）。仅当开发态不具备完整条件时，才允许「以开发态为基覆盖部署到部署态 → 在部署态审计 / 测试」，并在闭环后按 7.6.3 回流有价值信息与代码。闭环（测试、改写、PR、合并 main）后，随清理分支 / 工作树 / 工区一并清理无用的测试 / 审计过程文件、临时文件、垃圾文件、无用或不可复用的产出文件，维护**开发态副本最小化原则**（§8.3 五类禁入库文件、§9.5 收尾打扫，以及用户级 `Memory-GitHub全流程操作.md §3-15` 清理工区强门禁：先搜列 → 等确认 → 再删除；删除优先回收站、小批量 ≤10、中文路径用 `Remove-Item -LiteralPath`）。
-  - 7.6.5 **PR 闭环与覆盖部署（顺序不可颠倒）**：提交(commit) → 推送(push) → 开 PR → 跑 CI；全绿则合并 main，随后清理远端 / 本地分支、工作树与工区，实现仓库零冗余零脏。**合并后在 fresh main 上以开发态副本为基，经 §7.7 唯一入口覆盖部署到部署态副本**（顺序颠倒会把旧版盖到部署态）；同轮在 §7.2 全量注册表、CHANGELOG.md、README.md 等管理文件 / 日志文件中维护本 Skill 的登记（§7.2 表内记当前实测状态，CHANGELOG 记历史流水，不回改旧条目）。
+  - 7.6.5 **PR 闭环与覆盖部署（顺序不可颠倒）**：提交(commit) → 推送(push) → 开 PR → 跑 CI；全绿则合并 main，随后清理远端 / 本地分支、工作树与工区，实现仓库零冗余零脏。**合并后在 fresh main 上以开发态副本为基，经 §7.7 唯一入口覆盖部署到部署态副本**（顺序颠倒会把旧版盖到部署态）；同轮在 §7.2 全量注册表、CHANGELOG.md、README.md 等管理文件 / 日志文件中维护本 Skill 的登记（§7.2 表内记当前实测状态，CHANGELOG 记历史流水，不回改旧条目）。本 Skill 的 §7.2 / CHANGELOG / README 登记维护，可经 §5.5 形态 A「单 PR 闭环」（与技能变更同分支、按序两 commit）完成，亦可经形态 B「meta 批量归集 PR」完成；两者均满足 commit 级 scope 纯一（见 §5.5）。
   - 7.6.6 **元技能合规**：本仓库 Skill 定义须满足用户级元技能 `skill-forge` 的 11 维度要求；不满足时调用该元技能校验、按其「校验模式」输出报告与修正建议后修正，且必须遵循本文件纪律（目录型走 worktree、meta 走标准分支 + PR）。**规范性冲突处理**：元技能要求「文件第一行为一级标题、第三行起 YAML」与本仓库及 WorkBuddy 运行时的「YAML frontmatter 置于首行」契约不可调和时，依元技能自身「边界与限制」第 7 条**交用户决策，不得擅自改动运行时契约**；本轮仅做合规核验与可安全项修正，并在报告中登记差异。
   - 7.6.7 **引用方向**：7.6.2 所引两份子记忆文件为跨项目约束，本节只作引用、不重述其内容；冲突时按 7.6.1 优先级链裁决。
 - 7.7 **唯一同步入口与脚本命名规范**：
