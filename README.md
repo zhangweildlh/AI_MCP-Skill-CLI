@@ -3,7 +3,7 @@
 > **⚠️ 纪律强制**：本仓库所有读写/git 操作前，必须首先完整阅读根目录 `AGENTS.md` 并遵循其中全部规则（scope 声明、worktree 纪律、提交/PR/CI 约定）。缺失 `AGENTS.md` 时暂停并报告。
 
 > 本仓库是 `zhangweildlh` 的个人 **私有** 技能(Skill)集合，存放所有 AI 技能的 Definition 文件与配套脚本。
-> 本文件逐一对仓库内 **18 个活跃技能**（10 个目录型 + 8 个根级单文件型）进行说明：用途、外部依赖/外部工具/外部需求。
+> 本文件逐一对仓库内活跃技能进行说明：用途、外部依赖/外部工具/外部需求。技能形态、路径与开发态 / 部署态副本登记的**权威清单以 `AGENTS.md` §2.1 / §2.2 / §7.2 为准**（含未部署与外部安装体的补充登记），本文件不重复维护计数与映射。
 > 仓库首个发布版本标记为 **`v1.0.0`**（git 标签，作用于整个仓库快照；各技能自身的内部版本见各自 frontmatter 的 `version` 字段）。
 
 ---
@@ -140,7 +140,7 @@
   - **Chrome DevTools MCP 服务器**：以**全局方式**安装（`npm install -g`，位于 `$(npm root -g)/chrome-devtools-mcp`），**禁用 `npx -y`**；首次工具调用时基于持久化 Chrome 配置自动启动浏览器。
   - **本地浏览器**：本机 Chrome / 360Chromex 内核；可复用已登录浏览器会话（连接已登录浏览器复用登录态）。
   - **无 Python / 无额外 shell 依赖**；CLI 模式与 MCP 服务模式功能等价。
-- **备注**：承接浏览器调试/自动化场景，与 `playwright-360chrome`（Playwright 路线）互为补充；激活关键词含 Chrome DevTools、页面快照、元素交互、LCP/内存/可访问性分析、网络请求检查、控制台日志、网页截图；新增 master → WorkBuddy 安装副本双端部署脚本（`sync_and_deploy.cjs` / `mirror_to_target.cjs` / `localization/*.cjs`），经 `npm run` 同步本地化与部署。
+- **备注**：承接浏览器调试/自动化场景，与 `playwright-360chrome`（Playwright 路线）互为补充；激活关键词含 Chrome DevTools、页面快照、元素交互、LCP/内存/可访问性分析、网络请求检查、控制台日志、网页截图。开发态 → 部署态副本同步统一走仓库级唯一入口 `scripts/deploy-skill.cjs`（`AGENTS.md` §7.7）；`localization/install.cjs`（原 `deploy.cjs`）是**部署态内部的全局安装 / 构建 / MCP 配置编排器**，不承担副本同步。早期布局的 `sync_and_deploy.cjs` / `mirror_to_target.cjs` 已在方案 A 下移除，本处旧引用一并更正（详见技能内 README 第 78 行）。
 
 ### 10. skill-forge（Skill 创建校验器 · 元技能双模）
 
@@ -258,3 +258,13 @@
 - `Memory-Data/`：用户记忆/知识库（仅 `.md` 入库；非 `.md` 文件经 `.gitignore` 排除，本地保留）。本批新增 `协作方式约定_四象限_定制版.md` / `协作方式约定_四象限_通用版.md`，并将 `用户画像分析报告_土木工程主业版.md` 重命名为 `用户画像分析报告.md`；新增 `MEMORY.md` 索引文件（逐日工作日志与跨会话记忆，仅 `.md` 入库）。
 - `Workbuddy专属/`：归置与 WorkBuddy 紧密耦合的专属技能/文件（`workbuddy-workspace-migration`、`Skill-memory-consolidate.md`、`Skill-workflow-distill.md`）。
 - `codebase-memory/`：codebase-memory-mcp 运行时工具的目录骨架、文档与脚本（已被仓库跟踪）；真实的 `codebase-memory-mcp.exe`（约 282MB，超 GitHub 单文件 100MB 上限）不入库，以占位文件 + 下载说明提示自行获取；该目录被 .gitignore 部分忽略（仅 exe 与含密钥的 provider 配置不入库）——注意它不属于「活跃技能」，是工具运行时资源。
+- `scripts/deploy-skill.cjs`：**仓库级唯一「开发态 → 部署态」同步器**（零第三方依赖）；运行时解析 `AGENTS.md` §7.2 全量注册表取映射，支持 `sync` / `verify` / `--dry-run` / `expand` / `prune` 能力组合、`--json` 输出与跨平台路径探查。`scripts/deploy-manifest.json` 只存部署形态差异（不含映射），`scripts/smoke/test_deploy_skill.py` 为其离线回归（含注入缺陷反向测试），登记于 `scripts/smoke/test_manifest.py`。
+
+---
+
+## 六、开发态 / 部署态副本管理
+
+- **权威登记**：`AGENTS.md` §7.2 主表（已部署）+ §7.2.1 补充表（未部署 / 外部安装体 / 已移除）构成全量注册表；本文件不另存一份映射。
+- **判据**：技能是否有部署态副本，只以用户级 `C:/Users/<username>/.workbuddy/skills/` 下是否存在对应目录为据，与目录型 / 单文件型形态无关；部署态目录名 = 主定义文件 `SKILL.md` 的 YAML `name`（外部安装体除外）。
+- **生命周期**：写操作落开发态、部署态写须大白话告知并授权、审计测试优先开发态、闭环后回流与打扫、PR 全绿合并后以 main blob 覆盖部署并同步维护登记——全部细则见 `AGENTS.md` §7.6，本处只作指针、不重述。
+- **同步入口**：所有覆盖部署一律经 `scripts/deploy-skill.cjs`（§7.7）；项目级 `deploy.js` 仅作薄包装，非同步功能的脚本按实际功能命名。

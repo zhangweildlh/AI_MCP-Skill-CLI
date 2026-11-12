@@ -1,5 +1,22 @@
 ---
 
+## [2026-11-12]
+
+### Added
+- **meta：新增仓库级唯一「开发态 → 部署态」同步器 `scripts/deploy-skill.cjs`**：零第三方依赖、纯 Node 内置模块。① **单一事实源**：运行时解析 `AGENTS.md` §7.2 主表前三列取映射，不另建映射登记；解析出 20 个已部署条目并自动跳过已移除行。② **能力可组合**：`sync` / `verify` / `plan(--dry-run)` / `expand` / `prune` 经参数组合，`--all` / `--skill` 定范围、`--ref` 定内容源、`--to` 或 `WORKBUDDY_SKILLS_DIR` 定部署态根、`--exclude` 叠加排除、`--json` 输出格式化 JSON。③ **零硬编码跨机可移植**：仓库根按脚本位置运行时上溯 `.git`，部署态根按参数 > 环境变量 > `os.homedir()` 探查，不写死用户名 / 盘符 / 绝对路径；主定义文件 YAML `name` 与注册表第一列运行时比对，不一致即报错拒绝同步。④ **形态转换**：单文件型开发态 `.md` → 部署态 `<name>/SKILL.md`；目录型逐文件由 `git cat-file blob` 重建。⑤ **安全默认**：只写不删，部署态专有物天然保留；`--prune` 须 manifest 显式启用。⑥ **项目级下沉**：`preserve` / `exclude` / `expand` / `prune` 由技能内 `deploy-manifest.json` 或 `scripts/deploy-manifest.json` 按技能名兜底声明，覆盖部署态展开 / 衍生 / 修剪 / 联网下载场景。验证：`--list` 20 项、`--help`、单文件型预演零写盘均通过。
+- **meta：新增 `scripts/deploy-manifest.json` 集中兜底配置 + `scripts/smoke/test_deploy_skill.py` 离线回归**：前者仅登记「仓库专有、不入部署态」的部署形态差异（`codebase-memory` 排除 `codebase-memory-mcp/`），不存映射。后者 21 条断言覆盖注册表解析、单文件型 name 与目录名一致、`--dry-run` 零写盘、真实同步 + §7.3 三项判据（逐字节 == blob / `hash-object --no-filters` == blob sha / CR=0）、落盘内容逐字节 == main blob、`--exclude` 生效、未登记技能拒绝、`--help`；**按门禁铁律②做反向测试**：注入 1 字节腐坏后 `--verify` 如期 exit=1 且输出含「校验不一致」，逐字节还原后恢复通过，证明判据确有检出力。仅写 `tempfile` 临时目录、自动清理，不触碰真实部署态。实测 **21/21 PASS**。已按 §9.6.1 登记进 `scripts/smoke/test_manifest.py`（`deploy-skill-regression`，scope `meta`，regression/offline）。
+
+### Changed
+- **meta：`AGENTS.md` §7 由「特殊 Skill 副本纪律」重写为「全量注册 + 全生命周期纪律」**：① 新增 §7.2 判据说明与主表机器可读格式约束；② 新增 **§7.2.1 补充表**，登记 9 个未部署 Skill（6 个根级单文件 + 3 个目录型）、5 个外部安装体（`browser-skill` / `gate-reverse-test` / `ima-skills` / `skill-optimizer` / `self-improvement-system__skillhub`）与 1 项已移除裁决留痕，与主表合起来构成全仓 Skill 全量注册表；③ 新增 **§7.6 副本全生命周期纪律**（7.6.1 优先级链与部署态唯一判据 / 7.6.2 写操作落开发态 / 7.6.3 部署态写须大白话告知 + 显式授权 + 闭环回流 / 7.6.4 审计测试优先开发态与收尾打扫最小化 / 7.6.5 PR 闭环后覆盖部署与文档维护 / 7.6.6 元技能合规与规范性冲突处理 / 7.6.7 引用方向）；④ 新增 **§7.7 唯一同步入口与脚本命名规范**（含四脚本分层归一裁决表）；⑤ 更新 §0.3、§7.5 维护规则。实测基准：部署态 25 个含 `SKILL.md` 的目录逐目录查证，主表 20 项已部署与部署态对应项 **20/20 吻合**，无漏登；9 项未部署与 5 项外部体此前完全未登记。
+- **meta：`README.md` 去除硬编码技能计数、修正悬空引用、新增副本管理指针节**：技能形态与路径改为指向 `AGENTS.md` §2.1 / §2.2 / §7.2 权威登记；第 9 节 chrome-devtools 备注改述唯一同步入口与 `install.cjs` 真实职责；新增「六、开发态 / 部署态副本管理」节（只作指针，不重述 §7.6 细则）；「五、仓库内辅助体系」补登 `scripts/deploy-skill.cjs`。
+
+### Fixed
+- **meta：修正 `AGENTS.md` §7.1 与 §7.2 的 chrome-devtools 事实矛盾**：基于部署态副本实际代码核验（`localization/deploy.cjs` 与开发态逐字节一致，部署态内 README 第 64 行自述「全局安装 + 构建 + vendoring + 配置编排」，8 处引用均指向安装 / 激活，无一写用户级 skills 目录），坐实旧 §7.1「部署副本由 `node localization/deploy.cjs` 生成」「每次改主副本须重跑它同步」两处为事实错误，已改写为「副本同步由 §7.7 唯一入口从 main blob 逐字节重建」，并声明旧表述作废。
+- **meta：`AGENTS.md` §7.3 作废「单纯 CRLF 差异一律豁免」历史措辞**：改为唯一判等口径「逐字节 == main blob + `hash-object --no-filters` == blob sha + CR = 0」三项；`.gitattributes`（`* text=auto eol=lf`）生效后 blob 与工作树恒 LF，不存在需豁免的行尾差异。主表各判定列残留的「CRLF 豁免口径」按新条统一释义，**不回改旧条目**（表内记当前状态、CHANGELOG 记历史流水）。
+- **meta：`README.md` 第 143 行悬空脚本引用**：`sync_and_deploy.cjs` / `mirror_to_target.cjs` 两个文件实测已不存在（技能内 README 第 78 行明确「方案 A 下移除」），本轮更正为现行 `localization/*.cjs` 职责说明。
+
+---
+
 ## [2026-11-11]
 
 ### Fixed

@@ -3,7 +3,7 @@
 ## 0 元信息与使用说明
 - 0.1 文件定位与权威性：本文件是本仓库所有 git 操作的纪律单一事实源；任何 Agent 在读写本仓库任何文件或执行任何 git 操作前，必须先完整读取本文件并遵循（读取本文件本身除外）。
 - 0.2 适用对象与强制前置：适用于所有 Agent（WorkBuddy、本地 CLI 类 Agent 等）；网页版 LLM 无本地文件访问，须经本地 Agent 中转执行。
-- 0.3 阅读顺序与快速索引：先读 1→3 章（认识仓库与红线），再按需读 4→5 章（干活与交付），第 6 章为本文件自身维护协议，第 7→9 章为特殊 Skill 副本、开发态最小化纪律与测试资产纪律（改动 chrome-devtools 或目录型 Skill 时必读第 7→8 章；涉及测试资产时必读第 9 章）。外部被引用文件 SOUL.md、MEMORY.md 位于用户级 `~/.workbuddy/`，属更高层跨项目约束，仅被本文件引用、不被本文件重定义。
+- 0.3 阅读顺序与快速索引：先读 1→3 章（认识仓库与红线），再按需读 4→5 章（干活与交付），第 6 章为本文件自身维护协议，第 7→9 章为开发态 / 部署态副本全量注册与全生命周期纪律、唯一同步入口、开发态最小化纪律与测试资产纪律（改动任一 Skill 或涉及覆盖部署时必读第 7 章；改动 chrome-devtools 或目录型 Skill 时必读第 7→8 章；涉及测试资产时必读第 9 章）。外部被引用文件 SOUL.md、MEMORY.md 位于用户级 `~/.workbuddy/`，属更高层跨项目约束，仅被本文件引用、不被本文件重定义。
 
 ## 1 仓库结构总览
 - 1.1 单 git 仓库、多独立 Skill：本仓库是一个 git 仓库，每个一级子目录是一个独立 Skill 包（或共享基础设施），根级 Skill-*.md 为单文件 Skill；业务上相互独立，但基础设施（scripts/ 统一调度、github-personal-manager/scripts/ 复用）可共享，不视为关联。
@@ -90,14 +90,15 @@
 - 6.2 章节数据段（§2.1–§2.4）可由 `scripts/sync-scope-manifest.py --update` 自动重写，其余纪律章节人工维护并遵循 §6.1「先更新本文件」原则。
 - 6.3 修订记录：本文件改动走 `meta` scope，须触发全量 CI；修订后更新 CHANGELOG.md。
 
-## 7 特殊 Skill 的副本纪律（副本映射见 §7.2）
+## 7 开发态 / 部署态副本纪律（全量注册见 §7.2，生命周期见 §7.6，唯一同步入口见 §7.7）
 - 7.1 **主副本与部署副本关系**以 `chrome-devtools` 为例：
-  - **主副本**：`D:/Documents/AI_MCP-Skill-CLI/chrome-devtools/`（本仓库内，本机示例，其他机器按各自环境调整），是唯一修改源头。所有需求、BUG 修复、功能增强必须先在此处归因分析、根源分析、追溯分析；**修改须走第 4 章 worktree 纪律**（在对应 worktree 内改动 chrome-devtools 目录型 Skill），合并回 main 即为主工作树同步，部署从合并后版本执行。
-  - **部署副本**：各用户的 `C:/Users/<username>/.workbuddy/skills/chrome-devtools/`（本机示例），通过运行 `node localization/deploy.cjs` 从主副本生成。**严禁直接修改部署副本**，所有改动须经主副本 → 重新部署。
-  - **修改纪律**：每次修改主副本（经 worktree 合并回 main）后，必须重新运行 `node localization/deploy.cjs` 以同步到部署副本；部署副本的 `local-config.json` 和 `mcp-local-config.json` 是用户机器的本地配置，不入库、不随主副本分发。
+  - **主副本（开发态）**：`D:/Documents/AI_MCP-Skill-CLI/chrome-devtools/`（本仓库内，本机示例，其他机器按各自环境调整），是唯一修改源头。所有需求、BUG 修复、功能增强必须先在此处归因分析、根源分析、追溯分析；**修改须走第 4 章 worktree 纪律**（在对应 worktree 内改动 chrome-devtools 目录型 Skill），合并回 main 即为主工作树同步，部署从合并后版本执行。
+  - **部署副本（部署态）**：各用户的 `C:/Users/<username>/.workbuddy/skills/chrome-devtools/`（本机示例）。**副本内容同步由 §7.7 唯一入口 `scripts/deploy-skill.cjs` 从 main 的 git blob 逐字节重建**（不经工作树，理由见 §7.3）。`localization/install.cjs`（原 `deploy.cjs`，2026-11-12 按实际功能改名）**不是副本同步器**：它在部署态目录内部运行，负责安装依赖、tsc 构建、npm 全局安装、注入本地化、生成/合并 `mcp.json`；实测其部署态副本内 README 第 64 行自述「全局安装 + 构建 + vendoring + 配置编排」，8 处引用均指向安装/激活，无一写用户级 skills 目录。因此旧版 §7.1「部署副本由 `node localization/deploy.cjs` 生成」「每次改主副本须重跑它同步到部署副本」两处表述**已作废**（属事实错误，与 §7.2「由 main blob 重建」矛盾）。
+  - **修改纪律**：每次修改主副本（经 worktree 合并回 main）后，须按 §7.6.5 以 main blob 覆盖部署。部署副本的 `local-config.json`、`mcp-local-config.json` 是用户机器的本地配置，不入库、不随主副本分发，覆盖部署时保留不删、不覆盖。
   - **最小化原则**：主副本保持最小化，遵循第 8 章 开发态目录型 Skill 最小化纪律（五类文件不纳入版本控制）；一切可通过脚本生成/下载的文件均不入库，仅保留源码和部署脚本；Agent 通过指令下载、生成、衍生的内容不属于主副本范畴。
-  - **自动安装纪律**：`cli_run.cjs` 已内置安装逻辑（`npm install -g chrome-devtools-mcp`，`PUPPETEER_SKIP_DOWNLOAD=1`）；该安装由用户在本机主动触发部署副本激活时执行（若 MCP 服务不可用，据需跳过，非 Agent 未经授权擅自修改全局环境），Agent 无需手动干预。
-- 7.2 **开发态副本 ↔ 部署态副本映射表（唯一映射登记处）**：下表登记本仓库每个已部署 Skill 的「开发态（仓库内）→ 部署态（用户级 skills 目录，本机示例）」对应关系。§7.1 的 chrome-devtools 主副本/部署副本为本表第一条特例。任何 Skill 落地部署前，须先在本表补登记再执行，以免出现「开发态有、部署态缺失/错位/被同名外部体占用」三种漂移。
+  - **自动安装纪律**：`cli_run.cjs` 已内置安装逻辑（`npm install -g chrome-devtools-mcp`，`PUPPETEER_SKIP_DOWNLOAD=1`）；该安装由用户在本机主动触发部署副本激活时执行（若 MCP 服务不可用，据需跳过，非 Agent 未经授权擅自修改全局环境），Agent 无需手动干预；安装入口名随改名同步为 `node localization/install.cjs`。
+- 7.2 **全量注册表（唯一登记处）**：本节由「主表（已部署）」+「§7.2.1 补充表（未部署 / 外部安装体 / 已移除）」共同构成**本仓库全部 Skill 的开发态 ↔ 部署态登记**，二者合起来覆盖 §2.1 目录型 Skill、§2.2 根级单文件 Skill、`Workbuddy专属/` 合集内单文件与子 Skill、以及分发型子 Skill。主表登记每个**已部署** Skill 的「开发态（仓库内）→ 部署态（用户级 skills 目录，本机示例）」对应关系；§7.1 的 chrome-devtools 主副本/部署副本为主表第一条特例。任何 Skill 落地部署前，须先在本节补登记再执行，以免出现「开发态有、部署态缺失/错位/被同名外部体占用」三种漂移。
+  - **判据（唯一，§7.6.1）**：某 Skill 是否「存在部署态副本」，**只以用户级 `C:/Users/<username>/.workbuddy/skills/` 下是否存在对应目录为据**，与「目录型 / 单文件型」形态无关；用户告知存在部署态副本后仍须事实查验坐实。主表同时是 §7.7 唯一同步器运行时解析的机器可读数据源，前三列须保持反引号包裹的单一值格式。
   - 实测数据（**2026-11-04 全量复采**；`wechat-article-to-ima` 行于 **2026-11-11** 随 PR #228 重新复采，路径为本机示例，其他机器按各自环境调整）：判等口径依 §7.3「**单纯 CRLF 差异一律豁免**」——去 CR 后内容一致即视为一致；表内实测「逐字节 == main blob」为 CRLF 豁免口径下的最强一致态（部署态均为 LF）。「聚合 md5」统一口径：**按部署态相对路径升序，对每个文件序贯喂入 `相对路径 + \0 + 文件字节` 后取 md5**（单文件型 Skill 的相对路径取 `SKILL.md`）。部署方式除注明者外，**一律由 main 的 git blob 逐字节重建**（不经工作树）。
   - **部署副本物理上为一份**（2026-11-04 实测）：`C:\Users\Administrator\.workbuddy` 系指向 `C:\Users\15794\.workbuddy` 的 **NTFS Junction**（实测同 inode，如 `github-personal-manager/scripts/sop_worktree_cleanup.sh` inode 3377699720789505），同一物理文件透传，**只需同步一份**，无需两处同更。
 
@@ -124,15 +125,66 @@
 | `ref-material-writing` | `ref-material-writing/` | `ref-material-writing/` | 目录型 | 目录型（物理一份） | 54 文件 / 368864 B / 0 CR；md5 `553b3cee…` | 实质一致（逐字节 == main blob；CRLF 豁免口径）。部署态专有物：`.env`（D-2026-0811-01 例外，不入库、不覆盖、不擦除）。仓库专有、不入部署态：`LICENSE` |
 | `web-search` | `web-search/` | `web-search/` | 目录型 | 目录型（物理一份） | 35 文件 / 381045 B / 0 CR；md5 `2e1e7976…` | 实质一致（逐字节 == main blob；CRLF 豁免口径）。部署态专有物：`.env`（真实密钥）+ 4 个搜索素材输出样例（运行期产物） |
   | `github-personal-manager` | `github-personal-manager/` | `github-personal-manager/` | 目录型 | 目录型（物理一份） | 58 文件 / 561859 B / 0 CR；逐字节 == main blob（58/58）、`git hash-object --no-filters` 逐文件 == blob sha（58/58），CRLF 豁免口径下最强一致态（双侧均 LF）；部署态聚合 md5 `51c6ca71…`（路径+字节序，排序为相对路径），关键文件 `scripts/sop_worktree_cleanup.sh` 17814 B / md5 `2f8c5ee4…` / `SQUASH_MERGED` 6 处 | **实质一致（逐字节 == main blob；CRLF 豁免口径）**。**部署方式**：由 main blob 逐字节重建（不经工作树）。**部署态专有物**：`config/github-sop.config.sh` 为本机运行配置（不入库、不随主副本分发）。**§9.5 收尾打扫**：部署态 `smoke/tmp` 与 `regression/tmp` 两处测试运行期产物已清除；其清理由 `scripts/smoke/test_manifest.py` 的 `CLEANUP_DIRS` 收录（含 `github-personal-manager/regression/tmp`，见 §9.5），无需手动清理 |
+- 7.2.1 **补充登记：未部署 / 外部安装体 / 已移除**（与主表合起来构成全量注册表；实测基准 2026-11-12，部署态 25 个含 SKILL.md 的目录逐目录查证）：
+
+  | name | 类别 | 开发态（仓库内相对路径） | 部署态（用户级 skills 目录） | 判定依据 |
+  |---|---|---|---|---|
+  | `external-tool-onboarding` | 未部署 | `Skill-外部工具引入评估.md` | 无（未部署） | 部署态 skills 目录实测无同名目录 |
+  | `multi-file-analysis` | 未部署 | `Skill-多文件分析+知识图谱构建.md` | 无（未部署） | 同上 |
+  | `code-audit-consolidation` | 未部署 | `Skill-多源代码审查整合收敛.md` | 无（未部署） | 同上 |
+  | `find-skill-to-xml` | 未部署 | `Skill-扫描Skill技能生成xml技能标签.md` | 无（未部署） | 同上 |
+  | `promotion-writer` | 未部署 | `Skill-推广文章撰写.md` | 无（未部署） | 同上 |
+  | `ticktick` | 未部署 | `Skill-滴答清单智能任务解析创建器.md` | 无（未部署） | 同上 |
+  | `mimo-code-collab` | 未部署 | `mimo-code-collab/` | 无（未部署） | 同上 |
+  | `playwright-360chrome` | 未部署 | `playwright-360chrome/` | 无（未部署） | 同上 |
+  | `tender-review-kit` | 未部署 | `tender-review-kit/` | 无（未部署） | 同上 |
+  | `browser-skill` | 外部安装体 | 无 | `browser-skill/` | 部署态存在、仓库无对应开发态 Skill 源；仅 `Workbuddy专属/wechat-article-search/README.md` 作第三方引用 |
+  | `gate-reverse-test` | 外部安装体 | 无 | `gate-reverse-test/` | 部署态存在、仓库零引用 |
+  | `ima-skills` | 外部安装体 | 无（`Workbuddy专属/恢复指南-ima-skills上游更新重放修复.md` 是恢复指南文档，非 Skill 定义） | `ima-skills/` | 部署态存在；README/CHANGELOG/check-deps.js 中均为第三方依赖引用 |
+  | `skill-optimizer` | 外部安装体 | 无 | `skill-optimizer/` | 部署态存在、仓库零引用 |
+  | `self-improvement-system__skillhub` | 外部安装体 | 无 | `self-improvement-system__skillhub/` | §7.4 已裁决为 SkillHub 外部安装体；其 SKILL.md 用 `## name:` 标题式而非 YAML 键 |
+  | `self-improvement` | 已移除 | 已随 PR 移除 | 无（主表内为历史裁决行） | §7.4；主表保留该行作裁决留痕，不作为同步目标 |
+
+  - **类别语义**：「未部署」= 本仓库允许只有开发态副本、没有部署态副本（技能尚未部署）；「外部安装体」= 部署态有目录但仓库无对应开发态副本，**非本仓库创建、非本仓库维护**，不纳入 §7.6 写操作与覆盖部署范围，Agent 不得擅自改动；「已移除」= 开发态已删除的裁决留痕。
+  - **判据边界（§7.6.1）**：部署态目录名 = 主定义文件 YAML `name` 这一规则**仅约束本仓库创建的部署副本**；外部安装体不受其约束，实测反例即 `ima-skills`（`name: ima-skill`）与 `self-improvement-system__skillhub`（标题式 name）。
+  - **维护规则**：新增 / 部署 / 移除任一 Skill，须同轮更新本补充表或主表；§7.7 唯一同步器只处理主表中「已部署」行，补充表不参与同步。
 - 7.3 **副本判等口径与行尾纪律（硬规则）**：
-  - **判等口径（单纯 CRLF 差异一律豁免）**：判定两副本是否「实质一致」，**仅**以「去 CR 后内容一致」为准——部署态文件去 CR 后的字节序列 == main 的 git blob 去 CR 后字节序列（`git show <ref>:<path>` 取字节，去除 CR 后比较）；**单纯 CRLF/LF 行尾差异一律不计为实质差异**（「去 CR 后相同」即视同一致）。
+  - **唯一判等口径（逐字节相等 + CR = 0）**：判定两副本是否一致，以「部署态文件字节序列 == main 的 git blob 字节序列」为准（`git show <ref>:<path>` 或 `git cat-file blob <ref>:<path>` 取字节），并须同时满足「`git hash-object --no-filters` == blob sha」与「CR = 0」两项——共三项判据，由 §7.7 唯一同步器的 `--verify` 落地。**历史措辞「单纯 CRLF 差异一律豁免」自 2026-11-12 起作废**：根 `.gitattributes`（`* text=auto eol=lf`）生效后 blob 与工作树恒为 LF，部署态由 blob 逐字节重建亦恒为 LF，已不存在需要豁免的行尾差异；主表各判定列中残留的「CRLF 豁免口径」属历史实测措辞，按本条统一释义，**不回改旧条目**（表内记当前状态，CHANGELOG 记历史流水）。
   - **行尾纪律（强制 LF，两项）**：① **仓库内文件一律 LF**：AI_MCP-Skill-CLI 仓库全部文本文件以 LF 入库，根 `.gitattributes` 以 `* text=auto eol=lf` 显式声明，跨平台检出亦保持 LF；② **部署文件一律 LF**：以本仓库文件为基、更新/部署到仓库外目录或文件时，对部署的文件也一律采用 LF——部署态一律由 main 的 git blob 逐字节重建（**不经工作树**——内容权威性 + 避免未提交差异污染）；重建后须逐文件核验「逐字节 == blob（去 CR 后）」+「`hash-object --no-filters` == blob sha」+「CR = 0」三项全过。
   - **判据唯一可信形式**：`grep -c $'\r'` 在 Git Bash 下虚高/虚低失守，**唯一可信判据 = Python 逐字节 `count`**；任何行尾计数返回值恰为 0 或恰等于总行数，先怀疑判据本身。
 - 7.4 **`self-improvement` 同名占用（2026-10-01 已裁决并执行）**：部署态 `self-improvement-system__skillhub/` 是外部（SkillHub）安装的运行态副本（含 `references/`、`lessons.md`、`mistakes.md`、`playbook.md`、`soul.md`、`session-log.md`、`_meta.json`、`_icon.png`），其 frontmatter 采用 Markdown 标题式 `## name: self-improvement`（非 YAML 键），与仓库原 `self-improvement/SKILL.md` 的 YAML 式 frontmatter 写法不同，但 name / description / author / version 完全一致（均为 OpenClaw v1.2.0）。
   - **裁决结论（用户 2026-10-01）**：保留部署态增强版 `self-improvement-system__skillhub`，既不迁回也不新建同名部署目录；仓库开发态 `dir/self-improvement` 属**未部署冗余副本**，予以移除（开发态 `self-improvement/` 5 个受跟踪文件已随 PR 移除；`AGENTS.md` §2.1 同步摘除登记）。删除后不影响任何已部署技能，运行时功能零退化。
   - **门禁联动（死锁成因与破除，2026-10-01 实测，程序性纪律）**：smoke Tier5 对 dir 是**双向**校验——既判「已登记但目录缺失」，也判「目录存在但未登记」，两者皆 FATAL；而 pre-commit scope 校验只允许目录型 commit 暂存 `<scope_dir>/*`（根本改不了 `AGENTS.md`）。因此「删目录」与「摘登记」若分属两条 PR，无论先后必有一条红。**破除方式（已实测验证）**：先修好 `.githooks/pre-commit` §2.3 的 meta 特例 glob（原写法把星号转义成字面量，该特例自引入起从未命中过正常路径），使 meta 分支可合法承载「已登记目录内容」的增删；随后把「删目录 + 摘登记」并入**同一条 meta PR、按序两提交**（先删目录、后摘登记），即可一次闭环。
   - **后续注意**：本仓库不再承载该 name 的开发态；若将来需要把该 Skill 纳入部署，须在用户级 `skills/` 下另建独立目录（不得与 `self-improvement-system__skillhub` 同名冲突），并先在 §7.2 补登记。
-- 7.5 **映射表维护规则**：本表为人工维护段（非 §2.1–§2.4 机器可重写数据段）。`Workbuddy专属/` 属 `scripts/sync-scope-manifest.py` 的 `MANUAL_KEEP_DIRS` 人工豁免合集目录，其内的 `Skill-*.md`（如 `Skill-memory-consolidate.md`、`Skill-workflow-distill.md`）不在 scope 清单扫描口径内，故其部署映射由本表承接，不写入 §2.2 表格（避免与脚本输出口径冲突）。落地部署前须先查本表，确认目标部署路径未被同名外部安装体占用。
+- 7.5 **注册表维护规则**：主表与 §7.2.1 补充表均为人工维护段（非 §2.1–§2.4 机器可重写数据段）。`Workbuddy专属/` 属 `scripts/sync-scope-manifest.py` 的 `MANUAL_KEEP_DIRS` 人工豁免合集目录，其内的 `Skill-*.md`（如 `Skill-memory-consolidate.md`、`Skill-workflow-distill.md`）不在 scope 清单扫描口径内，故其部署映射由本节承接，不写入 §2.2 表格（避免与脚本输出口径冲突）。落地部署前须先查本节，确认目标部署路径未被同名外部安装体占用。主表前三列须保持反引号包裹的单一值格式，否则 §7.7 同步器拒绝解析（宁可报错，不猜测映射）。新增 / 部署 / 移除任一 Skill 同轮维护本节，并按 §7.6.5 维护 README / CHANGELOG。
+- 7.6 **副本全生命周期纪律（硬规则，覆盖 §2.1/§2.2 全部 Skill 及合集内子 Skill）**：
+  - 7.6.1 **优先级与判据**：
+    - 优先级链：**当前会话用户显式需求与纪律 > 上一轮会话的需求与纪律 > 本文件既有纪律**。本文件既有纪律若存在冲突或缺陷，须按本节修正，不得据旧条文抵触新裁决。
+    - 某 Skill 是否存在部署态副本，**唯一判据 = 用户级 `C:/Users/<username>/.workbuddy/skills/` 下是否存在对应目录**；「目录型 / 单文件型」**不是**判据。用户告知存在部署态副本后，Agent 必须事实查验、坐实（列目录 + 读主定义文件 `name` 字段），不得凭描述推断。
+    - 部署态目录内技能一律为目录形态，目录名 = 主定义文件 `SKILL.md` 中 YAML `name` 字段（仅约束本仓库创建的部署副本；外部安装体反例见 §7.2.1）。单文件型开发态副本的文件名可与部署态目录名、技能名不一致，**不作为是否存在部署态副本的判据**。
+    - 允许技能只有开发态副本而无部署态副本（未部署，§7.2.1）；部署态有而开发态无者为外部安装体，**非本仓库创建、非本仓库维护**，不纳入写操作与覆盖部署范围。
+  - 7.6.2 **写操作落点（默认）**：本仓库所有 Skill 技能的创建、修改、维护均属**代码修改 / BUG 修复范畴与 git 操作范畴**，写操作一律落在**开发态副本**（目录型走 §4 worktree、根级/合集内单文件型走对应 worktree、meta 走标准分支 + PR），遵循用户级 `Memory-代码纪律与Git操作.md`（六条铁律、统一优先级裁决器、全局契约面、改完即验证、§2-3 双态判定、§2-5 三类归因与重建部署复测）与 `Memory-GitHub全流程操作.md`（§3-4 提交前文档同步门禁、§3-9 标准代码修改、§3-14 PR 全生命周期、§3-15 清理工区）。
+  - 7.6.3 **部署态写操作（例外，须授权）**：仅当存在不可避免的必须因素（如开发态不具备完整审计 / 测试条件、需在运行态复现）时，方可在部署态写。**动手前必须用大白话告知用户**：写哪个目录、写哪些文件、为什么开发态做不了、会不会碰专有物；取得用户显式授权后方可执行。禁止把「覆盖部署」当作日常改写手段；部署态专有物（`.env`、`ima_credentials.json`、`local-config.json`、`mcp-local-config.json`、`tests/audit/` 等）一律保留、不覆盖、不删除。
+    - **闭环后回流（强制）**：部署态写相关任务闭环（含测试、改写、复测）后，Agent 必须逐项分析「哪些信息与代码有回流价值」，按实际情况修改后回流到开发态副本；纯部署流程引入、无法由源码修复者按 §2-5 的 B 类如实记录根因 / 证据 / 影响 / 缓解方案，**不得标记为源码修复完成**。
+  - 7.6.4 **审计 / 测试位置与收尾打扫**：审计与测试**优先在开发态副本**进行（静态审计、契约核对、离线回归）。仅当开发态不具备完整条件时，才允许「以开发态为基覆盖部署到部署态 → 在部署态审计 / 测试」，并在闭环后按 7.6.3 回流有价值信息与代码。闭环（测试、改写、PR、合并 main）后，随清理分支 / 工作树 / 工区一并清理无用的测试 / 审计过程文件、临时文件、垃圾文件、无用或不可复用的产出文件，维护**开发态副本最小化原则**（§8.3 五类禁入库文件、§9.5 收尾打扫，以及用户级 `Memory-GitHub全流程操作.md §3-15` 清理工区强门禁：先搜列 → 等确认 → 再删除；删除优先回收站、小批量 ≤10、中文路径用 `Remove-Item -LiteralPath`）。
+  - 7.6.5 **PR 闭环与覆盖部署（顺序不可颠倒）**：提交(commit) → 推送(push) → 开 PR → 跑 CI；全绿则合并 main，随后清理远端 / 本地分支、工作树与工区，实现仓库零冗余零脏。**合并后在 fresh main 上以开发态副本为基，经 §7.7 唯一入口覆盖部署到部署态副本**（顺序颠倒会把旧版盖到部署态）；同轮在 §7.2 全量注册表、CHANGELOG.md、README.md 等管理文件 / 日志文件中维护本 Skill 的登记（§7.2 表内记当前实测状态，CHANGELOG 记历史流水，不回改旧条目）。
+  - 7.6.6 **元技能合规**：本仓库 Skill 定义须满足用户级元技能 `skill-forge` 的 11 维度要求；不满足时调用该元技能校验、按其「校验模式」输出报告与修正建议后修正，且必须遵循本文件纪律（目录型走 worktree、meta 走标准分支 + PR）。**规范性冲突处理**：元技能要求「文件第一行为一级标题、第三行起 YAML」与本仓库及 WorkBuddy 运行时的「YAML frontmatter 置于首行」契约不可调和时，依元技能自身「边界与限制」第 7 条**交用户决策，不得擅自改动运行时契约**；本轮仅做合规核验与可安全项修正，并在报告中登记差异。
+  - 7.6.7 **引用方向**：7.6.2 所引两份子记忆文件为跨项目约束，本节只作引用、不重述其内容；冲突时按 7.6.1 优先级链裁决。
+- 7.7 **唯一同步入口与脚本命名规范**：
+  - **唯一入口 = `scripts/deploy-skill.cjs`**（meta scope）。本仓库所有「开发态 → 部署态」覆盖部署一律经此脚本，各 Skill 不再自建同步实现；脚本运行时解析 §7.2 主表取映射，**不另建映射登记**（守住单一事实源）。
+  - **能力可组合**：`sync` / `verify` / `plan(--dry-run)` / `expand` / `prune` 经参数组合调用；`--all` 或 `--skill <name>` 指定范围、`--ref` 指定内容来源、`--to` 或 `WORKBUDDY_SKILLS_DIR` 指定部署态根、`--exclude` 叠加排除、`--json` 输出格式化 JSON。
+  - **零硬编码 / 跨机可移植**：仓库根按脚本位置运行时上溯 `.git`；部署态根按参数 > 环境变量 > `os.homedir()` 依次探查；不写死用户名、盘符、绝对路径；技能主定义文件 `name` 与注册表第一列运行时比对，不一致即报错拒绝同步。默认「只写不删」，部署态专有物天然安全。
+  - **项目级下沉**：部署态需展开 / 扩展、衍生 / 创建文件、修剪 / 修改文件、联网下载文件等场景，由技能开发态目录内可选 `deploy-manifest.json` 的 `preserve` / `exclude` / `expand` / `prune` 声明，或由 `scripts/deploy-manifest.json` 按技能名兜底（后者仅存部署形态差异，不存映射）；无 manifest 时默认「全量 blob 重建、只写不删、不执行外部命令」，`--prune` 须 manifest 显式启用。
+  - **文件名规范（2026-11-12 分层归一裁决）**：凡承担「开发态 → 部署态同步」功能的项目级脚本统一命名 `deploy.js`，且**只做薄包装调用本节唯一入口**；凡名为 `deploy*.*js` 但不承担同步功能的脚本，须按其代码实际功能改名并同步更新注册信息、调用 / 引用链：
+
+    | 脚本 | 实际功能 | 处置 |
+    |---|---|---|
+    | `Workbuddy专属/wechat-article-search/scripts/deploy.js` | blob 同步 | 保留文件名，改为薄包装 |
+    | `Workbuddy专属/wechat-article-to-ima/scripts/deploy.js` | blob 同步 + 专有物保留 | 保留文件名，改为薄包装 |
+    | `open-medical-skills/scripts/deploy.mjs` | 父包 vendored 子技能内嵌 + 分发（同步的特殊形态） | 统一为 `scripts/deploy.js`，经唯一入口完成 blob 同步，vendored 编排下沉 manifest |
+    | `chrome-devtools/localization/deploy.cjs` | 全局安装 + 构建 + MCP 配置编排（**非同步**） | 改名 `localization/install.cjs`，8 处引用链同步 |
+
+  - **门禁**：同步器、`scripts/deploy-manifest.json` 均属 meta scope；离线回归 `scripts/smoke/test_deploy_skill.py` 登记于 `scripts/smoke/test_manifest.py`，经 §9 唯一入口 `--scope meta --project-tests` 调度；新增 / 修改同步实现须同轮补测试与清单登记（§9.6）。
 
 ## 8 开发态目录型 Skill 最小化纪律
 - 8.1 **范围**：本仓库内全部目录型 Skill（按一级目录计数 13 个；`Workbuddy专属` 为合集目录、其内含子 Skill 不额外计数，统一按该目录 scope 管理）均视为"开发态"（源版本，相对部署副本而言）。本纪律仅约束目录型 Skill；单文件型 Skill 因其为单文件、天然可移植，不在范围内。
