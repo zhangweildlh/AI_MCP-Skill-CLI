@@ -255,6 +255,10 @@ function ensureCard(data, card) {
 // 兼容历史字段名：早期进度文件用 cardId，新结构用 card（读取时两者皆可，写入统一 card）
 const cardOf = (a) => a.card || a.cardId || '';
 
+// D2 修复：任务卡展示名（须与 SKILL.md「任务卡配置表」保持一致）。reset-card 重建卡时若 name 为空则回填，
+// 消除「初始进度文件 name 字段为空」的展示层缺陷；显式传入 --name 时优先采用（见 cmdResetCard / cmdUpdateCard）。
+const CARD_NAMES = { A: '总包', B: '城更', C: '全域土地' };
+
 function findArticle(data, card, title) {
   return data.articles.find((a) => cardOf(a) === card && a.title === title);
 }
@@ -471,6 +475,10 @@ function cmdResetCard(opt, data) {
   // 注意：仅清本卡，不影响其他卡的累积态（多卡并存时互不污染）。
   const prevName = data.cards[opt.card] ? data.cards[opt.card].name : ''; // E6 防御：保留既有卡显示名（此处 card 尚未声明，须用 opt.card）
   const card = ensureCard(data, opt.card); // 已存在则保留全部既有字段（含 name）
+  // D2 修复：重建卡时若展示名缺失，从任务卡配置表常量回填（首次 reset 时 ensureCard 落成 name=''）；
+  // 显式 --name 优先（调度方/引导词可显式传入，避免与常量不一致）。
+  if (opt.name) card.name = opt.name;
+  else if (!card.name) card.name = CARD_NAMES[opt.card] || card.name;
   card.searchedKeywords = [];
   card.failureClass = '';
   // 审计 E-07：原实现不清 status/note/attempts/pendingKeywords，reset 后 status 仍为上一轮
@@ -488,6 +496,7 @@ function cmdResetCard(opt, data) {
 function cmdUpdateCard(opt, data) {
   if (!opt.card) fail('update-card 需要 --card。');
   const card = ensureCard(data, opt.card);
+  if (opt.name) card.name = opt.name; // D2 修复：支持显式回填/修正展示名
   if (opt.lastRun !== undefined) card.lastRun = opt.lastRun;
   if (opt.nextDue !== undefined) card.nextDue = opt.nextDue;
   if (opt.rotateIndex !== undefined) card.rotateIndex = opt.rotateIndex;
