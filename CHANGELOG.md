@@ -37,6 +37,10 @@
 
 - **后续更正·必读（覆盖本日 PR #243 条目「形态 A 不可达 → 一律走形态 B」的错误结论）**：PR #243 正确识别了 §5.5 旧措辞「切回主工作树对该分支追加」在 worktree 纪律下不可达（已实测复现 `fatal: '<分支>' is already used by worktree`），但据此得出「形态 A 对 Skill 改动不可达、一律走形态 B」属**错误推导**，直接推翻了 PR #240 确立的「单 PR 闭环（形态 A）」目标形态。正确解法是**修正机制而非放弃形态 A**：功能分支既已在专用 worktree 检出，meta 登记 commit（仅 `CHANGELOG.md`/`README.md`/`AGENTS.md` §7.2）直接**在该 worktree 内（分支已检出）追加**即可，无需 checkout 到主工作树；同步在 §4.3 开「形态 A」窄例外、`.githooks/pre-commit` 的 `dir` scope 校验放行上述三个 meta 登记文件（hook §2.3）。三处齐改后，形态 A 在 worktree 纪律下**完全可达**，为单技能改动的首选单 PR 闭环形态；形态 B 保留为「多技能 meta 批量归集」形态。AGENTS.md §5.5 / §4.3 / §7.6.5 已同步修订，本条目为当前状态。
 
+- **dir/Workbuddy专属：修复卡片 A 强制重搜核验发现的 D1/D2/D3/D4/D6 缺陷（PR #247，`2866c2d`）**：基于 `2026-11-12_A_audit.md` 闭环审计，修复 5 项缺陷。`wechat-article-search/SKILL.md` + `get_sogou_cookie.js` 端口契约统一为「9222=WorkBuddy Electron 必拒、真实调试浏览器落 9223+」（D3，接纳用户权威修正）；`wechat-article-to-ima/check-deps.js` 浏览器未就绪时 `cdp_port` 不再输出误导性 9222、改置 `null` 以「— 不可用」呈现（D1）；`state.js` 新增 `CARD_NAMES` 常量 + 接线 `--name`，`reset-card` 重建卡时回填展示名（`A=总包/B=城更/C=全域土地`，D2）；`引导词.md` 限定 `searchedKeywords` 仅记「成功产出结果」的检索词、被 ANTI_SPIDER 阻断的词不记 `searchedKeywords` 改入 `pendingKeywords`（D4，续跑 `diff-keywords` 差集可重新纳入重试）；澄清 F4a 触发 → `completed` 不可达、唯一正确出口是 `antispider_partial`（D6）。`node --check` 三 JS 全过；离线端到端实测 D2（`reset-card --name` 与常量回退）与 D4（成功词入 searched / 阻断词入 pending / `diff-keywords` 正确重纳入 3 阻断词）均正确。部署态经 §7.7 唯一入口从 main blob 逐字节重建；§7.2 聚合 md5 由下一轮 canonical 复采刷新（本条目不引入非权威 hash）。
+
+- **dir/chrome-devtools：示例配置调试端口 9222→9223（PR #248，`37dbd21`）**：`local-config.example.json`（`debugPort`）与 `mcp-local-config.example.json`（`--browserUrl`）两份示例端口改为 9223，与运行时默认启动端口（9223）及端口契约一致（9222 为 WorkBuddy 自身 Electron，被 `resolve_midlink.js`/`get_sogou_cookie.js` 按 UA 正则甄别并拒绝）。不入库的 `local-config.json`/`mcp-local-config.json` 不受影响。
+
 ---
 
 ## [2026-11-11]
