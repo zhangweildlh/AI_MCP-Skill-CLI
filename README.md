@@ -269,3 +269,4 @@
 - **生命周期**：写操作落开发态、部署态写须大白话告知并授权、审计测试优先开发态、闭环后回流与打扫、PR 全绿合并后以 main blob 覆盖部署并同步维护登记——全部细则见 `AGENTS.md` §7.6，本处只作指针、不重述。
 - **同步入口**：所有覆盖部署一律经 `scripts/deploy-skill.cjs`（§7.7）；项目级 `deploy.js` 仅作薄包装，非同步功能的脚本按实际功能命名。
 - **本轮落地（2026-11-12，PR #234 / #235 / #236）**：`Workbuddy专属` 两份 `deploy.js` 改为薄包装（共享 `Workbuddy专属/deploy-skill-wrapper.cjs`）；`open-medical-skills/scripts/deploy.mjs` 统一为 `deploy.js`；`chrome-devtools/localization/deploy.cjs` 按实际功能改名 `install.cjs`。三处均新增 / 更新项目级 `deploy-manifest.json` 登记 `preserve` / `exclude` / 联网刷新下沉。裁决表与实测值见 `AGENTS.md §7.2 / §7.7`，历史流水见 `CHANGELOG.md [2026-11-12]`。
+- **部署态回流闭环（2026-11-12，PR #237）**：`deep-discuss` 部署态副本中未回流的「持久化感知探活协议」增强已按其 `dir` scope 走 worktree + PR 回流开发态，合并后以 fresh main 的 git blob 覆盖部署，双态漂移消除；同步器兜底 manifest 同步补登 `ref-material-writing/LICENSE` 排除。细则见 `AGENTS.md §7.2 / §7.6.3 / §7.7`，历史流水见 `CHANGELOG.md [2026-11-12]`。
