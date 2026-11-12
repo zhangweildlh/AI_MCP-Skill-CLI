@@ -4,7 +4,7 @@
       "command": "node",
       "args": [
         "<全局 bin 路径>/build/src/bin/chrome-devtools-mcp.js",
-        "--browserUrl=http://127.0.0.1:9222",
+        "--browserUrl=http://127.0.0.1:9223",
         "--no-usage-statistics"
       ],
       "env": {
