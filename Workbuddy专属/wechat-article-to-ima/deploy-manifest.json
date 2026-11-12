@@ -1,0 +1,8 @@
+{
+  "_comment": "部署形态差异（AGENTS.md §7.7 项目级下沉）。映射关系不在此登记，唯一事实源恒为 AGENTS.md §7.2。默认「只写不删」，部署态专有物天然保留。",
+  "preserve": ["ima_credentials.json"],
+  "exclude": [],
+  "expand": [],
+  "prune": { "enabled": false, "keep": [] },
+  "_note": "ima_credentials.json 含 ima 凭据明文（§3.3 禁入库），不在开发态 blob 清单内；显式登记 preserve 以杜绝其将来误入源树时被覆盖。其余部署态专有物由「只写不删」天然保留，prune 恒关闭。"
+}

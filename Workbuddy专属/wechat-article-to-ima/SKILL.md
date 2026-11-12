@@ -487,7 +487,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 | `scripts/check-deps.js` | 前置依赖**代码级**核查器（硬依赖阻断、软依赖告警） | firecrawl / chrome-devtools 的「CLI 探查 / 端口探查 / 浏览器拉起」均经 Agent 编排委派对应技能，本检查器只判定「委派目标存在 + 密钥就绪」硬门禁（**不自行 spawn firecrawl、不读 local-config.json**），消除 Windows 下误报；解析并输出 `search_script_dir` / `ima_api` 路径 / `cdp_port` |
 | `scripts/resolve_midlink.js` | 中转链接 → 真实直链（降级链零级） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；端口仅取编排回传的 `SOGOU_CDP_PORT`（缺省 9222），**不读 local-config.json、不自行扫描/拉起**；`--check` 为端口探活 |
 | `scripts/pipeline.js` | 抓取 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限）；`--ingest-quarantine` 模式消费 `failed_quarantine/` 未入库 `.md` 直接补入库而不重搜 |
-| `scripts/deploy.js` | 开发态 → 部署态 一键同步（零依赖） | 走 `git cat-file blob` 逐字节重建（**不经工作树**，避免 `core.autocrlf` 带入 CRLF，§7.3）；`ima_credentials.json` 为部署态专有物，保留不覆盖；`--dry-run` 预演、`--ref main` 指定来源引用 |
+| `scripts/deploy.js` | 开发态 → 部署态同步**薄包装**（零第三方依赖） | 自身不含同步实现，参数转发至仓库级唯一入口 `scripts/deploy-skill.cjs`（§7.7）；入口运行时解析 `AGENTS.md §7.2` 注册表，从 main 的 git blob 逐字节重建（**不经工作树**，理由是内容权威性 + 避免未提交差异污染，§7.3），写后校验三项判据；`deploy-manifest.json` 显式登记 `ima_credentials.json` 为 `preserve`（部署态专有物，保留不覆盖）；`--dry-run` 预演、`--verify` 只校验、`--ref` 指定来源（默认 main） |
 
 ### 测试资产（`tests/`）
 

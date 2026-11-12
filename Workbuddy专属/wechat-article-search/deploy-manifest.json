@@ -1,0 +1,8 @@
+{
+  "_comment": "部署形态差异（AGENTS.md §7.7 项目级下沉）。映射关系不在此登记，唯一事实源恒为 AGENTS.md §7.2。默认「只写不删」，部署态专有物天然保留。",
+  "preserve": ["_skillhub_meta.json"],
+  "exclude": [],
+  "expand": [],
+  "prune": { "enabled": false, "keep": [] },
+  "_note": "部署态专有物 _skillhub_meta.json 与 tests/audit/（含 45KB ocrA.json）均不在开发态 blob 清单内，唯一同步器默认只写不删，故不会被覆盖或删除；此处显式登记 _skillhub_meta.json 以防其将来误入开发态源树。prune 恒关闭，禁止修剪部署态。"
+}
