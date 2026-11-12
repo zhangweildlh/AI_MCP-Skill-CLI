@@ -268,3 +268,4 @@
 - **判据**：技能是否有部署态副本，只以用户级 `C:/Users/<username>/.workbuddy/skills/` 下是否存在对应目录为据，与目录型 / 单文件型形态无关；部署态目录名 = 主定义文件 `SKILL.md` 的 YAML `name`（外部安装体除外）。
 - **生命周期**：写操作落开发态、部署态写须大白话告知并授权、审计测试优先开发态、闭环后回流与打扫、PR 全绿合并后以 main blob 覆盖部署并同步维护登记——全部细则见 `AGENTS.md` §7.6，本处只作指针、不重述。
 - **同步入口**：所有覆盖部署一律经 `scripts/deploy-skill.cjs`（§7.7）；项目级 `deploy.js` 仅作薄包装，非同步功能的脚本按实际功能命名。
+- **本轮落地（2026-11-12，PR #234 / #235 / #236）**：`Workbuddy专属` 两份 `deploy.js` 改为薄包装（共享 `Workbuddy专属/deploy-skill-wrapper.cjs`）；`open-medical-skills/scripts/deploy.mjs` 统一为 `deploy.js`；`chrome-devtools/localization/deploy.cjs` 按实际功能改名 `install.cjs`。三处均新增 / 更新项目级 `deploy-manifest.json` 登记 `preserve` / `exclude` / 联网刷新下沉。裁决表与实测值见 `AGENTS.md §7.2 / §7.7`，历史流水见 `CHANGELOG.md [2026-11-12]`。
