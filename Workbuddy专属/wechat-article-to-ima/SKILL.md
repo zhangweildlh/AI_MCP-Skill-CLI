@@ -116,9 +116,11 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 > 本技能的 Cookie 提取依赖 chrome-devtools 已就绪的调试浏览器（含站点登录态 / Cookie）。其**拉起、端口探查、端口探活、免 Cookie 降级等完整指令与流程由 `chrome-devtools` 技能 `SKILL.md` 规定并经 Agent 编排调用**，本技能不重复其细节、也**不自行读 `local-config.json` / 不自行拉起**（避免重复造轮子 + 陈旧配置误报）。本技能仅约定与 `chrome-devtools` 的**契约**：
 
-- **端口由 Agent 编排回传**：调试浏览器端口探查与拉起经 Agent 编排调用 `chrome-devtools`（其 `start.cjs` 扫描 9222~9240 并回传真实端口，经 MCP 连接器拉起 360chrome）。本技能仅按编排回传的 `SOGOU_CDP_PORT` 连接，缺省 9222。`scripts/resolve_midlink.js --check` 仅做端口探活（探活对象须为编排回传的真实端口），**不得只读 `local-config.json` 的 `debugPort` 配置值即判定就绪**（配置值与实际监听可能不一致）。
+- **端口由 Agent 编排回传（务必显式注入，勿依赖缺省）**：调试浏览器端口探查与拉起经 Agent 编排调用 `chrome-devtools`（其 `start.cjs` 扫描 9222~9240 并回传真实端口，经 MCP 连接器拉起 360Chrome）。本技能仅按编排回传的 `SOGOU_CDP_PORT` 连接。**关键事实**：`9222` 是 WorkBuddy 自身 Electron 的调试端口（非本地调试浏览器），`resolve_midlink.js` 会主动拒绝 9222；真正的调试浏览器（360Chrome）通常落在 `9223` 或 9222~9240 区间内的其他高位端口。因此**必须显式 `export SOGOU_CDP_PORT=<编排回传的真实端口>`（例如 9223），切勿依赖缺省 9222**（否则会命中 WorkBuddy Electron 被拒绝，导致 Cookie / 直链解析全部失败）。`scripts/resolve_midlink.js --check` 仅做端口探活（探活对象须为编排回传的真实端口），**不得只读 `local-config.json` 的 `debugPort` 配置值即判定就绪**（配置值与实际监听可能不一致）。
 - 未就绪时记为告警 `browser_unavailable`，检索走免 Cookie 降级，并在四栏清单标注「降级链三级（浏览器解析）不可用」；具体拉起步骤见 `chrome-devtools` 技能 `SKILL.md`，由 Agent 编排执行。
 - Cookie 提取后置 `-c` 传给 `search_wechat.js`；两段式取法与 ANTI_SPIDER 即停试策略见「检索执行规则」。
+- **E3（Cookie 完整性预检，建议在每轮检索前执行）**：`get_sogou_cookie.js` 取到的 Cookie 必须含 `SUV`（搜狗会话级访客标识）；**缺 `SUV` 会立刻命中反爬、检索提前熔断（ANTI_SPIDER）**。请在提取后将 Cookie 暂存为文件，并先跑 `node scripts/check-deps.js --cookie-file <cookie文件>` 确认 `cookie.ok=true`（即 SNUID/SUID + SUV 齐全）；若 `ok=false` 须回到 `chrome-devtools` 让调试浏览器**完整加载搜狗页面并保有登录会话**后重新提取，切勿带残缺 Cookie 直接检索。该预检为附加式、非阻断，仅用于早于运行期暴露问题。
+- **E2（调试浏览器跨轮次死亡，韧性提示）**：调试浏览器进程可能因资源回收 / 崩溃在轮次间死亡；`check-deps.js` 的 `cdpReachable` 会实时探活捕获「端口不可达」。建议**每轮检索前重跑 `node scripts/check-deps.js`** 先确认 `cdpReachable=true`，不可达则先经 Agent 编排调用 `chrome-devtools` 重新拉起调试浏览器并回传 `SOGOU_CDP_PORT` 再继续；浏览器不可用时应按前述「免 Cookie 降级」处理，切勿带无效端口强行解析。
 
 ### 缺失处置
 
@@ -318,7 +320,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 0. **零级（代码实装）：中转链接解析**。搜狗结果中 `url_resolved=false` 的条目，其 `url` 为 `weixin.sogou.com/link?url=…` 中转链接，且其中的 `&` 被写作 HTML 实体 `&amp;`——**不解码则 URL 畸形**，直连会被重定向到 `weixin.sogou.com/antispider/`（反爬页），正文永远取不到。
    - **执行入口**：`scripts/resolve_midlink.js`（零依赖，走 Chrome DevTools HTTP 端点 `/json/new` + `/json/list` + `/json/close`，**不需要 WebSocket、不依赖 chrome-devtools MCP**）。
    - **用法**：单条 `node scripts/resolve_midlink.js "<中转链接>"` → stdout 输出真实直链；批量 `node scripts/resolve_midlink.js --file "<检索结果.json>" [--out "<映射.json>"]`；探活 `node scripts/resolve_midlink.js --check`。
-   - **端口**：环境变量 `SOGOU_CDP_PORT`（由 Agent 编排调用 chrome-devtools 拉起后注入），缺省 9222；本脚本**不读 `local-config.json`、不自行扫描端口、不自行拉起**，只连接编排回传的端口。
+   - **端口**：环境变量 `SOGOU_CDP_PORT`（由 Agent 编排调用 chrome-devtools 拉起后注入；**必须显式设置**）。须知 `9222` 为 WorkBuddy 自身 Electron 调试端口（非本地调试浏览器，会被 `resolve_midlink.js` 拒绝），真正调试浏览器通常落在 `9223` 或 9222~9240 区间其他高位端口；**切勿依赖缺省 9222**。本脚本**不读 `local-config.json`、不自行扫描端口、不自行拉起**，只连接编排回传的端口。
    - 解析失败时以**已解码**的原中转链接直接尝试抓取，最终以「完整性闸门」判定。
    - 检索命令已带 `-r` 且结果 `url_resolved=true` 时已是真实直链，无需本级解析。
 1. **一级（代码实装）：原生网页抓取**。`pipeline.js` 的 `fetchArticle()` 直接读取真实文章直链，获取标题、来源、作者、发布时间与正文（`js_content` 为空或过短判失败）。检索结果中已含 `title`、`url`、`summary`、`datetime`、`date_text`、`source` 字段，可直接作为元数据头输入。
@@ -485,7 +487,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 | --- | --- | --- |
 | `scripts/state.js` | `_progress_<card>.json` 唯一读写入口（F9） | 导出 `dedupKey()` / `TITLE_CAP` / `locateImaApi()` / `classifyReport()` / `classifyFailure()`，供流水线复用；`report` 子命令产出增强四栏清单（KB 复核 + 幽灵记录标注 + 逐条原因）；`diff-keywords` 输出未搜词差集、`classify-failure` 判定 transient/permanent；**`resolve-folder` 子命令按 ima 实际子目录名实时解析真实 `folder_id`（禁止硬编码）**；**不得**由其他脚本另写一份去重键或路径解析 |
 | `scripts/check-deps.js` | 前置依赖**代码级**核查器（硬依赖阻断、软依赖告警） | firecrawl / chrome-devtools 的「CLI 探查 / 端口探查 / 浏览器拉起」均经 Agent 编排委派对应技能，本检查器只判定「委派目标存在 + 密钥就绪」硬门禁（**不自行 spawn firecrawl、不读 local-config.json**），消除 Windows 下误报；解析并输出 `search_script_dir` / `ima_api` 路径 / `cdp_port` |
-| `scripts/resolve_midlink.js` | 中转链接 → 真实直链（降级链零级） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；端口仅取编排回传的 `SOGOU_CDP_PORT`（缺省 9222），**不读 local-config.json、不自行扫描/拉起**；`--check` 为端口探活 |
+| `scripts/resolve_midlink.js` | 中转链接 → 真实直链（降级链零级） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；端口仅取编排回传的 `SOGOU_CDP_PORT`（**必须显式设置；缺省 9222 即 WorkBuddy 自身 Electron，会被拒绝**；真正调试浏览器通常落 `9223` 或 9222~9240 区间其他高位端口），**不读 local-config.json、不自行扫描/拉起**；`--check` 为端口探活 |
 | `scripts/pipeline.js` | 抓取 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限）；`--ingest-quarantine` 模式消费 `failed_quarantine/` 未入库 `.md` 直接补入库而不重搜 |
 | `scripts/deploy.js` | 开发态 → 部署态同步**薄包装**（零第三方依赖） | 自身不含同步实现，参数转发至仓库级唯一入口 `scripts/deploy-skill.cjs`（§7.7）；入口运行时解析 `AGENTS.md §7.2` 注册表，从 main 的 git blob 逐字节重建（**不经工作树**，理由是内容权威性 + 避免未提交差异污染，§7.3），写后校验三项判据；`deploy-manifest.json` 显式登记 `ima_credentials.json` 为 `preserve`（部署态专有物，保留不覆盖）；`--dry-run` 预演、`--verify` 只校验、`--ref` 指定来源（默认 main） |
 

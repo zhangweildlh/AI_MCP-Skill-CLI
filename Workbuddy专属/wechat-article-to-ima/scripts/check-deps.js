@@ -36,14 +36,33 @@ const RESOLVE_JS = path.join(__dirname_, 'resolve_midlink.js');
 
 // ── 参数 ──
 function parseArgs(argv) {
-  const o = { json: false, base: '', skillsDir: '', fixBrowser: false };
+  const o = { json: false, base: '', skillsDir: '', fixBrowser: false, cookieFile: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') o.json = true;
     else if (a === '--base') o.base = argv[++i] || '';
     else if (a === '--skills-dir') o.skillsDir = argv[++i] || '';
+    else if (a === '--cookie-file') o.cookieFile = argv[++i] || '';
   }
   return o;
+}
+
+// E3 预检（可选，附加式、非阻断）：校验检索 Cookie 关键标识是否齐全。
+// 根因：SUV 是搜狗会话级访客标识，若 get_sogou_cookie.js 取到的 Cookie 缺 SUV，
+// 检索会立刻命中反爬（ANTI_SPIDER）而提前熔断；此处确定性预检，早于检索失败暴露，避免空耗一轮。
+// 仅当 Agent 将 Cookie 暂存为文件并显式传入 --cookie-file 时生效；不传则不校验（保持向后兼容）。
+function checkCookieCompleteness(cookieFile) {
+  if (!cookieFile) return { checked: false };
+  try {
+    const txt = fs.readFileSync(cookieFile, 'utf8').replace(/\s+/g, '');
+    const has = (k) => new RegExp('(?:^|;)' + k + '=').test(txt);
+    const suv = has('SUV'), snuid = has('SNUID'), suid = has('SUID');
+    const ok = suv && (snuid || suid);
+    return { checked: true, ok, suv, snuid, suid,
+      warn: ok ? '' : ('Cookie 不完整' + (suv ? '' : '：缺 SUV（会话级访客标识，缺失将触发搜狗反爬熔断）') + (!snuid && !suid ? (suv ? '；缺 SNUID/SUID' : '；缺 SNUID/SUID') : '')) };
+  } catch (e) {
+    return { checked: true, ok: false, error: e.message };
+  }
 }
 
 // ── 技能基址解析（与 SKILL.md §59-64 完全一致）──
@@ -169,6 +188,13 @@ async function main() {
   result.resolved.cdpPort = cdPort;
   result.resolved.firecrawlUsable = fcSkillOk && fcKey;
 
+  // E3 预检（可选）：检索 Cookie 完整性（缺失 SUV 将触发反爬熔断）
+  const cookieCheck = checkCookieCompleteness(opt.cookieFile);
+  result.cookie = cookieCheck;
+  if (cookieCheck.checked && !cookieCheck.ok) {
+    result.soft.cookieWarn = cookieCheck.warn || (cookieCheck.error ? ('Cookie 文件读取失败：' + cookieCheck.error) : 'Cookie 不完整');
+  }
+
   result.ok = result.hardMissing.length === 0;
 
   // ── 输出 ──
@@ -198,6 +224,9 @@ async function main() {
     L.push('  ima_api.cjs      : ' + (result.resolved.imaApiCjs || '—'));
     L.push('  cdp_port         : ' + (result.resolved.cdpPort != null ? result.resolved.cdpPort : '—'));
     L.push('  firecrawl 可用   : ' + (result.resolved.firecrawlUsable ? '是' : '否'));
+    if (result.cookie && result.cookie.checked) {
+      L.push('  cookie 预检      : ' + (result.cookie.ok ? '✅ 关键标识齐全（SNUID/SUID + SUV）' : ('⚠️ ' + (result.cookie.warn || '不完整'))));
+    }
     L.push('');
     if (result.ok) L.push('结论：硬依赖齐全，可继续。软依赖缺失项将按上述回退方案降级运行。');
     else L.push('结论：硬依赖缺失 → ' + result.hardMissing.join('、') + '，必须补齐后方可执行检索/入库。');
@@ -211,4 +240,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('[FATAL]', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { resolveSkillsBase, relExists, firecrawlKeyPresent };
+module.exports = { resolveSkillsBase, relExists, firecrawlKeyPresent, checkCookieCompleteness };

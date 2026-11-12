@@ -65,6 +65,9 @@ const dedupKey = (t) => {
   return s.replace(/\s+/g, '').replace(/[！？!？?]/g, '').toLowerCase().slice(0, TITLE_CAP);
 };
 
+// 文件名安全化（与 pipeline.js 同款实现，避免两处逻辑漂移）；仅用于工作区清理时的卡前缀拼接。
+const safeFile = (t) => String(t || '').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 120);
+
 // ── R8 防护：解析出的工作区/进度目录严禁落在技能自身目录树内 ──
 // 否则运行产物（.md / 进度 / 隔离区）会污染技能仓库，甚至被误提交（AGENTS.md §4 红线）。
 function isInsideDir(child, parent) {
@@ -420,14 +423,54 @@ function cmdResetAttempts(opt, data) {
   console.error(`✅ 已重置 card=${opt.card} attempts=0`);
 }
 
+// E1/E5/D6：全量重搜前清理本卡在工作区的残余文件，杜绝「断点残留陷阱」。
+// 仅清理与本卡强关联的残留，不碰其他文件、不跨卡污染；工作区位于技能目录外（R8 守卫已对 progressPath 所在目录校验）。
+// 清理对象：
+//   ① pending_fetch/<dedupKey(标题)>.md —— 按本卡文章标题映射，删本卡遗留的 1 级抓取失败 stub；
+//   ② failed_quarantine/<卡>__*.md —— 卡前缀隔离残留；
+//   ③ _process_summary_<卡>.json —— 过程汇总（若存在）。
+function cleanCardResidue(opt, data) {
+  const ws = path.dirname(path.resolve(opt.progress));
+  assertOutsideSkillDir(ws); // 二次守卫：确保清理不会触达技能目录
+  const card = opt.card;
+  const prefix = safeFile(card) + '__';
+  const deleted = [];
+  const tryUnlink = (p) => {
+    try { if (fs.existsSync(p)) { fs.unlinkSync(p); deleted.push(path.basename(p)); return true; } } catch (_) { /* 忽略单文件失败，不阻断重置 */ }
+    return false;
+  };
+  // ① 本卡 pending_fetch stub：按本卡文章标题 dedupKey 映射（过滤前先取标题，避免被清掉）
+  const titles = data.articles.filter((a) => cardOf(a) === card).map((a) => a.title);
+  for (const t of titles) {
+    const key = dedupKey(t);
+    if (key) tryUnlink(path.join(ws, 'pending_fetch', key + '.md'));
+  }
+  // ② failed_quarantine 卡前缀残留
+  const qd = path.join(ws, 'failed_quarantine');
+  if (fs.existsSync(qd)) {
+    for (const f of fs.readdirSync(qd)) {
+      if (f.startsWith(prefix) && f.endsWith('.md')) tryUnlink(path.join(qd, f));
+    }
+  }
+  // ③ 过程汇总文件（若存在）
+  tryUnlink(path.join(ws, `_process_summary_${card}.json`));
+  // ④ 清理后若 pending_fetch/ 变空则移除空目录（避免空目录被误判为残留）
+  const pd = path.join(ws, 'pending_fetch');
+  try { if (fs.existsSync(pd) && fs.readdirSync(pd).length === 0) fs.rmdirSync(pd); } catch (_) { /* ignore */ }
+  return deleted;
+}
+
 function cmdResetCard(opt, data) {
   if (!opt.card) fail('reset-card 需要 --card。');
+  // E1/E5/D6：全量重搜前先清理本卡工作区残余（pending_fetch stub / failed_quarantine 卡前缀 / 过程汇总）
+  const cleaned = cleanCardResidue(opt, data);
   const before = data.articles.length;
   data.articles = data.articles.filter((a) => cardOf(a) !== opt.card);
   // 重置卡级累积态：searchedKeywords 清空 → 重跑时强制全量重搜（不被旧差集误导）；
   // failureClass 清空 → 解除 permanent/transient 锁，避免旧失败类沿用至新一周期。
   // 注意：仅清本卡，不影响其他卡的累积态（多卡并存时互不污染）。
-  const card = ensureCard(data, opt.card);
+  const prevName = data.cards[opt.card] ? data.cards[opt.card].name : ''; // E6 防御：保留既有卡显示名（此处 card 尚未声明，须用 opt.card）
+  const card = ensureCard(data, opt.card); // 已存在则保留全部既有字段（含 name）
   card.searchedKeywords = [];
   card.failureClass = '';
   // 审计 E-07：原实现不清 status/note/attempts/pendingKeywords，reset 后 status 仍为上一轮
@@ -439,7 +482,7 @@ function cmdResetCard(opt, data) {
   card.nextRetryAt = null;
   card.pendingKeywords = [];
   saveProgress(opt.progress, data);
-  console.error(`✅ 已清空 card=${opt.card} 的文章记录：${before} → ${data.articles.length}；并重置 searchedKeywords=[]、failureClass=''、status=pending、note=''、attempts=0、pendingKeywords=[]、nextRetryAt=null`);
+  console.error(`✅ 已清空 card=${opt.card} 的文章记录：${before} → ${data.articles.length}；已清理本卡工作区残余 ${cleaned.length} 个文件（${cleaned.join(', ') || '无'}）；并重置 searchedKeywords=[]、failureClass=''、status=pending、note=''、attempts=0、pendingKeywords=[]、nextRetryAt=null` + (prevName ? `、保留 name=${prevName}` : ''));
 }
 
 function cmdUpdateCard(opt, data) {
