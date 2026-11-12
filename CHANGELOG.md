@@ -35,6 +35,8 @@
 
 - **meta：AGENTS.md §7.2 映射表随 PR #244 重新复采刷新**：`wechat-article-search` 行实测由 13 文件 / 114460 B / 2339 行 / 聚合 md5 `01cdb0fa…` 更新为 **13 文件 / 117930 B / 2389 行 / 0 CR / 聚合 md5 `71af7cfc…`**；2 个变更文件 blob sha 同步更新（scripts/get_sogou_cookie.js `2ba333d3…`→`b7ce89f2…`、tests/run_tests.js `3f43ab20…`→`a83113c5…`），其余 11 文件 sha 不变；项目级测试仍为 2 套（E3 回归并入 `run_tests.js`，未新增文件）。部署态经 `scripts/deploy.js --ref main` 从 main blob 逐字节重建（写入 2 / 未变化 11 / 失败 0），写后校验 13/13；§7.3 三项判据全过（复采从 main blob 逐字节复采完成）。
 
+- **后续更正·必读（覆盖本日 PR #243 条目「形态 A 不可达 → 一律走形态 B」的错误结论）**：PR #243 正确识别了 §5.5 旧措辞「切回主工作树对该分支追加」在 worktree 纪律下不可达（已实测复现 `fatal: '<分支>' is already used by worktree`），但据此得出「形态 A 对 Skill 改动不可达、一律走形态 B」属**错误推导**，直接推翻了 PR #240 确立的「单 PR 闭环（形态 A）」目标形态。正确解法是**修正机制而非放弃形态 A**：功能分支既已在专用 worktree 检出，meta 登记 commit（仅 `CHANGELOG.md`/`README.md`/`AGENTS.md` §7.2）直接**在该 worktree 内（分支已检出）追加**即可，无需 checkout 到主工作树；同步在 §4.3 开「形态 A」窄例外、`.githooks/pre-commit` 的 `dir` scope 校验放行上述三个 meta 登记文件（hook §2.3）。三处齐改后，形态 A 在 worktree 纪律下**完全可达**，为单技能改动的首选单 PR 闭环形态；形态 B 保留为「多技能 meta 批量归集」形态。AGENTS.md §5.5 / §4.3 / §7.6.5 已同步修订，本条目为当前状态。
+
 ---
 
 ## [2026-11-11]

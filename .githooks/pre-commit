@@ -194,6 +194,8 @@ while IFS= read -r f; do
     dir)
       case "$f" in
         "$SCOPE_DIR/"*) ok=1 ;;
+        # 形态 A 窄例外：允许在同 worktree 内追加 meta 登记 commit（CHANGELOG/README/AGENTS §7.2）
+        CHANGELOG.md|README.md|AGENTS.md) ok=1 ;;
       esac
       ;;
     file)
