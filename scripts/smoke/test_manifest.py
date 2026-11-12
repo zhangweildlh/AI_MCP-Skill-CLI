@@ -221,6 +221,13 @@ TEST_ENTRIES = [
          cmd=[PYTHON, "Memory-Data/test_memory_system.py"], shell=False,
          kind="regression", risk="offline",
          note="记忆体系唯一测试源，29/29 PASS（须先满足记忆维护门禁）"),
+    dict(scope="meta", name="deploy-skill-regression",
+         path="scripts/smoke/test_deploy_skill.py",
+         cmd=[PYTHON, "scripts/smoke/test_deploy_skill.py"], shell=False,
+         kind="regression", risk="offline",
+         note="仓库级唯一同步器 deploy-skill.cjs 离线回归：§7.2 注册表解析 / 单文件形态转换 / "
+              "预演零写盘 / §7.3 三项判据 / 注入 1 字节腐坏的反向测试 / --exclude 与拒绝未登记技能；"
+              "仅写 tempfile 临时目录，不触碰真实部署态"),
 ]
 
 

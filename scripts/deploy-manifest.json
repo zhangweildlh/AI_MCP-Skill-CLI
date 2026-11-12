@@ -1,0 +1,7 @@
+{
+  "_comment": "部署形态差异的集中兜底配置（按技能名索引）。映射关系本身不在此登记，唯一事实源恒为 AGENTS.md §7.2。技能目录内若存在自己的 deploy-manifest.json，则优先于本文件对应条目。字段：preserve=部署态专有物（写时跳过）、exclude=开发态中不部署的相对路径前缀、expand=post-sync 展开钩子、prune=修剪开关（默认关闭，只写不删）。",
+  "codebase-memory": {
+    "exclude": ["codebase-memory-mcp/"],
+    "_note": "仓库专有、不入部署态：exe 占位 + 下载说明 + 注册脚本（AGENTS.md §7.2 codebase-memory 行）"
+  }
+}
