@@ -3,5 +3,9 @@
   "codebase-memory": {
     "exclude": ["codebase-memory-mcp/"],
     "_note": "仓库专有、不入部署态：exe 占位 + 下载说明 + 注册脚本（AGENTS.md §7.2 codebase-memory 行）"
+  },
+  "ref-material-writing": {
+    "exclude": ["LICENSE"],
+    "_note": "仓库专有、不入部署态：LICENSE（AGENTS.md §7.2 ref-material-writing 行）。开发态共 55 个 blob 文件，仅此 1 个不部署，故 §7.2 实测列记 54 文件。此前唯一同步器未在兜底 manifest 登记该排除，--verify --all 会把「部署态本就不该有 LICENSE」误报为不一致，本轮补登。"
   }
 }
