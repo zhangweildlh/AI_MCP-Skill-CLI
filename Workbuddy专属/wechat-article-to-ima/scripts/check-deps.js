@@ -155,9 +155,13 @@ async function main() {
   if (base) {
     cdInstalled = relExists(base, 'chrome-devtools/localization/start.cjs', true)
       && relExists(base, 'chrome-devtools/local-config.json', true);
-    // 实时探活编排回传的端口（SOGOU_CDP_PORT，缺省 9222）；不读陈旧 local-config.json。
+    // 实时探活编排回传的端口（SOGOU_CDP_PORT；注意：缺省 9222 是 WorkBuddy 自身 Electron 端口，resolve_midlink.js / get_sogou_cookie.js
+    // 按 UA 正则甄别并拒绝，真实调试浏览器须落 9223+）；不读陈旧 local-config.json。
     const chk = await checkBrowser();
-    cdOk = chk.ok; cdPort = chk.port != null ? chk.port : null;
+    cdOk = chk.ok;
+    // D1 修复：浏览器未就绪（ok=false）时 checkBrowser 仍回传缺省 9222（Electron，不可用）；此时绝不把 9222
+    // 当作可用端口输出，改置 null（解析产物显示「— 不可用」），避免调度方误信而导致 0 级中转链接解析必然失败。
+    cdPort = (cdOk && chk.port != null) ? chk.port : null;
     cdReason = chk.reason || '';
   }
   result.soft.chromeDevtools = { installed: cdInstalled, cdpReachable: cdOk, port: cdPort, reason: cdReason || undefined,
