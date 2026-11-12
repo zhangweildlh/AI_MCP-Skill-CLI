@@ -35,7 +35,7 @@ metadata:
 
 1. 确认检索要素：与用户确认关键词与返回数量（默认 10，最大 50）；若用户关注时间窗，确认最近 N 天。
 2. 获取 Cookie（优先路径）：通过 chrome-devtools 驱动支持 CDP 远程调试的 Chrome / Chromium 内核浏览器（例如 360Chrome）取得 `weixin.sogou.com` 的 Cookie。
-   1. 经 chrome-devtools 激活调试浏览器（其 `start.cjs` 会自动探测真实调试端口并写入 `local-config.json` 的 `debugPort`；本机实测常为 9222 而非 9223），调试实例随即就绪；脚本 `get_sogou_cookie.js` 会自动探测 9222~9240 或读取 `SOGOU_CDP_PORT` 环境变量定位该实例。
+   1. 经 chrome-devtools 激活调试浏览器（其 `start.cjs` 会自动探测真实调试端口并写入 `local-config.json` 的 `debugPort`；本机实测常为 9223 而非 9222），调试实例随即就绪；脚本 `get_sogou_cookie.js` 会自动探测 9222~9240 或读取 `SOGOU_CDP_PORT` 环境变量定位该实例。
    2. 用 chrome-devtools 驱动浏览器访问 `weixin.sogou.com` 搜索页；若跳转验证页，提示用户在浏览器窗口中**手动完成人机验证**（自动化无法过码且不合规），验证通过后 Cookie 写入浏览器存储。**先访问 `weixin.sogou.com` 首页完成一次正常浏览再进搜索页**（2026-11-02 实测）：仅跳搜索结果页通常只种访客标识 `SUV`，残缺 Cookie 检索仍会被拦截。
    3. 运行零依赖脚本提取 Cookie：执行 `node scripts/get_sogou_cookie.js`，其向标准输出打印 `SNUID=...; ...` 形式的字符串。退出码语义：0=成功且关键键（`SNUID`/`SUID`）齐全（向 stdout 输出 Cookie 串）；3=读取成功但 Cookie 残缺（标准错误给出告警与首页补救建议，stdout 不再输出 Cookie 串以免调用方误用）；2=未读取到 Cookie；1=读取失败。
 3. 执行检索（携带 Cookie）：运行 `node scripts/search_wechat.js "[关键词]" -n [数量] -c "[Cookie 字符串]"`；若用户要求时间窗或解析直链，追加 `-d [天数]` 或 `-r`。

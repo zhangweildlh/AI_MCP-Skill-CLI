@@ -8,7 +8,7 @@
  * chrome-devtools 技能均解耦。
  *
  * 前置：调试浏览器须经 chrome-devtools 激活（其 start.cjs 会自动探测真实调试端口并写入
- *       local-config.json 的 debugPort；本机实测常为 9222 而非 9223），且用户已在其中
+ *       local-config.json 的 debugPort；本机实测常为 9223 而非 9222），且用户已在其中
  *       打开并通过人机验证 weixin.sogou.com（Cookie 才会存在）。
  *
  * 用法：node get_sogou_cookie.js
