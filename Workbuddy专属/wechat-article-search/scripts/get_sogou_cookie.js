@@ -15,8 +15,9 @@
  * 端口解析：优先读取环境变量 SOGOU_CDP_PORT；未设置则自动探测 9222~9240（UA 过滤跳过
  *          WorkBuddy 自身 Electron），命中即用；仍失败再报错。
  * 输出：stdout 打印 "SNUID=...; SUGGEST=..." 形式的 Cookie 串（供 -c 使用，仅关键键齐全时输出）
- * 退出码：0=成功且关键键齐全（输出 Cookie 串）；3=读取成功但 Cookie 残缺（缺 SNUID/SUID，
+ * 退出码：0=成功且关键键齐全（输出 Cookie 串）；3=读取成功但 Cookie 残缺（缺 SNUID/SUID/SUV，
  *        stderr 给出告警，stdout 不输出 Cookie 串以免调用方误用）；2=未读取到 Cookie；1=读取失败。
+ *        注：SUV 为搜狗反爬熔断的关键会话级访客标识，缺失即触发反爬，故与 SNUID/SUID 一并强制。
  */
 
 const http = require('http');
@@ -27,6 +28,24 @@ const CDP_HOST = '127.0.0.1';
 // 保持「与 chrome-devtools 解耦」原则：仅消费其已记录的端口（环境变量契约），不调用其 MCP 链。
 let CDP_PORT = Number(process.env.SOGOU_CDP_PORT) || 0;
 const TARGET_ORIGIN = 'https://weixin.sogou.com';
+
+// --- Cookie 完整性校验（E3 根因修复点）---
+// 关键 Cookie 名称集合：会话级访客标识。SNUID / SUID 为搜索结果追踪标识；
+// SUV 为搜狗反爬熔断的关键会话级访客标识——实测中仅访问搜索结果页直提通常只得 SUV，
+// 而缺 SNUID/SUID 或 SUV 任一即视为残缺：残缺 Cookie 流入检索会稳定触发搜狗反爬验证码（E3 根因）。
+// 故完整性校验强制要求三者齐全；缺失任一即以退出码 3 拦截，避免下游把残缺凭据当作可用 Cookie 误用。
+const KEY_COOKIE_NAMES = ['SNUID', 'SUID', 'SUV'];
+
+/**
+ * 纯函数：判断一组按名称去重后的 Cookie（Map<name, {name, value}>）是否含全部关键键。
+ * 供 main() 出口码 3（Cookie 不完整）判定与离线回归测试复用。
+ * @param {Map<string, {name:string}>} seen
+ * @returns {{ complete: boolean, missingKeys: string[] }}
+ */
+function evaluateKeyCookies(seen) {
+  const missingKeys = KEY_COOKIE_NAMES.filter((n) => !seen.has(n));
+  return { complete: missingKeys.length === 0, missingKeys };
+}
 
 // --- 最小 WebSocket 客户端（RFC 6455，零依赖） ---
 class CdpWs {
@@ -366,16 +385,16 @@ async function main() {
               const cookieStr = Array.from(seen.values())
                 .map((c) => `${c.name}=${c.value}`)
                 .join('; ');
-              // 关键键齐全性校验（2026-11-02 实测沉淀，2026-11-04 修正 F3 BUG）：
+              // 关键键齐全性校验（2026-11-02 实测沉淀，2026-11-04 修正 F3 BUG，2026-11-12 纳入 SUV 修复 E3）：
               // 仅访问搜索结果页直提通常只得访客标识 SUV，残缺 Cookie 直接用于检索大概率仍触发反爬，故以退出码 3 区分。
               // F3 修正点：残缺态严禁向 stdout 输出 Cookie 串——旧代码在 exitCode=3 时仍无条件打印 [成功] 并输出 cookieStr，
               // 导致调用方（wechat-article-to-ima / wechat-article-search 检索脚本）把残缺凭据当作可用 Cookie 喂给搜狗，反而稳定触发验证码。
               // 故残缺时只走 stderr 告警、保持非零退出码，且 stdout 为空，使下游管道只能拿到空值而跳过误用。
-              const KEY_COOKIE_NAMES = ['SNUID', 'SUID'];
-              const missingKeys = KEY_COOKIE_NAMES.filter((n) => !seen.has(n));
-              if (missingKeys.length > 0) {
-                console.error(`[残缺-关键键缺失] 读取到 ${cookies.length} 个 Cookie，但缺少关键键 ${missingKeys.join('、')}，直接用于检索大概率仍触发反爬。`);
-                console.error(`[建议] 先在浏览器访问 ${TARGET_ORIGIN}/ 首页完成一次正常浏览（种全套会话 Cookie）后重新提取。`);
+              // E3 根因修复：完整性判定委托 evaluateKeyCookies，强制要求 SNUID/SUID/SUV 三者齐全（SUV 缺失即判残缺）。
+              const { complete, missingKeys } = evaluateKeyCookies(seen);
+              if (!complete) {
+                console.error(`[残缺-关键键缺失] 读取到 ${cookies.length} 个 Cookie，但缺少会话级关键访客标识 ${missingKeys.join('、')}（SNUID/SUID/SUV 三者须齐全）。SUV 为搜狗反爬熔断的关键会话级访客标识，缺失即视为残缺 Cookie：直接用于检索必然触发搜狗反爬验证码（E3 根因），故以退出码 3 拦截，绝不外泄残缺凭据。`);
+                console.error(`[建议] 先在浏览器访问 ${TARGET_ORIGIN}/ 首页完成一次正常浏览（种齐全套会话 Cookie：SNUID、SUID、SUV 均到位）后重新提取。`);
                 exitCode = 3;
                 // 残缺时不向 stdout 输出 Cookie 串，避免调用方误用（见上方注释）。
               } else {
@@ -403,4 +422,8 @@ async function main() {
   if (exitCode !== 0) process.exit(exitCode);
 }
 
-main();
+module.exports = { evaluateKeyCookies, KEY_COOKIE_NAMES };
+// 仅当作为 CLI 直接运行时才启动 main()；被 require 引入（如离线回归测试）时不自动连接浏览器。
+if (require.main === module) {
+  main();
+}
