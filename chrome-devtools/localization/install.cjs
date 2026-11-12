@@ -1,4 +1,9 @@
-// localization/deploy.cjs
+// localization/install.cjs
+// 命名说明（2026-11-12，AGENTS.md §7.7）：原名 deploy.cjs，易被误读为「开发态 → 部署态副本同步器」。
+//   实测本文件只做「部署态目录内部的全局安装 / 构建 / vendoring / MCP 配置编排」，从不写用户级 skills 目录，
+//   故按实际功能改名 install.cjs；副本同步的唯一入口是仓库级 scripts/deploy-skill.cjs（从 main blob 重建）。
+//   调用链（upstream.cjs / cli_run.cjs / start.cjs / compat.cjs / cleanup.cjs / install_global.cjs）、
+//   README.md、SKILL.md 与 localization/fragments/ 两份片段已同步改名，共 35 处 / 11 文件。
 // 自包含部署（全局安装模式，方案一：真实安装而非软链接）：
 //   1) 核查本地浏览器（verify_browser.cjs，自动检测 360Chromex/Chrome，避免便携版）
 //   2) 本地安装全部依赖（npm install，PUPPETEER_SKIP_DOWNLOAD=1）到 upstream/ node_modules（仅供 tsc 构建使用）
@@ -13,7 +18,7 @@
 //   5) 幂等重注入本地化（apply_localize.cjs）
 //   6) 生成 mcp-local-config.json 并幂等合并进 ~/.workbuddy/mcp.json（含 no-update-check env）
 // 跨机可用：所有路径按脚本位置相对解析。拷贝即走——把本文件夹（无需 node_modules/build/upstream）复制到任意位置，
-// 运行 node localization/deploy.cjs 即自动装依赖、真实全局安装、构建并生成配置。
+// 运行 node localization/install.cjs 即自动装依赖、真实全局安装、构建并生成配置。
 
 const { execSync } = require('child_process');
 const fs = require('fs');

@@ -92,7 +92,7 @@ function realGlobalInstall() {
     fs.rmSync(dstFE, { recursive: true, force: true });
     fs.cpSync(srcFE, dstFE, { recursive: true });
   } else {
-    console.warn('[方案一] 警告：' + srcFE + ' 不存在，跳过 devtools-frontend 复制（vendoring 可能未执行，服务器运行将缺模块）。请确认 deploy.cjs 步骤 2.5 已 vendoring。');
+    console.warn('[方案一] 警告：' + srcFE + ' 不存在，跳过 devtools-frontend 复制（vendoring 可能未执行，服务器运行将缺模块）。请确认 install.cjs 步骤 2.5 已 vendoring。');
   }
 
   // 清理打包产物（仅上游快照内的临时 .tgz，可被重新 npm pack 生成，不污染部署副本）
