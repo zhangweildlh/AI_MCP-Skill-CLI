@@ -36,7 +36,7 @@
 
 | 依赖 | 版本要求 | 用途 | 缺失时 |
 |------|----------|------|--------|
-| `node` | ≥ 16.7（需 `fs.cpSync`） | 运行 `deploy.mjs`（部署） | 部署无法进行 |
+| `node` | ≥ 16 | 运行 `scripts/deploy.js`（部署薄包装）与仓库级唯一入口 `scripts/deploy-skill.cjs` | 部署无法进行 |
 | `python` | ≥ 3.8 | 运行 `sync_openmedical.py`（同步） | 无法跟进上游 |
 | `git` | ≥ 2.30 | 同步时克隆/拉取上游仓库 | 同步无法刷新上游缓存 |
 | 网络 | 可访问 `github.com` | 同步时拉取 `Open-Medica/open-medical-skills` | 仅能离线部署已入库副本 |
@@ -55,8 +55,9 @@ open-medical-skills/                ← 父技能包根目录（本仓维护，�
 ├── VENDORING.md                    ← vendored 同步纪律（硬规则）
 ├── config.json                     ← 部署配置（上游地址、目标、技能清单；单一事实源）
 ├── .gitignore                      ← 排除 upstream/（同步缓存，不入库）
+├── deploy-manifest.json            ← 部署形态差异（upstream/ 排除、联网刷新下沉说明）
 ├── scripts/
-│   ├── deploy.mjs                  ← 一键部署（默认离线，从入库副本复制；--sync 联网刷新）
+│   ├── deploy.js                   ← 开发态 → 部署态同步薄包装（转发仓库级唯一入口）
 │   └── sync_openmedical.py         ← 主同步脚本：刷 upstream 缓存 → 刷新 vendored 副本
 ├── clinical-differential-diagnosis/   ← 【子·vendored 副本，进库】
 │   ├── SKILL.md
@@ -92,53 +93,42 @@ open-medical-skills/                ← 父技能包根目录（本仓维护，�
 
 ---
 
-## 模块五 · 一键部署（自动自主）
+## 模块五 · 一键部署（薄包装 → 仓库级唯一入口）
 
-部署脚本**默认离线**（直接使用已入库的 vendored 副本），**幂等**：可反复运行，结果一致。
+`scripts/deploy.js` 是**薄包装**，自身不含同步实现：它按 `config.json` 的 `parent_skill_name` + `native_skills` 组装技能名，逐个调用仓库级唯一入口 `scripts/deploy-skill.cjs`（`AGENTS.md §7.7`）。映射关系由该入口运行时解析 `AGENTS.md §7.2` 取得，不在本包另存一份。
 
-**标准部署（全部目标，离线）**：
+**与旧 `deploy.mjs` 的差别（重要）**：旧版用 `fs.cpSync` 拷工作树并 `fs.rmSync` 删目标，既违反 §7.3「部署态以 main 的 git blob 为唯一权威」，也会误删部署态专有物。现版从 **main 的 git blob 逐字节重建**，写后校验三项判据（逐字节 == blob / `hash-object --no-filters` == blob sha / CR = 0），**默认只写不删、不执行任何外部命令**，`prune` 恒关闭。
+
+部署**默认离线**（直接用已入库的 vendored 副本），**幂等**，须在仓库或其 worktree 内运行。
 
 ```bash
 cd open-medical-skills
-node scripts/deploy.mjs
+node scripts/deploy.js                       # 覆盖部署到 config.json 全部 targets
+node scripts/deploy.js --target workbuddy   # 仅某个 Agent
+node scripts/deploy.js --to <skills 根>     # 显式指定 skills 根（忽略 targets）
+node scripts/deploy.js --dry-run            # 预演，不写盘
+node scripts/deploy.js --verify             # 只校验三项判据，不写盘
+node scripts/deploy.js --ref <引用>         # 内容来源（默认 main）
+node scripts/deploy.js --sync               # 先联网刷新 vendored 副本，再部署
 ```
 
-**仅部署到某个 Agent**（如 workbuddy）：
+`--sync` 是**唯一联网入口**：显式触发 `scripts/sync_openmedical.py`（Python 解释器可用 `PYTHON_BIN` 指定），会改动开发态 vendored 副本，须另行走开发态 PR 提交；覆盖部署本身恒离线。该「联网下载 / 展开」需求按 §7.7 下沉到项目级实现，`deploy-manifest.json` 的 `expand` 刻意留空。
 
-```bash
-node scripts/deploy.mjs --target workbuddy
-```
-
-**部署前先联网同步最新上游**：
-
-```bash
-node scripts/deploy.mjs --sync
-```
-
-**预览将要做什么（不改动文件）**：
-
-```bash
-node scripts/deploy.mjs --dry-run
-```
-
-部署完成后，目标 Agent 的 `skills/` 下将出现：
+同步范围为 `AGENTS.md §7.2` 登记的 5 行，部署完成后目标 `skills/` 下同时存在两种形态：
 
 ```
 skills/
-└── open-medical-skills/        ← 父技能包（本包定制，含内嵌 vendored 子技能）
-    ├── SKILL.md
-    ├── README.md
-    ├── VENDORING.md
-    ├── config.json
-    ├── .gitignore
-    ├── scripts/
-    ├── clinical-differential-diagnosis/   ← 【内嵌·vendored 副本】
-    ├── lab-result-interpreter/
-    ├── clinical-treatment-plan-generator/
-    └── drug-interaction-checker/
+├── open-medical-skills/              ← 父技能包（本包定制，含内嵌 vendored 子技能）
+│   ├── SKILL.md / README.md / VENDORING.md / config.json / .gitignore
+│   ├── scripts/  deploy-manifest.json
+│   └── clinical-differential-diagnosis/ 等 4 个子目录（父按 {SKILL_ROOT}/<子技能>/SKILL.md 读取）
+├── clinical-differential-diagnosis/  ← 独立顶层技能（§7.2 已登记，可被 Agent 单独激活）
+├── clinical-treatment-plan-generator/
+├── drug-interaction-checker/
+└── lab-result-interpreter/
 ```
 
-> **部署形态（与上方目录树、模块三一致）**：四个 vendored 子技能**内嵌于**父技能包目录 `open-medical-skills/` 之内，随父包整体复制到目标 `skills/open-medical-skills/`；子技能**不**作为 `skills/` 下的独立兄弟目录，也**不**单独被 Agent 激活——父技能按 `SKILL.md` 的 `{SKILL_ROOT}/<子技能>/SKILL.md` 相对路径读取它们。
+> **部署形态（更正旧表述）**：四个 vendored 子技能**既**内嵌于父包目录（供父技能按相对路径读取），**也**作为 `skills/` 下的独立顶层目录存在（`AGENTS.md §7.2` 已逐行登记，实测部署态存在且 `SKILL.md` 的 YAML `name` 与目录名一致）。旧版 README 称「子技能不作为独立兄弟目录、不单独被 Agent 激活」与实测不符，已更正。薄包装两种形态都同步。
 
 > 备选原生安装方式（无需本包也可，但缺少中文适配与默沙东注入）：
 > `npx skills add Open-Medica/open-medical-skills --skill <技能名> -a <agent>`
@@ -174,7 +164,7 @@ skills/
    ```bash
    python scripts/sync_openmedical.py --dry-run
    ```
-5. 将变动提交进本仓库（遵循 `AGENTS.md` 纪律，详见模块九）；随后重新部署：`node scripts/deploy.mjs --sync`。
+5. 将变动提交进本仓库（遵循 `AGENTS.md` 纪律，详见模块九）；合并回 main 后重新部署：`node scripts/deploy.js`（默认从 fresh main 的 blob 取内容，无需再加 `--sync`）。
 
 ---
 
