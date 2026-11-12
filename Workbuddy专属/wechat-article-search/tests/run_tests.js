@@ -275,6 +275,33 @@ async function main() {
   const g5 = await context.getRealUrl('https://weixin.sogou.com/link?url=z', '', 1);
   check('getRealUrl-200含antispider回退原链接', g5.includes('weixin.sogou.com/link?url=z'), g5);
 
+  console.log('\n[Step4/E3] get_sogou_cookie 完整性校验纳入 SUV（离线回归，零网络）');
+  // E3 根因回归：Cookie 完整性判定必须强制要求 SNUID/SUID/SUV 三者齐全。
+  // 直接 require 真实模块（require.main !== module，不会自动启动 main() 连接浏览器），
+  // 仅调用纯函数 evaluateKeyCookies 做断言，全程离线。
+  {
+    const cookieMod = require(path.join(SKILL, 'scripts', 'get_sogou_cookie.js'));
+    const mkSeen = (names) => new Map(names.map((n) => [n, { name: n, value: 'v_' + n }]));
+    check('E3-KEY_COOKIE_NAMES 显式含 SUV', cookieMod.KEY_COOKIE_NAMES.includes('SUV'),
+      JSON.stringify(cookieMod.KEY_COOKIE_NAMES));
+
+    const e_missingSuv = cookieMod.evaluateKeyCookies(mkSeen(['SNUID', 'SUID']));
+    check('E3a-缺 SUV（仅 SNUID+SUID）→ 判为不完整', e_missingSuv.complete === false && e_missingSuv.missingKeys.includes('SUV'),
+      JSON.stringify(e_missingSuv));
+
+    const e_onlySuv = cookieMod.evaluateKeyCookies(mkSeen(['SUV']));
+    check('E3b-仅 SUV（缺 SNUID/SUID）→ 判为不完整', e_onlySuv.complete === false && e_onlySuv.missingKeys.length === 2,
+      JSON.stringify(e_onlySuv));
+
+    const e_full = cookieMod.evaluateKeyCookies(mkSeen(['SNUID', 'SUID', 'SUV']));
+    check('E3c-SUV+SNUID+SUID 齐全 → 判为完整', e_full.complete === true && e_full.missingKeys.length === 0,
+      JSON.stringify(e_full));
+
+    const e_empty = cookieMod.evaluateKeyCookies(mkSeen([]));
+    check('E3d-无任何关键键 → 判为不完整且缺 3 项', e_empty.complete === false && e_empty.missingKeys.length === 3,
+      JSON.stringify(e_empty));
+  }
+
   console.log('\n[Step4/集成] get_sogou_cookie.js 错误路径退出码（子进程集成）');
   {
     const httpMod = require('http');
