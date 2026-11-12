@@ -16,14 +16,15 @@ wechat-article-search/
 ├── scripts/
 │   ├── search_wechat.js      # 检索主脚本（解析 + 反爬护栏 + CLI 严格校验）
 │   ├── get_sogou_cookie.js   # 零依赖 CDP Cookie 提取脚本（方案 A2 一键脚本）
-│   └── deploy.js             # 开发态 → 部署态 一键同步（从 git blob 取字节）
+│   └── deploy.js             # 开发态 → 部署态同步薄包装（转发仓库级唯一入口）
+├── deploy-manifest.json      # 部署形态差异（专有物 preserve 声明）
 └── tests/
     ├── run_tests.js          # 单测 / 集成台（vm + 桩 https，零真实网络）
     ├── cross_engine/         # 跨引擎交叉验证（Node ↔ Python 参考实现）
     └── fixtures/             # 搜狗响应样本（normal / empty / antispider）
 ```
 
-> 部署态目录另含 `_skillhub_meta.json` 与 `tests/audit/`（市场安装元数据与审计产物），属**部署态专有**，既不入库也不由 `deploy.js` 删除或覆盖。
+> 部署态目录另含 `_skillhub_meta.json` 与 `tests/audit/`（市场安装元数据与审计产物），属**部署态专有**，既不入库，也不由唯一同步器删除或覆盖（默认「只写不删」，`prune` 恒关闭）。
 
 ## 二、反爬三维模型与方案定位
 
@@ -57,17 +58,21 @@ wechat-article-search/
 
 ## 五、开发态 → 部署态 部署流程
 
-**铁律：部署态只读不改。** 任何修复一律回开发态源文件，合并回 main 后再重新部署。
+**铁律：写操作落在开发态副本。** 任何修复一律回开发态源文件，经 worktree + PR 合并回 main 后再覆盖部署；确需在部署态写时，须按 `AGENTS.md §7.6.3` 先用大白话告知用户并取得显式授权，闭环后分析回流。
+
+`scripts/deploy.js` 是**薄包装**，自身不含同步实现；它把参数转发给仓库级唯一入口 `scripts/deploy-skill.cjs`（`AGENTS.md §7.7`）。映射关系由该入口运行时解析 `AGENTS.md §7.2` 主表取得，不在技能内另存一份。
 
 ```
-# 在仓库内（或技能目录内）执行；从 git blob 取字节，保证部署态 == main 的 blob
-node scripts/deploy.js --dry-run     # 先预演
-node scripts/deploy.js               # 实际同步（写后逐文件校验）
+# 须在仓库或其 worktree 内执行；默认以 main 的 git blob 为唯一内容源
+node scripts/deploy.js --dry-run     # 先预演（不写盘）
+node scripts/deploy.js               # 实际同步（写后三项判据校验）
+node scripts/deploy.js --verify      # 只校验，不写盘
+node scripts/deploy.js --ref <引用>  # 指定内容来源（默认 main）
 ```
 
-**为什么必须走 blob 而不能直接拷工作树**：本仓库 `core.autocrlf=true` 且无 `.gitattributes`，`git checkout` 后工作树文件被转成 CRLF，而入库 blob 与部署态均为 LF。直接 `cp` 工作树会让部署态带上 CRLF，与 main blob 产生字节分歧（内容相同、行尾不同）。`deploy.js` 统一走 `git cat-file blob`，并在写后逐文件比对字节。
+**为什么从 blob 而不是拷工作树**：`AGENTS.md §7.3` 规定部署态以 main 的 git blob 为唯一权威内容源，避免把未提交差异、本地专有物或调试残留带进部署态。仓库根 `.gitattributes` 已声明 `* text=auto eol=lf`，blob 与工作树恒为 LF；旧版「`core.autocrlf=true` + 无 `.gitattributes` ⇒ 工作树恒 CRLF」的结论已作废。写后逐文件校验三项判据：逐字节 == blob、`git hash-object --no-filters` == blob sha、CR = 0。
 
-部署态专有文件（`_skillhub_meta.json`、`tests/audit/`）不被 `deploy.js` 删除或覆盖。
+部署态专有文件（`_skillhub_meta.json`、`tests/audit/`）默认「只写不删」天然保留；`deploy-manifest.json` 显式登记 `preserve` 防范其将来误入开发态源树。
 
 ## 六、本轮修复后仍待处理项（P3，不阻塞质量门禁，留待后续轮次）
 
