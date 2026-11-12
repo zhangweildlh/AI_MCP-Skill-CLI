@@ -30,7 +30,7 @@ if (!fs.existsSync(bin)) {
     realGlobalInstall();
     console.log('[OK] 真实安装成功，继续...');
   } catch (e) {
-    console.error('[失败] 自动安装失败。请手动运行: node localization/deploy.cjs');
+    console.error('[失败] 自动安装失败。请手动运行: node localization/install.cjs');
     process.exit(1);
   }
 }

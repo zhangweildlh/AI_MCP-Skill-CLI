@@ -134,7 +134,7 @@ node localization/cleanup.cjs
 ```
 
 `cleanup.cjs` 的清理范围（白名单，**仅这些**）：
-- 技能目录根级的 `local-config.json`、`mcp-local-config.json`（由 `verify_browser.cjs` / `apply_localize.cjs` / `deploy.cjs` 生成的机相关状态文件）；
+- 技能目录根级的 `local-config.json`、`mcp-local-config.json`（由 `verify_browser.cjs` / `apply_localize.cjs` / `install.cjs` 生成的机相关状态文件）；
 - 经 CLI 形态（形态三）拉起的本地常驻 daemon（`chrome-devtools.js stop`，仅停本技能启动的服务，不影响宿主 MCP stdio 服务与用户正在使用的浏览器）；
 - 系统临时目录下 `chrome-devtools-mcp-*` 临时目录（daemon / 工具落盘的临时文件）；
 - 系统临时目录下 `chrome-devtools-profile` 临时 profile 拷贝目录（问题2 启动隔离所用的真实 User Data 全量拷贝，**仅移除拷贝，绝不触碰真实 User Data**）；

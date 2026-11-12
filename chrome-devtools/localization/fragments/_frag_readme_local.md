@@ -7,7 +7,7 @@
 
 ## 模块 0：架构总览与核心约定
 
-- **服务器全局安装（符号链接模式）**：`npm install -g .` 会在 `$(npm root -g)`（npm 全局根目录，随 Node 安装位置而定）下创建名为 `chrome-devtools-mcp` 的**符号链接**，指向本文件夹；它**不拷贝、也不安装依赖**。运行时依赖与构建产物实际位于被链接的文件夹（`node_modules/` + `build/`）。调用方一律走全局 bin 目录 `$(npm root -g)/chrome-devtools-mcp/build/src/bin/`：其中 **CLI 模式用 `chrome-devtools.js`**、**MCP server 模式用 `chrome-devtools-mcp.js`**（两者经符号链接解析到本文件夹）。因此主副本文件夹本身保持最小化、可拷贝即走；依赖在激活后由 `deploy.cjs` 装到该文件夹。
+- **服务器全局安装（符号链接模式）**：`npm install -g .` 会在 `$(npm root -g)`（npm 全局根目录，随 Node 安装位置而定）下创建名为 `chrome-devtools-mcp` 的**符号链接**，指向本文件夹；它**不拷贝、也不安装依赖**。运行时依赖与构建产物实际位于被链接的文件夹（`node_modules/` + `build/`）。调用方一律走全局 bin 目录 `$(npm root -g)/chrome-devtools-mcp/build/src/bin/`：其中 **CLI 模式用 `chrome-devtools.js`**、**MCP server 模式用 `chrome-devtools-mcp.js`**（两者经符号链接解析到本文件夹）。因此主副本文件夹本身保持最小化、可拷贝即走；依赖在激活后由 `install.cjs` 装到该文件夹。
 - **拷贝即走**：把整个 `chrome-devtools/` 文件夹复制到任意电脑、激活主 `SKILL.md`，Agent 即可自主完成「全局安装 → 构建 → 浏览器检测/启动 → 暴露工具」，无需预装。
 - **跨平台说明**：底层脚本（deploy / upstream / copyDir / verify_browser）均为跨平台实现；本地化默认面向 **Windows + 360Chromex（含登录态）**。在 macOS / Linux 上可改用本机 Chrome（去掉 360Chromex 相关步骤，`verify_browser.cjs` 会检测 Chrome 的注册表/PATH 候选），其余流程一致。
 - **复用登录态、零下载**：仅依赖 puppeteer-core，**不下载任何浏览器内核**（`PUPPETEER_SKIP_DOWNLOAD=1` 由部署脚本内置）。
@@ -25,7 +25,7 @@ chrome-devtools/                ← 整个文件夹拷贝即走
 ├── server.json / tsconfig.json / .npmrc / .nvmrc / .gitignore / LICENSE
 ├── src/  skills/  scripts/     ← 上游源码镜像（随上游升级刷新）
 ├── localization/               ← 自包含工具链（见模块 6）
-│   ├── deploy.cjs              ← 全局安装 + 构建 + 生成 MCP 配置
+│   ├── install.cjs              ← 全局安装 + 构建 + 生成 MCP 配置
 │   ├── upstream.cjs            ← 纯网络上游升级（全局卸载/安装/构建）
 │   ├── compat.cjs              ← 固定 zod 兼容版本（避免 v4 编译失败）
 │   ├── apply_localize.cjs      ← 注入/剥离本地化段与中文 description
@@ -35,7 +35,7 @@ chrome-devtools/                ← 整个文件夹拷贝即走
 │   └── fragments/              ← 本地化片段（README/SKILL 文本与 description）
 ├── local-config.json           ← 浏览器路径/用户数据/端口（verify_browser 生成）
 ├── mcp-local-config.json       ← 生成的 MCP 接入配置（全局 bin 路径）
-└──（不含 node_modules / build）← 运行时依赖与构建产物由 `deploy.cjs` 在本文件夹安装（并经 $(npm root -g) 的符号链接暴露全局 bin）；拷贝即走的恰是此最小文件夹
+└──（不含 node_modules / build）← 运行时依赖与构建产物由 `install.cjs` 在本文件夹安装（并经 $(npm root -g) 的符号链接暴露全局 bin）；拷贝即走的恰是此最小文件夹
 ```
 
 ---
@@ -44,14 +44,14 @@ chrome-devtools/                ← 整个文件夹拷贝即走
 
 - Node.js ≥ 20.19（本机 v24.18.0 已满足；全局 bin 的 `node` 即系统 Node）。
 - 本机浏览器：360Chromex 安装目录可通过环境变量 `CHROME_DEVTOOLS_360_DIR` 覆盖（缺省 `D:\Tools\360Chrome`，仅本机有效；其它机器请设置该变量或依赖注册表/PATH 自动检测）；其它机器运行 `node localization/verify_browser.cjs` 自动检测并写入 `local-config.json`（优先已注册安装，规避便携版）。
-- 依赖与构建：**不随文件夹携带**，首次激活由 `node localization/deploy.cjs` 全局安装并构建（恒跳过浏览器下载）。
+- 依赖与构建：**不随文件夹携带**，首次激活由 `node localization/install.cjs` 全局安装并构建（恒跳过浏览器下载）。
 
 ---
 
 ## 模块 2：快速开始（一键部署 / 拷贝即走）
 
 ```
-node localization/deploy.cjs
+node localization/install.cjs
 ```
 
 该命令会依次：① 自动检测浏览器（缺失则交互要求指定并写入配置）→ ② 全局安装依赖/构建（恒跳过浏览器下载，写入 `$(npm root -g)`）→ ③ 幂等重注入本地化 → ④ 生成 `mcp-local-config.json`（全局 bin 路径）并打印接入指引。
@@ -92,8 +92,8 @@ chrome-devtools 可二选一使用，**严禁 `npx -y`**，一律走全局路径
 
 1. **检测是否已配置 MCP 服务模式**：读取 `~/.workbuddy/mcp.json`（或当前 Agent 的 MCP 配置），若含名为 `chrome-devtools` 的条目（command 指向本全局包 bin），即视为"MCP 服务模式已安装"。
    - **若已安装 MCP 服务模式**：全程使用 MCP 工具，**禁止**走 CLI 子命令。可询问用户是否删除 CLI 模式辅助脚本 `localization/cli_run.cjs`（仅 CLI 用，删除不影响 MCP）；用户拒绝则保留。
-   - **若未检测到 MCP 服务模式**：询问用户是否采用全局安装以使用 CLI 模式（`npm install -g .`）。用户明确"安装" → 执行 `node localization/deploy.cjs` 后继续 CLI 模式；用户明确"不安装" → **立即终止任务**。
-2. 若全局 bin 不存在（未安装），先 `node localization/deploy.cjs` 完成全局安装与构建。
+   - **若未检测到 MCP 服务模式**：询问用户是否采用全局安装以使用 CLI 模式（`npm install -g .`）。用户明确"安装" → 执行 `node localization/install.cjs` 后继续 CLI 模式；用户明确"不安装" → **立即终止任务**。
+2. 若全局 bin 不存在（未安装），先 `node localization/install.cjs` 完成全局安装与构建。
 
 ### 4.2 MCP 服务模式（推荐，WorkBuddy 原生工具）
 
@@ -180,7 +180,7 @@ node localization/apply_localize.cjs           # 重注入最新片段（含 des
 PUPPETEER_SKIP_DOWNLOAD=1 npm install          # 先在本文件夹装齐依赖（devDependencies，含 puppeteer-core 等运行时；注意 npm install -g . 不会装依赖）
 PUPPETEER_SKIP_DOWNLOAD=1 npm install -g .      # 在 $(npm root -g) 建符号链接指向本文件夹（不拷贝、不装依赖）
 npm run build                                  # 在本文件夹构建（tsc -> build/；其全局符号链接即 $(npm root -g)/chrome-devtools-mcp）
-node localization/deploy.cjs                   # 重新部署（生成全局路径 MCP 配置）
+node localization/install.cjs                   # 重新部署（生成全局路径 MCP 配置）
 ```
 
 ### 4) 本地化保全红线（任何 Agent 操作不得违反）

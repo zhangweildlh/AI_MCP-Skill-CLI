@@ -61,7 +61,7 @@ chrome-devtools/
 │   ├── UPSTREAM_REF              # 上游钉版本锚点（版本 + devtools-frontend commit）
 │   ├── apply_localize.cjs        # 哨兵幂等注入 / 剥离本地化片段（核心）
 │   ├── upstream.cjs              # 跟随上游升级：clone 新版本到 upstream/（重部署用）
-│   ├── deploy.cjs                # 全局安装 + 构建 + vendoring + 配置编排
+│   ├── install.cjs                # 全局安装 + 构建 + vendoring + 配置编排
 │   ├── vendor_frontend.cjs       # 按 UPSTREAM_REF 钉版本下载 tarball 整树 vendoring devtools-frontend
 │   ├── fix_trace_engine_dts.cjs  # 剥离 @paulirish/trace_engine 冲突全局声明（TS2717 上游 workaround）
 │   ├── compat.cjs                # 上游 package.json 依赖兼容守卫（固定 zod 版本等）
@@ -75,7 +75,7 @@ chrome-devtools/
 └── upstream/                     # 【子技能·vendored 快照 + 流水线就地注入·非手工编辑区】见 3.2
 ```
 
-> 早期布局遗留脚本 `mirror_to_target.cjs` / `sync_and_deploy.cjs` 已在新布局（方案 A）下移除——其职责已由 `localization/` 下的 `apply_localize.cjs` / `upstream.cjs` / `deploy.cjs` / `vendor_frontend.cjs` 取代。演进统一走 `localization/`。
+> 早期布局遗留脚本 `mirror_to_target.cjs` / `sync_and_install.cjs` 已在新布局（方案 A）下移除——其职责已由 `localization/` 下的 `apply_localize.cjs` / `upstream.cjs` / `install.cjs` / `vendor_frontend.cjs` 取代。演进统一走 `localization/`。
 
 ### 3.2 子技能目录（upstream/，vendored 快照 + 流水线就地注入）
 
@@ -102,7 +102,7 @@ upstream/
 - `chrome-devtools_v1.6.0.zip`：历史版本备份压缩包（本地备份，不随仓库分发）。
 - `upstream/node_modules/`、`upstream/build/`：上游依赖与构建产物（按需本地生成）。
 - `upstream/devtools-frontend/`：vendored 副本（GB 级，按钉版本填充；路径与上游 v1.7.0 `.gitmodules` 的 submodule 一致，顶层）。
-- `local-config.json`、`mcp-local-config.json`：机器专属配置（模板见 `*.example.json`）。二者含本机浏览器路径与 npm 全局绝对路径，**机相关、不随仓库分发、严禁跨机直接拷贝**；跨机重新部署或迁移时必须重跑 `node localization/deploy.cjs` 由脚本依据本机环境重新生成，否则会因路径失效导致 MCP server 启动失败。
+- `local-config.json`、`mcp-local-config.json`：机器专属配置（模板见 `*.example.json`）。二者含本机浏览器路径与 npm 全局绝对路径，**机相关、不随仓库分发、严禁跨机直接拷贝**；跨机重新部署或迁移时必须重跑 `node localization/install.cjs` 由脚本依据本机环境重新生成，否则会因路径失效导致 MCP server 启动失败。
 
 ---
 
@@ -154,7 +154,7 @@ DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 
 
 ### 5.2 填充步骤（构建前必需）
 
-填充由 `localization/vendor_frontend.cjs` 完成（也由 `deploy.cjs` 步骤 2.5 自动触发）。行为：
+填充由 `localization/vendor_frontend.cjs` 完成（也由 `install.cjs` 步骤 2.5 自动触发）。行为：
 
 - 读取 `UPSTREAM_REF` 的 `DEVTOOLS_FRONTEND_COMMIT`。
 - 下载钉版本 commit 的 tarball（`https://github.com/ChromeDevTools/devtools-frontend/archive/<commit>.tar.gz`），解包后取**整棵仓库**（含 `front_end/`、`mcp/` 等顶层目录；GitHub partial clone 不支持路径级按需拉取 blob，故采用整树快照 tarball 方案）。
@@ -196,13 +196,13 @@ DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 
 5. 差量剪除 `src / scripts / skills` 中「上游已删除、本地仍残留」的陈旧文件。
 6. 定向合并本地化约束（`.npmrc` / `puppeteer.config.js` / `package.json`，由 `compat.cjs` 完成）。
 7. 重新注入本地化（`apply_localize.cjs`）。
-8. 重新部署（`deploy.cjs`）。
+8. 重新部署（`install.cjs`）。
 
 支持 `--dry-run` 预检（不联网、不安装，仅打印将执行步骤）。
 
 > 该脚本会自动检测「本地是否已是最新」：若 `upstream/package.json` 版本等于上游最新，仍会重注入并合并约束（幂等），确保不漂移。
 
-### 6.3 deploy.cjs（全局安装 + 构建 + 配置编排）
+### 6.3 install.cjs（全局安装 + 构建 + 配置编排）
 
 自包含部署入口，按序执行：
 
@@ -215,7 +215,7 @@ DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 
 7. 重新注入本地化（`apply_localize.cjs`）。
 8. 生成 `mcp-local-config.json`，并**幂等合并进 `~/.workbuddy/mcp.json`**（含 `CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS=1` 环境变量）。
 
-跨机可用：拷贝本文件夹（无需 `node_modules` / `build`；但 `mcp-local-config.json` 为机相关产物、含本机路径，不随拷贝迁移）到任意位置。**重新部署（`upstream/` 已存在时）**运行 `node localization/deploy.cjs` 即自动装依赖、建符号链接、构建并重新生成本机 `mcp-local-config.json`（详见上文「机器专属配置」说明）；**全新引导（`upstream/` 不存在，例如最小化的主副本）须先运行 `node localization/upstream.cjs`** 克隆钉版本上游并自动完成后续引导（见 §6.2 / 第 7.2 节）——`deploy.cjs` 不是引导入口，它在 `upstream/` 缺失时会报错退出。
+跨机可用：拷贝本文件夹（无需 `node_modules` / `build`；但 `mcp-local-config.json` 为机相关产物、含本机路径，不随拷贝迁移）到任意位置。**重新部署（`upstream/` 已存在时）**运行 `node localization/install.cjs` 即自动装依赖、建符号链接、构建并重新生成本机 `mcp-local-config.json`（详见上文「机器专属配置」说明）；**全新引导（`upstream/` 不存在，例如最小化的主副本）须先运行 `node localization/upstream.cjs`** 克隆钉版本上游并自动完成后续引导（见 §6.2 / 第 7.2 节）——`install.cjs` 不是引导入口，它在 `upstream/` 缺失时会报错退出。
 
 ### 6.4 vendor_frontend.cjs（见第 5 节）
 
@@ -226,7 +226,7 @@ DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 
 - **verify_browser.cjs**：自动搜索本机 `360Chromex.exe` / `Chrome.exe`（优先已注册安装，规避便携版），将浏览器路径写入 `local-config.json`。
 - **start.cjs**：自动探测 CDP 端口（扫 `127.0.0.1:9222~9240`，优先复用已运行的真实调试浏览器、跳过 9222 的 WorkBuddy Electron，否则在默认启动端口 9223 起的窗口内新启实例），并以 `--user-data-dir` 指向**真实 User Data 的临时拷贝**（`%temp%/chrome-devtools-profile`，继承登录态且不污染真实 profile）启动浏览器。依赖 `local-config.json` 中的浏览器路径（缺失时自动调用 `verify_browser.cjs` 检测）。
 - **cli_run.cjs**：CLI 模式辅助（`cli_run.cjs <tool> [参数]` 封装「先 `start` 连接、再调工具」的两段式）。**仅 CLI 模式使用，可被删除**，删除不影响 MCP 服务模式。
-- **compat.cjs**：上游 `package.json` 依赖兼容守卫（固定 `zod` 等兼容版本，避免 npm install 浮动装 v4 导致编译失败）。被 `deploy.cjs` / `upstream.cjs` 调用。
+- **compat.cjs**：上游 `package.json` 依赖兼容守卫（固定 `zod` 等兼容版本，避免 npm install 浮动装 v4 导致编译失败）。被 `install.cjs` / `upstream.cjs` 调用。
 
 ### 6.6 fragments/ 与 test/
 
@@ -259,7 +259,7 @@ DEVTOOLS_FRONTEND_SHA256=   # 可选：钉版本 tarball 的 SHA256；配置后 
 node localization/upstream.cjs
 ```
 
-`upstream.cjs` 在 `upstream/` 缺失时自动进入全新引导（bootstrap）模式：克隆钉版本上游 → 定向合并本地化约束（`compat.cjs`）→ 注入本地化（`apply_localize.cjs`）→ vendoring `devtools-frontend` → 全局安装与构建（`deploy.cjs`）→ 生成 MCP 配置。可先加 `--dry-run` 预检。该步骤需联网（git clone 上游、npm 安装、克隆 devtools-frontend）。
+`upstream.cjs` 在 `upstream/` 缺失时自动进入全新引导（bootstrap）模式：克隆钉版本上游 → 定向合并本地化约束（`compat.cjs`）→ 注入本地化（`apply_localize.cjs`）→ vendoring `devtools-frontend` → 全局安装与构建（`install.cjs`）→ 生成 MCP 配置。可先加 `--dry-run` 预检。该步骤需联网（git clone 上游、npm 安装、克隆 devtools-frontend）。
 
 随后：
 
@@ -315,7 +315,7 @@ node localization/upstream.cjs
 
 ### 9.2 路径与依赖约束
 
-- **严禁 `npx -y <pkg>`**：一律用 `node "$(npm root -g)/..."` 或经 `deploy.cjs` 的**方案一真实安装**（`npm pack` + `npm install -g .tgz`）全局安装。全局根即 `$(npm root -g)`（随 Node 安装位置而定，**切勿写死绝对路径**——脚本一律实时读取，可移植）。
+- **严禁 `npx -y <pkg>`**：一律用 `node "$(npm root -g)/..."` 或经 `install.cjs` 的**方案一真实安装**（`npm pack` + `npm install -g .tgz`）全局安装。全局根即 `$(npm root -g)`（随 Node 安装位置而定，**切勿写死绝对路径**——脚本一律实时读取，可移植）。
 - 依赖安装务必 `PUPPETEER_SKIP_DOWNLOAD=1`（部署脚本已内置），否则 `puppeteer` 会下载 Chromium 内核——本机已有 360Chromex，无需下载。
 - 本机中文路径会导致 node / npm 失败；跨机移植以 **ASCII 路径的主副本**为准，脚本均按脚本所在目录相对解析。
 
@@ -397,11 +397,11 @@ node localization/upstream.cjs
 
 ## 12. 故障排查与已知坑
 
-- **构建失败报缺模块 / 服务器启动报 `ERR_MODULE_NOT_FOUND`**：上游运行时依赖（core-js / yargs / semver / debug / @modelcontextprotocol/sdk / zod / ajv / puppeteer-core / @puppeteer/browsers 等）全部在 devDependencies，且其发布包按 `package.json` 的 `files` 字段仅含 `build/src` + `LICENSE` + `skills`，**既不含 node_modules，也不含 `build/devtools-frontend`**。故 `npm install -g chrome-devtools-mcp` 或 `npm install -g .tgz` 仅解包源码，会缺依赖与前端。`deploy.cjs` 已采用**方案一真实安装**（`install_global.cjs` 的 `realGlobalInstall()`）：`npm pack` → `npm install -g .tgz` → 在全局包目录 `npm install --ignore-scripts` 补装 devDependencies → 复制 `devtools-frontend` 到全局包 `build/`，闭环解决。切勿只装注册表全局包。
-- **全局 bin 命令不可用**：npm 对「本地文件夹全局安装（符号链接）」模式可能静默跳过 bin 链接创建。`deploy.cjs` 的 `ensureGlobalBinLinks()` 已显式兜底（Windows 生成 `.cmd` 包装）；若仍不可用，检查 `$(npm root -g)/chrome-devtools-mcp/build/src/bin/` 是否存在构建产物。
-- **构建报 zod 版本不兼容**：`compat.cjs` 已固定兼容版本；若手动改过 `upstream/package.json` 导致浮动，重跑 `deploy.cjs` 或 `upstream.cjs` 重新应用约束。
-- **devtools-frontend 缺失导致构建失败**：新机器必须先跑 `vendor_frontend.cjs`（或 `deploy.cjs` 步骤 4 自动触发）填充 `upstream/devtools-frontend/`（注意是顶层 `devtools-frontend`，与上游 v1.7.0 submodule 路径一致；填错位置会导致 `tsconfig.json` 的 `files` 列表找不到 `acorn.mjs` 而构建失败），该目录被 `.gitignore` 排除、不入库。
-- **构建报 TS2717（Subsequent property declarations must have the same type，涉及 `ModelUpdateEvent` / `HTMLElementEventMap`）**：devtools-frontend 的 `front_end/models/trace/ModelImpl.ts` 与依赖 `@paulirish/trace_engine` 的 `models/trace/ModelImpl.d.ts` 都向全局接口 `HTMLElementEventMap` 注入 `[ModelUpdateEvent.eventName]: ModelUpdateEvent`，但二者 `ModelUpdateEvent` 类型身份不同 → 冲突。这是上游已知问题，上游 `scripts/prepare.ts` 在 `tsc` 前剥离 `@paulirish/trace_engine` 那份声明。`deploy.cjs` 步骤 3（`fix_trace_engine_dts.cjs`）已自动执行该剥离；若手动构建，须先 `node localization/fix_trace_engine_dts.cjs` 再 `npm run build`。注意：`npm install` 会还原该 `.d.ts`，故须在每次构建前重跑（脚本幂等，已剥离则跳过）。
+- **构建失败报缺模块 / 服务器启动报 `ERR_MODULE_NOT_FOUND`**：上游运行时依赖（core-js / yargs / semver / debug / @modelcontextprotocol/sdk / zod / ajv / puppeteer-core / @puppeteer/browsers 等）全部在 devDependencies，且其发布包按 `package.json` 的 `files` 字段仅含 `build/src` + `LICENSE` + `skills`，**既不含 node_modules，也不含 `build/devtools-frontend`**。故 `npm install -g chrome-devtools-mcp` 或 `npm install -g .tgz` 仅解包源码，会缺依赖与前端。`install.cjs` 已采用**方案一真实安装**（`install_global.cjs` 的 `realGlobalInstall()`）：`npm pack` → `npm install -g .tgz` → 在全局包目录 `npm install --ignore-scripts` 补装 devDependencies → 复制 `devtools-frontend` 到全局包 `build/`，闭环解决。切勿只装注册表全局包。
+- **全局 bin 命令不可用**：npm 对「本地文件夹全局安装（符号链接）」模式可能静默跳过 bin 链接创建。`install.cjs` 的 `ensureGlobalBinLinks()` 已显式兜底（Windows 生成 `.cmd` 包装）；若仍不可用，检查 `$(npm root -g)/chrome-devtools-mcp/build/src/bin/` 是否存在构建产物。
+- **构建报 zod 版本不兼容**：`compat.cjs` 已固定兼容版本；若手动改过 `upstream/package.json` 导致浮动，重跑 `install.cjs` 或 `upstream.cjs` 重新应用约束。
+- **devtools-frontend 缺失导致构建失败**：新机器必须先跑 `vendor_frontend.cjs`（或 `install.cjs` 步骤 4 自动触发）填充 `upstream/devtools-frontend/`（注意是顶层 `devtools-frontend`，与上游 v1.7.0 submodule 路径一致；填错位置会导致 `tsconfig.json` 的 `files` 列表找不到 `acorn.mjs` 而构建失败），该目录被 `.gitignore` 排除、不入库。
+- **构建报 TS2717（Subsequent property declarations must have the same type，涉及 `ModelUpdateEvent` / `HTMLElementEventMap`）**：devtools-frontend 的 `front_end/models/trace/ModelImpl.ts` 与依赖 `@paulirish/trace_engine` 的 `models/trace/ModelImpl.d.ts` 都向全局接口 `HTMLElementEventMap` 注入 `[ModelUpdateEvent.eventName]: ModelUpdateEvent`，但二者 `ModelUpdateEvent` 类型身份不同 → 冲突。这是上游已知问题，上游 `scripts/prepare.ts` 在 `tsc` 前剥离 `@paulirish/trace_engine` 那份声明。`install.cjs` 步骤 3（`fix_trace_engine_dts.cjs`）已自动执行该剥离；若手动构建，须先 `node localization/fix_trace_engine_dts.cjs` 再 `npm run build`。注意：`npm install` 会还原该 `.d.ts`，故须在每次构建前重跑（脚本幂等，已剥离则跳过）。
 - **本地化注入静默跳过（F-01 / F-02 回归）**：注入目标缺失时不报错。用 `node localization/apply_localize.cjs --check` 自检；若报 `[CHECK-FAIL]` 说明主副本 → 部署副本失同步，先解决 `upstream/package.json` 存在性等前置，再重跑注入。
 - **pre-commit 密钥扫描误报**：见第 8.2 节，`upstream/` 整树已加路径豁免，不要为消除误报修改上游源码。
 

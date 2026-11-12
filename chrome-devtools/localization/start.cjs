@@ -174,7 +174,7 @@ async function selectPort() {
 
   if (port !== defaultStartPort) {
     console.log('[注意] 默认启动端口 ' + defaultStartPort + ' 不可用，已自动改用 ' + port + '。');
-    console.log('        若使用 MCP 直连（形态一），请将 mcp.json 的 --browserUrl 同步改为 http://127.0.0.1:' + port + '（或重跑 node localization/deploy.cjs 重新生成 mcp-local-config.json）。');
+    console.log('        若使用 MCP 直连（形态一），请将 mcp.json 的 --browserUrl 同步改为 http://127.0.0.1:' + port + '（或重跑 node localization/install.cjs 重新生成 mcp-local-config.json）。');
   }
 
   // MCP 接入信息：端口确定后再输出，避免异步探针未落定时误报。

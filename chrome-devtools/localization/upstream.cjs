@@ -192,7 +192,7 @@ try {
 
   // 8) 重新部署（compat + install + build + 全局安装 + mcp 配置）
   console.log('=== 重新部署 ===');
-  sh('node "' + path.join(__dirname, 'deploy.cjs') + '"');
+  sh('node "' + path.join(__dirname, 'install.cjs') + '"');
 
   console.log('\n[完成] 已同步上游至 ' + latest + ' 并保全本地化约束（--browserUrl 复用登录态 / --executablePath / PUPPETEER_SKIP_DOWNLOAD=1）。');
 } finally {

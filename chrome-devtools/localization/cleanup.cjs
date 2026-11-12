@@ -31,7 +31,7 @@ function rmDir(p) {
 
 console.log('[清理] 开始 chrome-devtools 技能闭环清理（仅移除技能生成物，不动 User Data / 浏览器原始文件）');
 
-// 1) 状态 / 配置（由 verify_browser.cjs / apply_localize.cjs / deploy.cjs 生成的机相关文件）
+// 1) 状态 / 配置（由 verify_browser.cjs / apply_localize.cjs / install.cjs 生成的机相关文件）
 rmFile(path.join(REPO, 'local-config.json'));
 rmFile(path.join(REPO, 'mcp-local-config.json'));
 
