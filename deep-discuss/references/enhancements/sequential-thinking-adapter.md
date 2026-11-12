@@ -66,14 +66,19 @@
 2. **按能力特征匹配（非名称匹配）**：对每个发现的工具集（直连或分组内），比对 §2 能力特征（记录单条思维 + 生成摘要 + 清空历史 三件套），命中即登记为思维审计服务，**记录其真实接入途径与真实调用名**：
    - 直连：调用名即 `mcp__<真实服务名>__process_thought`（直接用该工具名调用，不经聚合器）；
    - 聚合器：记下真实 `group=<真实分组名>` + `name=process_thought`，通过聚合器的调用入口转发。
-3. **实测调用（用第 2 步发现的真实入口）**：对匹配到的服务执行一次真实 `process_thought` 调用：
-   - 直连：`mcp__<真实服务名>__process_thought(args={ "thought": "<探测探针：deep-discuss 激活自检>", "stage": "<合法阶段值，运行时从工具 schema 确认>", "total_thoughts": 1, "next_thought_needed": false })`；
-   - 聚合器：`call_dynamic_tool`（`group=<真实分组名>`, `name='process_thought'`, `args={ "thought": "<探测探针>", "stage": "<合法阶段值，运行时确认>", "total_thoughts": 1, "next_thought_needed": false }`）—— **`group` 名以第 1 步枚举到的真实分组名为准，绝不写死 `dynamic-mcp`**；`stage` 等参数取值以 `process_thought` 工具的真实 schema 为准（示例合法阶段：Problem Definition / Research / Analysis / Synthesis / Conclusion），**运行时确认，不写死中文或任意值**。
+3. **实测调用（用第 2 步发现的真实入口）**：对匹配到的服务执行一次真实 `process_thought` 调用。**探测调用严禁假设思维链为空（跨会话持久化会使历史计数 >0，导致自动递增的 `thought_number` 与写死的 `total_thoughts=1` 触发校验冲突）**：
+   - **先确定当前思维计数（持久化感知）**：若服务暴露 `list` / `get` 类计数能力，先读取当前计数 `N`，令 `thought_number = N+1`、`total_thoughts = N+1`（或更大的安全值）；若服务不暴露计数能力，则令 `total_thoughts` 为一个**足够大的安全值**（如 `999`），避免 `total_thoughts=1` 与自动递增的 `thought_number` 触发 `total_thoughts >= thought_number` 校验冲突——**不要写死 `total_thoughts: 1` 后指望清洁态**。
+   - 直连：`mcp__<真实服务名>__process_thought(args={ "thought": "<探测探针：deep-discuss 激活自检>", "stage": "<合法阶段值，运行时从工具 schema 确认>", "thought_number": <见上计数规则>, "total_thoughts": <见上计数规则>, "next_thought_needed": false })`；
+   - 聚合器：`call_dynamic_tool`（`group=<真实分组名>`, `name='process_thought'`, `args={ "thought": "<探测探针>", "stage": "<合法阶段值，运行时确认>", "thought_number": <见上计数规则>, "total_thoughts": <见上计数规则>, "next_thought_needed": false }`）—— **`group` 名以第 1 步枚举到的真实分组名为准，绝不写死 `dynamic-mcp`**；`stage` 等参数取值以 `process_thought` 工具的真实 schema 为准（示例合法阶段：Problem Definition / Research / Analysis / Synthesis / Conclusion），**运行时确认，不写死中文或任意值**；`thought_number` / `total_thoughts` 取值遵循本步「持久化感知」规则。
    - **必须以此次真实返回判定可用性**，不得仅以文档 / 工具名存在替代。
-4. **判定结论**：
+4. **判定结论（默认先修正重试，文本判读降级为辅助，不靠文本也能救回常见失败）**：
    - 返回 `isError: false` 且含结构化分析（阶段进度 / 主线程位置 / 时间戳任一项）→ **`available = true`**，登记 `access_path`（真实拓扑：直接连接 Agent / 经某聚合器中转）+ `tool_names`（真实调用名）+ `functions`；结果写入会话级缓存变量（例如 `SEQ_THINK_PROBE`），会话内复用。
-   - 返回 `isError: true` / 超时 / 接入途径异常（无论直连还是聚合器）→ **`available = false`**，按 §3.4 静默降级；**不得因文档存在而覆盖此结论**。
-5. **清理探针（可选但推荐）**：实测成功后，用第 2 步发现的真实入口调用清空历史（直连 `mcp__<真实服务名>__clear_history` / 聚合器 `clear_history`），保持服务状态干净。
+   - 返回 `isError: true` → **默认先执行一次「持久化感知修正 + 重试」**（无论能否从错误文本判断类型）：按本 §3.5 第 3 步「持久化感知」规则修正 `thought_number` / `total_thoughts` 后重试**一次**；重试返回 `isError: false` → `available = true`（登记并缓存）。**此举使最常见的「持久化冲突」类失败被默认救回，不再依赖错误文本关键字判断。**
+   - 若重试仍 `isError: true` → 再按错误类型**判读**（仅作原因归类，非可用性闸门）：
+     - **可用性失败**：超时 / 接入途径异常 / 服务未运行 / 工具缺失 / 鉴权失败 / 错误明确指向"服务不可用" → **`available = false`**，按 §3.4 静默降级。
+     - **参数契约不满足**：错误信息仍指向 `schema` / 校验 / 必填缺失 / 取值非法（如 `total_thoughts < thought_number`、缺 `stage`、类型错误）→ 视为探针与该服务接口契约不兼容，**`available = false`**（静默降级），并建议核查 `stage` 等 schema 取值。
+   - ⚠️ 关键纪律：**「调用报错」≠「服务不可用」**；且**可用性判定不得以"能否从错误文本识别类型"为前提**——修正重试默认执行，文本判读仅用于归类。彻底消除"依赖文本匹配"需服务端返回结构化错误类型（属服务端改造，**不在本技能侧修复范围**）。
+5. **清理探针（可选但推荐，注意破坏性）**：实测成功后清理本次探针写入的思维，**优先仅移除探针自身条目**：若服务支持按条删除 / 回滚（如按 `thought_number` 删除单条、或「追加后撤回」能力），仅删探针自己的那一条，避免影响用户真实思维链。仅当 **(a)** 服务无单条删除能力 **且 (b)** 已确认当前历史仅含本次探针污染（无用户真实思维）时，才用全量清空历史（直连 `mcp__<真实服务名>__clear_history` / 聚合器 `clear_history`）。⚠️ `clear_history` 为不可逆全量清空，**切勿在有真实思维残留时调用**，否则会造成用户跨会话推理链丢失。
 6. **激活探活器**：运行 `scripts/probe_seq_thinking.py` 获取上述步骤的清单化提醒与验收点（该脚本不参与 MCP 调用，仅作激活时的 checklist 引导）。
 
 **直连拓扑调用约定（当服务直接连接 Agent 时）**：
@@ -83,6 +88,8 @@
 ## 4. 各阶段集成点（仅在 available=true 时生效）
 
 > 下表以**示例**工具名 `process_thought` / `generate_summary` / `clear_history` / `export_session` / `import_session` 说明映射；实际调用名以探测结果 `tool_names` 为准，不得据此硬编码。
+
+> ⚠️ 下表所有「记录单条思维」调用均须遵守 §5「持久化感知调用铁律」：**禁止写死 `total_thoughts: 1`**，调用前按当前计数 `N` 令 `thought_number = N+1`、`total_thoughts = N+1`（或安全大值）。本表不重复写参数，统一以 §5 铁律为准——否则在持久化非空时会重演与本次探测 bug **同源**的 `total_thoughts >= thought_number` 校验冲突。
 
 | 阶段 | 思维审计层用法 | 降级（不可用） |
 |---|---|---|
@@ -99,7 +106,9 @@
 
 本层**不定义强制 JSON schema**（由被探测服务的真实接口决定）。主干仅约定最小调用约定，具体字段名以探测到的真实接口为准：
 
-- **记录思维**最小输入（示例字段）：`{ "thought": "<文本>", "stage": "<阶段标签>", "total_thoughts": <int>, "next_thought_needed": <bool>, "tags": [可选], "branch_from_thought": <可选int>, "is_revision": <可选bool> }`
+> ⚠️ **持久化感知调用铁律（覆盖探针与全部 Phase 调用，同源根因修复）**：思维审计层**跨会话持久化**，历史思维计数可能 >0，而服务对 `process_thought` 要求 `total_thoughts >= thought_number`。因此**任何**「记录单条思维」调用（含 §3.5 探活与 §4 各阶段调用）**严禁写死 `total_thoughts: 1` 后假设清洁态**，否则必在持久化非空时触发校验冲突，与本次修复的探测 bug **同源**。统一做法：调用前先确定当前思维计数 `N`（若服务暴露 `list` / `get` 计数能力则读取，否则用足够大的安全值如 `999`），令 `thought_number = N+1`、`total_thoughts = N+1`（或更大安全值）。§4 各阶段调用必须同样遵守，不得例外。
+
+- **记录思维**最小输入（示例字段）：`{ "thought": "<文本>", "stage": "<阶段标签>", "thought_number": <按上铁律确定>, "total_thoughts": <按上铁律确定>, "next_thought_needed": <bool>, "tags": [可选], "branch_from_thought": <可选int>, "is_revision": <可选bool> }`
 - **生成摘要**输出：由服务确定性返回，主干原样呈现或择要融入阶段输出，不二次加工。
 - **清空 / 导出 / 导入**：按服务真实参数调用，主干不二次加工。
 
