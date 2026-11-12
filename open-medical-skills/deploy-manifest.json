@@ -1,0 +1,8 @@
+{
+  "_comment": "部署形态差异（AGENTS.md §7.7 项目级下沉）。映射关系不在此登记，唯一事实源恒为 AGENTS.md §7.2。默认「只写不删」，部署态专有物天然保留。",
+  "preserve": [],
+  "exclude": ["upstream/"],
+  "expand": [],
+  "prune": { "enabled": false, "keep": [] },
+  "_note": "① 4 个 vendored 子技能的 SKILL.md / .upstream_version 已入开发态 blob 树，父包同步时天然内嵌，无需 expand；② upstream/ 为 gitignored 上游缓存、不在 blob 清单内，exclude 仅作防御登记；③ 联网刷新上游由项目级 scripts/deploy.js --sync 显式触发（会改动开发态 vendored 副本，须另行走开发态 PR），覆盖部署默认离线、不执行任何外部命令；④ prune 恒关闭，禁止删目标（旧 deploy.mjs 的 fs.rmSync 已废弃）。"
+}
