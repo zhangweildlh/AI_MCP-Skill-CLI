@@ -48,7 +48,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 - 所有对第三方的委派**统一为「触发条件 → 读其 `SKILL.md` → 按工序执行」三段式**，绝不在此复述第三方内部步骤（避免双源漂移 + 陈旧误报）。
 - 降级严格 0 → 1 → 2 → 3 递进；落盘契约（handback）统一使用 `NEEDS_FETCH` 标记与字段，回收端统一 `--ingest-pending` / `--ingest-quarantine` 两入口。
-- 缺依赖一律「降级 + 告警 + 文档回退」，不阻断主链路、不静默失败；Agent 不在场（无头）时仅 0/1 级生效，2/3 级不执行、相关篇目停留 `pending_fetch` 待下一轮。
+- 缺依赖一律「降级 + 告警 + 文档回退」，不阻断主链路、不静默失败；**无 Agent 编排在场时**仅 0/1 级生效，2/3 级不执行、相关篇目停留 `pending_fetch` 待下一轮。
 
 ## 参数配置区（唯一维护入口，全部带默认值）
 
@@ -155,11 +155,11 @@ allowed-tools: Bash Read Write Edit WebFetch
 7. 对每份 Markdown 文件执行「完整性闸门」，未通过者标记为失败并跳过，禁止入库。
 8. 将通过闸门的文件按「入库流程」逐篇存入 `[knowledge_base_id]` 下 `[folder_id]` 指定的子目录，每篇处理完立即写回进度文件。**`[folder_id]` 须先经 `state.js resolve-folder --name "<任务卡配置表的 folder_name>" --kb-id [knowledge_base_id]` 实时解析**（见「任务卡配置表」，禁止硬编码 media_id），解析结果填入本步、步骤 9（回交消费）与步骤 10（复验）的 `--folder-id`。
 9. （主流程内联·消除卡点①②）2/3 级 Agent 编排抓取回交与消费闭环：步骤 6 抓取降级链中，0/1 级为代码自动（无头可跑），2/3 级为 Agent 编排路径——1 级原生抓取失败的文章会落盘为 `pending_fetch/<url>.md`、含 `<!-- NEEDS_FETCH -->` 标记的 stub，**不会在前序步骤自动入库**。为使 Agent 在**当次会话内**走完「搜索 → 2/3 级抓取 → 消费 handback → 入库」完整闭环（无需用户二次发起采集任务），本步骤须按 9.1–9.5 在当次会话内串起：
-   - 9.1 **拉起/复用有头浏览器**：先经 `chrome-devtools` 技能主 `SKILL.md`（MCP 直连 形态一优先；连接器不可用则 CLI 兜底）由其 `localization/start.cjs` 扫描 9222~9240、复用或新启带调试端口的本地 360Chromex（继承登录态），并回传真实端口。**务必 `export SOGOU_CDP_PORT=<编排回传的真实端口>`**（禁止依赖缺省 9222，否则命中 WorkBuddy 自身 Electron 被拒绝）；`resolve_midlink.js --check` 仅探活该真实端口。
-   - 9.2 **2/3 级抓取回交**：遍历 `pending_fetch/` 下本卡 stub，经 `chrome-devtools` 真实打开每篇 `原文直链`（`mp.weixin.qq.com` 直链，禁止搜狗中转/反爬链接），提取正文，将文章 Markdown（含元数据头，格式同步骤 6）覆写回同一 `<url>.md`，**去除 `<!-- NEEDS_FETCH -->` 标记**（文件名须与移交时一致；回交物须含 `# 文章标题` 头、真实直链、且非反爬验证码页）。
+   - 9.1 **拉起/复用有头浏览器（铁律：必须为有头/可见操作，禁止无头）**：先经 `chrome-devtools` 技能主 `SKILL.md`（MCP 直连 形态一优先；连接器不可用则 CLI 兜底）由其 `localization/start.cjs` 扫描 9222~9240、复用或新启**带调试端口的本地 360Chromex（真实可见窗口，继承登录态）**——此浏览器即本卡 **0 级中转链接解析、Cookie 提取与 3 级正文抽取共用的有头实例**。**务必 `export SOGOU_CDP_PORT=<编排回传的真实端口>`**：该端口是 0 级 `resolve_midlink.js` 与 Cookie 提取（搜狗会话维反爬绕过）连接**同一有头实例**的桥梁；**禁止依赖缺省 9222**（否则命中 WorkBuddy 自身 Electron 被拒绝）。`resolve_midlink.js --check` 仅探活该真实端口。3 级正文抽取本身经 chrome-devtools MCP 直连形态一（其 `--browserUrl` 即本实例端口）直接驱动该有头实例，无需另设端口。
+   - 9.2 **2/3 级抓取回交（铁律：有头驱动，禁止无头回退 / 截图 OCR / 消费产物）**：遍历 `pending_fetch/` 下本卡 stub，经 `chrome-devtools` 在**已拉起的有头 360Chromex 实例内**真实打开每篇 `原文直链`（`mp.weixin.qq.com` 直链，禁止搜狗中转/反爬链接）——**用 chrome-devtools 的 MCP 工具（`navigate_page` → `take_snapshot` / `evaluate_script` 读取渲染后的 `js_content`）在可见浏览器中模拟真实用户加载并读取正文**，**严禁退回 `fetch()` / 无头 HTTP 直连抓取、严禁截图后 OCR、严禁把 chrome-devtools 当作无头抓取代理消费其产物；Agent 须亲自经其主 `SKILL.md` 工序驱动有头浏览器，而非委托其代抓**。抽取到的文章 Markdown（含元数据头，格式同步骤 6）覆写回同一 `<url>.md`，**去除 `<!-- NEEDS_FETCH -->` 标记**（文件名须与移交时一致；回交物须含 `# 文章标题` 头、真实直链、且非反爬验证码页）。
    - 9.3 **消费 handback（G3 强制复验）**：`node scripts/pipeline.js --workspace "[workspace]" --card [card] --ingest-pending --kb-id [knowledge_base_id] --folder-id [folder_id]` 重跑过滤 + 完整性闸门后再入库；仍含 `NEEDS_FETCH` 标记者视为 Agent 未取回、自动跳过。
    - 9.4 **回收隔离区**：`node scripts/pipeline.js --workspace "[workspace]" --card [card] --ingest-quarantine --kb-id [knowledge_base_id] --folder-id [folder_id]` 消费 `failed_quarantine/` 下未入库 `.md` 直接补入库（不通重搜）。
-   - 9.5 **闭环约束**：9.1–9.4 须在**当次会话内串起**，禁止将 `pending_fetch/` 与 `failed_quarantine/` 残留留待下一轮；完成后本卡 `pending_fetch/` stub 与 `failed_quarantine/` 本卡前缀残留均应清零（见各引导词闭环判据）。**无 Agent 在场（无头模式）时 2/3 级不执行**：本步骤降级为仅跑 9.4 隔离区补入，相关 stub 留待下一轮 Agent 编排（由「断点续跑与续跑守护」或定时任务接续）。
+   - 9.5 **闭环约束**：9.1–9.4 须在**当次会话内串起**，禁止将 `pending_fetch/` 与 `failed_quarantine/` 残留留待下一轮；完成后本卡 `pending_fetch/` stub 与 `failed_quarantine/` 本卡前缀残留均应清零（见各引导词闭环判据）。**无 Agent 编排在场时 2/3 级不执行**：本步骤降级为仅跑 9.4 隔离区补入，相关 stub 留待下一轮 Agent 编排（由「断点续跑与续跑守护」或定时任务接续）。
 
 10. 执行「复验」，输出**增强四栏清单**：必须以 `state.js report` 产出，**不得手工拼凑**。强烈建议带 `--kb-id` / `--folder-id` 走 KB 复核模式：
    ```bash
@@ -209,7 +209,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 本技能的运行由调度方（WorkBuddy / 任一 Agent）编排，关键词检索在技能**外部**（`wechat-article-search` 的 `search_wechat.js`）逐词完成，每词结果再由 `pipeline.js --search` 入库。因此「断点续跑」的全部**可机读信号都必须落在 `_progress_<card>.json`（每卡一份）**，由 `state.js` 承载，调度方据其决策，而非依赖运行日志。
 
-> **主流程已内联收尾回收（v-next 起生效）**：「工作流」步骤 9 已在当次会话内串起 2/3 级 Agent 编排回交（`chrome-devtools` 有头浏览器）与 `--ingest-pending` / `--ingest-quarantine` 消费，单卡单轮即闭环，无需用户二次发起采集任务。本节的「续跑守护」不再承担主流程本应内联的收尾回收，仅用于：① 跨会话残留（无头模式留下的 `pending_fetch/` stub、隔离区残留）；② 限流冷却后自动接续；③ 多卡（A/B/C）串行轮转。
+> **主流程已内联收尾回收（v-next 起生效）**：「工作流」步骤 9 已在当次会话内串起 2/3 级 Agent 编排回交（`chrome-devtools` 有头浏览器）与 `--ingest-pending` / `--ingest-quarantine` 消费，单卡单轮即闭环，无需用户二次发起采集任务。本节的「续跑守护」不再承担主流程本应内联的收尾回收，仅用于：① 跨会话残留（无 Agent 编排在场时留下的 `pending_fetch/` stub、隔离区残留）；② 限流冷却后自动接续；③ 多卡（A/B/C）串行轮转。
 
 ### 触发场景（deep-discuss 收敛的边界）
 - 场景一：完成某卡**部分关键词**搜索（尚有另一部分关键词未搜），但未下载命中文章、也未入库；
@@ -248,7 +248,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 | 关键词检索 | 每轮执行 | `wechat-article-search` | 「读其 `SKILL.md` → 按 `search_wechat.js` / `get_sogou_cookie.js` 工序执行」 | 复述其 Cookie 提取 / bash 细节 |
 | 1 级正文抓取 | 每篇候选直链 | （本技能 `pipeline.js`，代码内） | — | — |
 | 2 级正文抓取 | 1 级失败（移交 `pending_fetch`） | `web-search`（`firecrawl` 适配层） | 「读 `web-search` 主 `SKILL.md` → 按 `firecrawl scrape <URL>` 工序取正文」 | 把关键词检索交给 web-search；复述 firecrawl 内部步骤 |
-| 3 级正文抓取 | 1 级失败且 2 级不可得（移交 `pending_fetch`） | `chrome-devtools` | 「读 `chrome-devtools` 主 `SKILL.md` → 按 MCP / 调试浏览器工序打开直链提取」 | 复述其拉起 / 端口细节 |
+| 3 级正文抓取 | 1 级失败且 2 级不可得（移交 `pending_fetch`） | `chrome-devtools` | 「读 `chrome-devtools` 主 `SKILL.md` → 按 MCP 形态一在**有头**实例打开直链、用 `navigate_page` / `take_snapshot` / `evaluate_script` 读渲染 `js_content`」（有头逃逸舱，详见「有头操作铁律」） | 复述其拉起 / 端口细节；退回无头 `fetch` / 截图 OCR / 代抓代理 |
 | 入库 | 抓取成功 / handback 通过 | `ima-skills`（开放接口） | 「读 `ima-skills` 主 `SKILL.md` → 按 import_doc / add_knowledge 工序」 | 复述其接口细节 |
 
 > 关键词检索 **永不** 委托给 `web-search`：`web-search` 仅用于 2 级**正文抓取**（firecrawl 取文章正文）；微信发现性检索由 `wechat-article-search` 独占。
@@ -259,7 +259,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 **G2 · 强制顺级、禁止跳级硬判失败**：降级严格 0 → 1 → 2 → 3 递进。1 级失败**只**落盘 `pending_fetch` 移交，不得跳过 2 级直接判永久失败；2 级不可得才进 3 级。Agent 不得因单篇 1 级偶发失败而整体切道或提前终止批次。
 
-**G3 · 强制复验（Agent-present 假设）**：Agent 回交的 `pending_fetch/<url>.md` handback，`pipeline.js` 经 `--ingest-pending` **重跑本技能的过滤 + 完整性闸门**后才入库；Agent 不得绕过闸门直接标成功。`pipeline.js` 的 0/1 级为代码自动、无头可跑；**2/3 级依赖 Agent 在场**——无 Agent 时仅 0/1 级生效，2/3 级不执行（handback 合同不成立），相关篇目停留在 `pending_fetch` 待人工 / 下一轮 Agent 编排。
+**G3 · 强制复验（Agent-present 假设）**：Agent 回交的 `pending_fetch/<url>.md` handback，`pipeline.js` 经 `--ingest-pending` **重跑本技能的过滤 + 完整性闸门**后才入库；Agent 不得绕过闸门直接标成功。`pipeline.js` 的 0/1 级为代码自动、无头可跑；**2/3 级依赖 Agent 在场（即 Agent 自调度驱动有头浏览器）**——无 Agent 编排时仅 0/1 级生效，2/3 级不执行（handback 合同不成立），相关篇目停留在 `pending_fetch` 待人工 / 下一轮 Agent 编排。**术语澄清**：此处「Agent 在场」指有 Agent 编排驱动，与「无头浏览器」无关；3 级 chrome-devtools 本身必须是有头（可见）操作（见「有头操作铁律」）。
 
 **handback 合同（落盘契约）**：
 - **移交（pipeline.js 写）**：1 级失败 → `pending_fetch/<url>.md` 含 `<!-- NEEDS_FETCH -->` 标记 + 原 URL + 失败原因 + 已试层级。
@@ -334,9 +334,11 @@ allowed-tools: Bash Read Write Edit WebFetch
    - 检索命令已带 `-r` 且结果 `url_resolved=true` 时已是真实直链，无需本级解析。
 1. **一级（代码实装）：原生网页抓取**。`pipeline.js` 的 `fetchArticle()` 直接读取真实文章直链，获取标题、来源、作者、发布时间与正文（`js_content` 为空或过短判失败）。检索结果中已含 `title`、`url`、`summary`、`datetime`、`date_text`、`source` 字段，可直接作为元数据头输入。
 2. **二级（Agent 编排，非代码自动）：web-search → firecrawl 正文抓取**。**仅用于文章正文抓取，不把关键词检索交给 web-search**（关键词检索仍由 wechat-article-search 负责）。`pipeline.js` 1 级失败 → 落盘 `pending_fetch/<url>.md` → Agent 读取 `web-search` 技能主 `SKILL.md` 后按其 `firecrawl` 适配层工序执行 `firecrawl scrape <URL>` 取正文。**firecrawl 官方 CLI 的「存在性探查 / 调用」统一由 web-search 完成（其 firecrawl 适配层），本技能 `check-deps.js` 仅校验「web-search/firecrawl 委派目标存在 + `FIRECRAWL_API_KEY` 就绪」这一硬门禁，不自行 `spawn` firecrawl**（避免 Windows 下裸 spawn 全局无扩展名脚本误报缺失 + 跨技能代码耦合）**。
-3. **三级（Agent 编排，非代码自动）：chrome-devtools**。`pipeline.js` 1 级失败、且 2 级仍不可得时，Agent 读取 `chrome-devtools` 技能主 `SKILL.md`，经其 MCP / 调试浏览器真实打开直链提取正文，覆写 `pending_fetch/<url>.md`。
+3. **三级（Agent 编排，非代码自动，**有头逃逸舱**）：chrome-devtools**。`pipeline.js` 1 级失败、且 2 级仍不可得时，Agent 读取 `chrome-devtools` 技能主 `SKILL.md`，在**有头（可见）360Chromex 实例**内经其 MCP / 调试浏览器真实打开直链、读取渲染后正文并覆写 `pending_fetch/<url>.md`。**本级是专为对抗「网站防无头浏览器」而设的有头逃逸舱——必须真实有头、模拟用户，禁止任何无头 / 代理式抓取**（详见下方「有头操作铁律」）。
 4. **单篇抓取策略（代码内）**：对每篇候选直链先走 0 级解析（如有）+ 1 级原生抓取；1 级失败即落盘 `pending_fetch` 移交 Agent 编排，**不自动切换浏览器自动化、不自动调用 firecrawl**。不达标即降级移交，禁止代码内连续硬重试。
-5. **Agent 编排回交（handback）**：Agent 经 2/3 级抓到正文后，把文章 markdown 覆写回 `pending_fetch/<url>.md`（去除 `<!-- NEEDS_FETCH -->` 标记）；`pipeline.js` 由 `--ingest-pending` 模式消费该 handback，重跑过滤 + 完整性闸门（G3 强制复验）后入库。**无 Agent 在场时（无头模式）仅 0/1 级生效，2/3 级不执行**——见「硬门禁·G3 / Agent-present 假设」。
+5. **Agent 编排回交（handback）**：Agent 经 2/3 级抓到正文后，把文章 markdown 覆写回 `pending_fetch/<url>.md`（去除 `<!-- NEEDS_FETCH -->` 标记）；`pipeline.js` 由 `--ingest-pending` 模式消费该 handback，重跑过滤 + 完整性闸门（G3 强制复验）后入库。**无 Agent 编排在场时仅 0/1 级生效，2/3 级不执行**——见「硬门禁·G3 / Agent-present 假设」（此处「Agent 在场」指有 Agent 自调度，与无头浏览器无关）。
+
+> **有头操作铁律（对抗「防无头浏览器」的核心，最高优先）**：降级链 0/1 级为代码自动的**无头**廉价前置（HTTP 直连 + 中转解析），2 级 `web-search→firecrawl` 为云端**无头**兜底；二者一旦命中平台「防无头浏览器」风控即失败并落盘 `pending_fetch`。**3 级 `chrome-devtools` 是唯一的有头逃逸舱**：Agent 须经其主 `SKILL.md` 工序，在**真实可见的本地 360Chromex**中亲自导航、滚动、读取渲染后正文（`js_content`），**模拟真实用户操作本地浏览器**——绝不以 `fetch()`、截图 OCR 或任何无头 / 代理方式替代，也绝不把 chrome-devtools 当作「代抓代理」去消费其产物。「无 Agent 编排在场」与「无头浏览器」为两个不同概念：前者指无 Agent 编排驱动（此时 2/3 级整体不执行），后者指浏览器以隐藏方式运行（3 级严格禁止）。
 
 ### 完整性闸门
 
