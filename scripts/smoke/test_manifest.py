@@ -155,6 +155,13 @@ TEST_ENTRIES = [
               "Issue2(resolve_midlink 端口不读 local-config/不硬编码、缺省 9222 + SOGOU_CDP_PORT 优先 + --check 委派文案)、"
               "Issue3(state.js resolve-folder 按 ima 实际名实时解析 folder_id、分页遍历、仅匹配 media_type!=11 文件夹、dedupKey 归一化)；"
               "ima_api.cjs 由本地桩接管，零网络；30 断言全绿"),
+    dict(scope="dir/Workbuddy专属", name="wai-sink-defects-cd",
+         path="Workbuddy专属/wechat-article-to-ima/tests/test_sink_defects_cd.js",
+         cmd=["node", "Workbuddy专属/wechat-article-to-ima/tests/test_sink_defects_cd.js"], shell=False,
+         kind="regression", risk="offline",
+         note="缺陷 C/D 下沉修复回归：D(classifyFetchResult 反爬页语义否决优先于「正文为空」判定、顺序契约——反爬+空正文必判 error-page 而非 empty)"
+              "+ C(computeIngestSummary 内联摘要「实入库」口径与 report 四栏对齐、KB 已存在跳过不计入新入、实入库不为负兜底)；"
+              "复用 pipeline.js 纯函数导出，零网络零凭据；10 组断言"),
     dict(scope="dir/Workbuddy专属", name="was-search-tests",
          path="Workbuddy专属/wechat-article-search/tests/run_tests.js",
          cmd=["node", "Workbuddy专属/wechat-article-search/tests/run_tests.js"], shell=False,
