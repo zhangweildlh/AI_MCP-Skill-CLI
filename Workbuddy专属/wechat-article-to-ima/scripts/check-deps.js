@@ -16,8 +16,12 @@
  *
  * 【用法】
  *   node scripts/check-deps.js [--json] [--base <技能基址>] [--skills-dir <DIR>]
- *   --json        仅输出 JSON 结果（便于被其它脚本消费）
- *   退出码：0 = 硬依赖齐全；1 = 任一硬依赖缺失
+ *                              [--cookie-file <文件>] [--require-headed]
+ *   --json            仅输出 JSON 结果（便于被其它脚本消费）
+ *   --require-headed  B 有头兜底路径的条件硬依赖门控：除常规硬依赖外，还要求 CDP 实例
+ *                     可辨识且非 WorkBuddy Electron、且 --cookie-file 的 E3 预检通过；
+ *                     不通过即退出码 1，禁止进入 3 级有头正文抽取。A 主检索路径不要加此参数。
+ *   退出码：0 = 硬依赖齐全（含被要求的门控项）；1 = 任一硬依赖/门控项缺失
  *
  * 注：firecrawl / chrome-devtools 的「CLI 探查 / 端口探查 / 浏览器拉起」均经 Agent 编排委派对应技能完成，
  * 本检查器只判定「委派目标是否存在 + 密钥是否就绪」这一硬门禁，避免本技能重复造轮子并消除 Windows 下的误报。
@@ -36,13 +40,14 @@ const RESOLVE_JS = path.join(__dirname_, 'resolve_midlink.js');
 
 // ── 参数 ──
 function parseArgs(argv) {
-  const o = { json: false, base: '', skillsDir: '', fixBrowser: false, cookieFile: '' };
+  const o = { json: false, base: '', skillsDir: '', fixBrowser: false, cookieFile: '', requireHeaded: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') o.json = true;
     else if (a === '--base') o.base = argv[++i] || '';
     else if (a === '--skills-dir') o.skillsDir = argv[++i] || '';
     else if (a === '--cookie-file') o.cookieFile = argv[++i] || '';
+    else if (a === '--require-headed') o.requireHeaded = true;
   }
   return o;
 }
@@ -55,6 +60,13 @@ function checkCookieCompleteness(cookieFile) {
   if (!cookieFile) return { checked: false };
   try {
     const txt = fs.readFileSync(cookieFile, 'utf8').replace(/\s+/g, '');
+    // F 类缺陷：0 字节 Cookie 文件此前被笼统报成「三键全缺」，掩盖了真实根因
+    // （get_sogou_cookie.js 尚未取到任何 Cookie / 浏览器未加载搜狗主域）。二者补救动作不同，
+    // 必须分开诊断，否则 Agent 会反复「刷新 Cookie」却永远修不好。
+    if (!txt) {
+      return { checked: true, ok: false, empty: true, suv: false, snuid: false, suid: false,
+        warn: 'Cookie 文件为空（0 字节）：尚未取得任何 Cookie，须经有头浏览器完整加载 www.sogou.com 主域后重新提取；这不是「三键缺失」' };
+    }
     const has = (k) => new RegExp('(?:^|;)' + k + '=').test(txt);
     const suv = has('SUV'), snuid = has('SNUID'), suid = has('SUID');
     const ok = suv && (snuid || suid);
@@ -225,6 +237,39 @@ async function main() {
     result.soft.cookieWarn = cookieCheck.warn || (cookieCheck.error ? ('Cookie 文件读取失败：' + cookieCheck.error) : 'Cookie 不完整');
   }
 
+  // ── B 兜底路径条件硬依赖门控（--require-headed）──
+  // A 主检索路径下 chrome-devtools 只是软依赖（缺失仅告警）；只有 B 有头兜底路径才升级为
+  // 硬依赖。三条判据：① CDP 端口可达且实例身份非 WorkBuddy Electron（V-03 辨识）；
+  // ② 优先取编排注入的 SOGOU_CDP_PORT；③ Cookie 关键标识齐全（E3）。
+  // 任一不满足 → hardMissing 非空 → 退出码 1，禁止进入 3 级正文抽取。
+  if (opt.requireHeaded) {
+    const { verifyHeadedSession } = require(RESOLVE_JS);
+    const injected = process.env.SOGOU_CDP_PORT ? Number(process.env.SOGOU_CDP_PORT) : null;
+    const port = (injected && Number.isFinite(injected) && injected > 0) ? injected : (cdPort || null);
+    const vr = port
+      ? await verifyHeadedSession(port, '')
+      : { ok: false, reason: '未注入 SOGOU_CDP_PORT 且无可用 CDP 端口（缺省 9222 是 WorkBuddy 自身 Electron，不得当作有头实例）', browser: '', port: null, tabs: [] };
+    const ck = result.cookie;
+    const cookieOk = ck.checked ? !!ck.ok : null;
+    result.headed = {
+      required: true,
+      port,
+      portInjected: !!injected,
+      cdpOk: !!vr.ok,
+      browser: vr.browser || '',
+      tabs: (vr.tabs || []).length,
+      reason: vr.reason || '',
+      cookieChecked: ck.checked,
+      cookieOk,
+      ok: !!vr.ok && cookieOk === true,
+    };
+    if (!vr.ok) result.hardMissing.push('headed-browser(CDP 实例不可辨或为 Electron)');
+    if (cookieOk === null) result.hardMissing.push('cookie-file(须显式 --cookie-file 做 E3 预检)');
+    else if (cookieOk === false) result.hardMissing.push('cookie-incomplete(E3 关键键缺失或文件为空)');
+  } else {
+    result.headed = { required: false, note: 'A 主检索路径：chrome-devtools 为软依赖，仅记录不阻断' };
+  }
+
   result.ok = result.hardMissing.length === 0;
 
   // ── 输出 ──
@@ -257,6 +302,17 @@ async function main() {
     L.push('  firecrawl 可用   : ' + (result.resolved.firecrawlUsable ? '是' : '否'));
     if (result.cookie && result.cookie.checked) {
       L.push('  cookie 预检      : ' + (result.cookie.ok ? '✅ 关键标识齐全（SNUID/SUID + SUV）' : ('⚠️ ' + (result.cookie.warn || '不完整'))));
+    }
+    if (result.headed.required) {
+      L.push('');
+      L.push('【B 兜底路径 · 条件硬依赖门控（--require-headed）】');
+      L.push('  CDP 实例   : ' + (result.headed.cdpOk ? '✅ ' + result.headed.browser + ' @' + result.headed.port : '❌ ' + result.headed.reason));
+      L.push('  端口注入   : ' + (result.headed.portInjected ? '✅ SOGOU_CDP_PORT=' + result.headed.port : '⚠️ 未注入（按探活可用端口回退）'));
+      L.push('  Cookie E3  : ' + (result.headed.cookieOk === true ? '✅ 关键键齐全'
+        : result.headed.cookieOk === null ? '❌ 未传 --cookie-file'
+          : '❌ ' + (result.cookie.warn || result.cookie.error || '不完整')));
+      L.push('  门控结论   : ' + (result.headed.ok ? '✅ 通过，可进入 3 级有头正文抽取'
+        : '❌ 未通过，禁止进入 3 级；相关篇目停留 pending_fetch 待下一轮'));
     }
     L.push('');
     if (result.ok) L.push('结论：硬依赖齐全，可继续。软依赖缺失项将按上述回退方案降级运行。');

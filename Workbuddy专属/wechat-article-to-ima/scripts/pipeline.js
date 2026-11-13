@@ -40,7 +40,7 @@ let STATE_EXTRA = [];
 
 // ── 参数解析 ──
 function parseArgs(argv) {
-  const o = { workspace: '', card: '', search: '', kbId: '', folderId: '', limit: 0, dryRun: false, ingestQuarantine: false, ingestPending: false, skillBase: '' };
+  const o = { workspace: '', card: '', search: '', kbId: '', folderId: '', limit: 0, dryRun: false, ingestQuarantine: false, ingestPending: false, verifyBatch: false, batchId: '', skillBase: '', json: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--workspace') o.workspace = argv[++i] || '';
@@ -52,7 +52,10 @@ function parseArgs(argv) {
     else if (a === '--dry-run') o.dryRun = true;
     else if (a === '--ingest-quarantine') o.ingestQuarantine = true;
     else if (a === '--ingest-pending') o.ingestPending = true;
+    else if (a === '--verify-batch') o.verifyBatch = true;
+    else if (a === '--batch-id') o.batchId = argv[++i] || '';
     else if (a === '--skill-base') o.skillBase = argv[++i] || '';
+    else if (a === '--json') o.json = true;
   }
   return o;
 }
@@ -163,15 +166,83 @@ function computeIngestSummary(stat) {
     failed: stat.failed || 0,
   };
 }
-/** Agent 回交 handback 的形态验收（G3 增强，审计 E-17）：不合格一律拒收并保留文件。 */
-function validateHandback(raw) {
+// ── 可机读合同（F-01/F-16）：provenance 证据行 ──
+// 格式：<!-- provenance: level=3; cdpPort=9223; pageUrl=...; agentSkill=...; extractedAt=...; chars=...; batchId=...; stubKey=... -->
+// 证据行由 Agent 写，但**验收不由 Agent 自证**：level=3 的 pageUrl/cdpPort 另经
+// resolve_midlink.js 的 verifyHeadedSession() 直连 CDP 独立复核（见 --verify-batch）。
+const PROVENANCE_FIELDS = ['level', 'cdpPort', 'pageUrl', 'agentSkill', 'extractedAt', 'chars', 'batchId', 'stubKey'];
+
+/** 解析 provenance 注释行；缺失返回 null。 */
+function parseProvenance(raw) {
   const s = String(raw || '');
-  if (looksLikeErrorPage(s)) return { ok: false, reason: '命中反爬/验证码页语义（禁止入库，避免不可逆污染）' };
-  if (/weixin\.sogou\.com\/(?:link\?|antispider)/i.test(s) && !/mp\.weixin\.qq\.com/i.test(s)) {
-    return { ok: false, reason: '原文直链仍为搜狗中转/反爬链接，未取回真实正文' };
+  const m = s.match(/<!--\s*provenance:\s*([\s\S]*?)-->/i);
+  if (!m) return null;
+  const out = {};
+  for (const part of m[1].split(/[;；]/)) {
+    const kv = part.match(/^\s*([A-Za-z][A-Za-z0-9]*)\s*=\s*(.*?)\s*$/);
+    if (kv) out[kv[1]] = kv[2];
   }
-  if (!/^#\s+\S/m.test(s)) return { ok: false, reason: '缺少 `# 文章标题` 元数据头（不符合 SKILL.md 锁定格式）' };
-  return { ok: true };
+  return out;
+}
+
+/** 生成 provenance 注释行（供 Agent 回交合同与测试复用，避免手拼格式漂移）。 */
+function buildProvenanceLine(p) {
+  const o = p || {};
+  return '<!-- provenance: ' + PROVENANCE_FIELDS
+    .map((k) => `${k}=${o[k] == null ? '' : String(o[k]).replace(/-->/g, '')}`)
+    .join('; ') + ' -->';
+}
+
+/**
+ * Agent 回交 handback 的形态验收（G3 增强，审计 E-17 + F-09 七条硬门禁）。
+ * 不合格一律拒收并保留文件；stubMeta 可选，用于比对批次合同（triedLevels / stubKey）。
+ * @returns {{ok:boolean,reason:string,provenance:(object|null)}}
+ */
+function validateHandback(raw, stubMeta) {
+  const s = String(raw || '');
+  // ① 反爬/验证码页语义否决（优先于一切数值判据）
+  if (looksLikeErrorPage(s)) return { ok: false, reason: '命中反爬/验证码页语义（禁止入库，避免不可逆污染）', provenance: null };
+  // ② 未解析的搜狗中转链接
+  if (/weixin\.sogou\.com\/(?:link\?|antispider)/i.test(s) && !/mp\.weixin\.qq\.com/i.test(s)) {
+    return { ok: false, reason: '原文直链仍为搜狗中转/反爬链接，未取回真实正文', provenance: null };
+  }
+  // ③ 元数据头
+  if (!/^#\s+\S/m.test(s)) return { ok: false, reason: '缺少 `# 文章标题` 元数据头（不符合 SKILL.md 锁定格式）', provenance: null };
+  // ④ provenance 必填：无证据不入库（F-01 根因）
+  const pv = parseProvenance(s);
+  if (!pv) return { ok: false, reason: '缺少 provenance 机器可读证据行（无证据不入库）', provenance: null };
+  // ⑤ 降级层级合法 + G2 顺级（不得跳过 0/1 级）
+  if (!['2', '3'].includes(String(pv.level))) {
+    return { ok: false, reason: 'provenance.level 非法（须为 2 或 3）', provenance: pv };
+  }
+  const tried = (stubMeta && Array.isArray(stubMeta.triedLevels)) ? stubMeta.triedLevels.map(Number) : null;
+  if (tried && !['0', '1'].every((n) => tried.includes(Number(n)))) {
+    return { ok: false, reason: 'triedLevels 缺 0/1 级，违反 G2 顺级（禁止跳级）', provenance: pv };
+  }
+  // ⑥ level=3 必须携带完整有头实例证据
+  if (String(pv.level) === '3') {
+    for (const k of ['cdpPort', 'pageUrl', 'agentSkill']) {
+      if (!pv[k]) return { ok: false, reason: `level=3 缺 provenance.${k}（有头实例证据不全）`, provenance: pv };
+    }
+    if (!/^https?:\/\/mp\.weixin\.qq\.com\//i.test(String(pv.pageUrl))) {
+      return { ok: false, reason: 'provenance.pageUrl 非 mp.weixin.qq.com 真实直链', provenance: pv };
+    }
+    if (!Number.isFinite(Number(pv.cdpPort)) || Number(pv.cdpPort) <= 0) {
+      return { ok: false, reason: 'provenance.cdpPort 非合法端口', provenance: pv };
+    }
+    if (!/chrome-devtools/i.test(String(pv.agentSkill))) {
+      return { ok: false, reason: 'provenance.agentSkill 未指向 chrome-devtools 主 SKILL.md', provenance: pv };
+    }
+  }
+  // ⑦ 正文量级自洽（防张冠李戴 / 伪造正文）
+  if (!Number.isFinite(Number(pv.chars)) || Number(pv.chars) <= 0) {
+    return { ok: false, reason: 'provenance.chars 缺失或非正数（无法核对正文量级）', provenance: pv };
+  }
+  const bodyLen = s.replace(/\s/g, '').length;
+  if (Number(pv.chars) > bodyLen * 3 || Number(pv.chars) < bodyLen / 6) {
+    return { ok: false, reason: `provenance.chars=${pv.chars} 与正文量级 ${bodyLen} 不符（疑似张冠李戴或伪造）`, provenance: pv };
+  }
+  return { ok: true, reason: '', provenance: pv };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -332,17 +403,51 @@ function buildFetchFailureReason(nativeErr, agentReason) {
 //   --ingest-pending 模式消费该 handback，重跑过滤 + 完整性闸门后入库（见 SKILL.md「硬门禁·G3」）。
 const PENDING_DIR = 'pending_fetch';
 const NEEDS_FETCH_MARKER = '<!-- NEEDS_FETCH -->';
-function pendingKeyOf(url) {
+function pendingKeyOf(url, card) {
   const base = safeFile(url);
   // 加短哈希后缀防 URL 碰撞（同 safeFile 截断致不同 URL 同文件名）
   let h = 0;
   for (let i = 0; i < url.length; i++) h = (h * 31 + url.charCodeAt(i)) >>> 0;
-  return base + '_' + h.toString(16).slice(0, 8);
+  const key = base + '_' + h.toString(16).slice(0, 8);
+  const c = String(card || '').trim();
+  // F-06：卡前缀使「本卡 stub 残留 0」可由目录名直接判定（与 failed_quarantine 的 <card>__ 对齐）。
+  // 未传 card 时保持旧格式，兼容既有调用与离线测试。
+  return c ? safeFile(c) + '__' + key : key;
 }
-function emitNeedsFetch(a, candidates, reason, ws) {
+
+/** 批次清单路径（F-14）：确定性命名，供主 Agent 按批次派发与断点续跑。 */
+function batchManifestPath(ws, card, batchId) {
+  return path.join(ws, '_batch_' + safeFile(card) + '_' + safeFile(batchId || 'default') + '.json');
+}
+
+/** 原子写入（F-15）：先写 .tmp 再 rename，避免中断产生半截文件。 */
+function atomicWriteJson(fp, obj) {
+  const tmp = fp + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2), 'utf8');
+  fs.renameSync(tmp, fp);
+}
+
+/** 更新批次清单中某篇状态：pending → inflight → done（F-14 断点与幂等）。 */
+function updateBatchItem(ws, card, batchId, stubKey, stateName) {
+  const fp = batchManifestPath(ws, card, batchId);
+  if (!fs.existsSync(fp)) return null;
+  let m;
+  try { m = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (_) { return null; }
+  const it = (m.items || []).find((x) => x.stubKey === stubKey);
+  if (!it) return null;
+  it.state = stateName;
+  if (stateName === 'inflight') it.attempts = Number(it.attempts || 0) + 1;
+  if (stateName === 'done') it.doneAt = new Date().toISOString();
+  atomicWriteJson(fp, m);
+  return m;
+}
+
+function emitNeedsFetch(a, candidates, reason, ws, card, batchId) {
   const dir = path.join(ws, PENDING_DIR);
   fs.mkdirSync(dir, { recursive: true });
-  const key = pendingKeyOf(a.url);
+  const key = pendingKeyOf(a.url, card);
+  const c = String(card || '').trim();
+  const bid = String(batchId || 'default');
   const lines = [
     NEEDS_FETCH_MARKER,
     `<!-- url: ${a.url} -->`,
@@ -350,16 +455,188 @@ function emitNeedsFetch(a, candidates, reason, ws) {
     `<!-- reason: ${reason} -->`,
     `<!-- tried: 0(midlink),1(native) -->`,
     `<!-- created: ${new Date().toISOString()} -->`,
+    c ? `<!-- card: ${c} ; batchId: ${bid} ; stubKey: ${key} -->` : `<!-- batchId: ${bid} ; stubKey: ${key} -->`,
     '',
-    '<!-- handback-required: 覆写本文件时须 ① 去除 NEEDS_FETCH 标记 ② 保留 `# 文章标题` 元数据头 ③ 原文直链填 mp.weixin.qq.com 真实直链 ④ 严禁回交反爬/验证码页；不合格者 --ingest-pending 一律拒收 -->',
+    '<!-- handback-required: 覆写本文件时须 ① 去除 NEEDS_FETCH 标记 ② 填好 provenance 证据行（level/cdpPort/pageUrl/agentSkill/chars/batchId/stubKey）③ 原文直链填 mp.weixin.qq.com 真实直链 ④ 严禁回交反爬/验证码页；不合格者 --ingest-pending 一律拒收 -->',
+    buildProvenanceLine({ level: '', cdpPort: '', pageUrl: '', agentSkill: '', extractedAt: '', chars: '', batchId: bid, stubKey: key }),
     '等待 Agent 编排（2 级 web-search→firecrawl / 3 级 chrome-devtools）抓取正文后，',
     `将本文件覆写为文章 markdown（保留文件名 ${key}.md），pipeline.js 经 --ingest-pending 消费。`,
   ];
-  fs.writeFileSync(path.join(dir, key + '.md'), lines.join('\n'), 'utf8');
+  // F-15：stub 与回交物共用路径，统一原子写，避免中断产生半截 .md
+  const tmp = path.join(dir, key + '.md.tmp');
+  fs.writeFileSync(tmp, lines.join('\n'), 'utf8');
+  fs.renameSync(tmp, path.join(dir, key + '.md'));
+
+  // F-14：批次清单登记（每卡每批次一份，累积并集，重复 stubKey 不重复追加）
+  if (c) {
+    const fp = batchManifestPath(ws, c, bid);
+    let m = { card: c, batchId: bid, createdAt: new Date().toISOString(), items: [] };
+    if (fs.existsSync(fp)) {
+      try { m = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch (_) { /* 损坏则重建 */ }
+    }
+    if (!Array.isArray(m.items)) m.items = [];
+    if (!m.items.some((x) => x.stubKey === key)) {
+      m.items.push({ stubKey: key, url: a.url, candidates: candidates.slice(), triedLevels: [0, 1], state: 'pending', attempts: 0, deadline: null });
+    }
+    atomicWriteJson(fp, m);
+  }
+  return key;
 }
 function isPendingStub(content) {
   return new RegExp('^' + NEEDS_FETCH_MARKER).test(content || '');
 }
+
+/** 按 stubKey 在全部批次清单中反查条目（跨批次续跑时仍可定位 triedLevels / 门禁状态）。 */
+function findStubMeta(ws, card, stubKey) {
+  const c = String(card || '').trim();
+  if (!c || !stubKey || !fs.existsSync(ws)) return null;
+  const prefix = '_batch_' + safeFile(c) + '_';
+  for (const f of fs.readdirSync(ws)) {
+    if (!f.startsWith(prefix) || !f.endsWith('.json')) continue;
+    try {
+      const m = JSON.parse(fs.readFileSync(path.join(ws, f), 'utf8'));
+      const it = (m.items || []).find((x) => x.stubKey === stubKey);
+      if (it) return { file: path.join(ws, f), manifest: m, item: it };
+    } catch (_) { /* 损坏清单跳过 */ }
+  }
+  return null;
+}
+
+/**
+ * 批次闭环门控（F-01 / F-14 / F-16）：收尾前对整批 handback 做「可机读合同 + 独立取证」复核。
+ *
+ * 【根因】Agent 自己写 provenance 声明 level=3，证据源与被审计方同源 → 「无证据不入库」
+ * 形同虚设。本函数对 level=3 一律经 verifyFn（默认 `resolve_midlink.js` 直连 CDP 的
+ * verifyHeadedSession）独立复核实例身份与目标页，不采信 Agent 自述。
+ *
+ * 【职责边界】只判定「批次是否可交付给 --ingest-pending」。needsFetch / 幽灵记录属
+ * 消费后判据，由 state.js report 复核，故此处输出但不计入 ok。verifyFn 可注入以便离线回归。
+ *
+ * @param {{ws:string,card:string,batchId?:string,verifyFn?:Function,progressPath?:string}} o
+ */
+async function verifyBatchClosure(o) {
+  const opts = o || {};
+  const ws = opts.ws;
+  const card = String(opts.card || '');
+  const batchId = String(opts.batchId || 'default');
+  const verifyFn = opts.verifyFn || (async (port, pageUrl) => require(RESOLVE_JS).verifyHeadedSession(port, pageUrl));
+  let fp = batchManifestPath(ws, card, batchId);
+  const res = {
+    card, batchId, manifest: fp, note: '',
+    ok: false, total: 0, done: 0, pending: 0, missing: 0, rejected: 0,
+    batchDone: false, provenanceValid: true,
+    needsFetch: null,
+    pendingFetchFiles: [], quarantineFiles: [],
+    blockers: [], items: [],
+  };
+  if (!ws || !card) { res.blockers.push('缺少 --workspace / --card'); return res; }
+
+  // 目录残留（卡前缀隔离，F-06）：只统计本卡，绝不把他卡残留算到本卡头上
+  const ownPrefix = safeFile(card) + '__';
+  const pdir = path.join(ws, PENDING_DIR);
+  if (fs.existsSync(pdir)) {
+    res.pendingFetchFiles = fs.readdirSync(pdir).filter((f) => f.endsWith('.md') && f.startsWith(ownPrefix));
+  }
+  const qdir = path.join(ws, 'failed_quarantine');
+  if (fs.existsSync(qdir)) {
+    res.quarantineFiles = fs.readdirSync(qdir).filter((f) => f.endsWith('.md') && f.startsWith(ownPrefix));
+  }
+  // 进度侧第 5 栏（只读，消费前预期 >0，不计入 ok）
+  const pp = opts.progressPath || path.join(ws, '_progress_' + safeFile(card) + '.json');
+  if (fs.existsSync(pp)) {
+    try {
+      const d = JSON.parse(fs.readFileSync(pp, 'utf8'));
+      const arts = (d.articles || []).filter((x) => (x.card || x.cardId) === card);
+      res.needsFetch = arts.filter((x) => x.fetchStatus === 'needs-fetch').length;
+    } catch (_) { /* 损坏按未知处理 */ }
+  }
+
+  // 引导词里 `--search` 不带 --batch-id（emitNeedsFetch 默认落 `default` 清单），而收尾
+  // 门禁会带一个「本轮批次ID」。二者不一致时门禁不应假失败：优先精确批次；精确清单缺失时
+  // 回退到该卡**唯一**现有清单并以清单内声明的 batchId 为准；存在多份清单则拒绝猜测。
+  if (!fs.existsSync(fp) && fs.existsSync(ws)) {
+    const bp = '_batch_' + safeFile(card) + '_';
+    const found = fs.readdirSync(ws).filter((f) => f.startsWith(bp) && f.endsWith('.json')).sort();
+    if (found.length === 1) {
+      fp = path.join(ws, found[0]);
+      res.note = `指定 batchId=${batchId} 清单不存在，已回退到该卡唯一现有清单 ${found[0]}（批次 ID 以清单内声明为准）`;
+    } else if (found.length > 1) {
+      res.note = `指定 batchId=${batchId} 清单不存在，且该卡存在 ${found.length} 份清单，无法自动判定；请显式传正确的 --batch-id`;
+    }
+  }
+  res.manifest = fp;
+  if (!fs.existsSync(fp)) {
+    res.blockers.push('批次清单不存在（未 emitNeedsFetch 或 batchId 不匹配）：' + path.basename(fp));
+    if (res.note) res.blockers.push(res.note);
+    return res;
+  }
+  let m;
+  try { m = JSON.parse(fs.readFileSync(fp, 'utf8')); }
+  catch (e) { res.blockers.push('批次清单解析失败：' + e.message); return res; }
+  const items = Array.isArray(m.items) ? m.items : [];
+  res.total = items.length;
+  if (!items.length) res.blockers.push('批次清单为空（无待回交篇目）');
+
+  let changed = false;
+  for (const it of items) {
+    const rec = { stubKey: it.stubKey, state: it.state || 'pending', ok: false, level: null, reason: '' };
+    const stubPath = path.join(pdir, String(it.stubKey) + '.md');
+    if (!fs.existsSync(stubPath)) {
+      if (it.state === 'done') { rec.ok = true; rec.reason = '已消费（handback 文件已移除）'; res.done++; }
+      else {
+        res.missing++; rec.reason = 'handback 文件缺失且批次状态非 done';
+        res.blockers.push(it.stubKey + '：' + rec.reason);
+      }
+      res.items.push(rec); continue;
+    }
+    const raw = fs.readFileSync(stubPath, 'utf8');
+    if (isPendingStub(raw)) {
+      res.pending++; rec.reason = '仍为 NEEDS_FETCH stub，Agent 未回交';
+      res.blockers.push(it.stubKey + '：' + rec.reason); res.items.push(rec); continue;
+    }
+    const hv = validateHandback(raw, it);
+    if (!hv.ok) {
+      res.rejected++; res.provenanceValid = false;
+      rec.reason = 'handback 验收拒收：' + hv.reason;
+      res.blockers.push(it.stubKey + '：' + rec.reason); res.items.push(rec); continue;
+    }
+    const pv = hv.provenance;
+    rec.level = String(pv.level);
+    if (pv.stubKey && String(pv.stubKey) !== String(it.stubKey)) {
+      res.rejected++; res.provenanceValid = false;
+      rec.reason = 'provenance.stubKey 与批次条目不一致（张冠李戴）';
+      res.blockers.push(it.stubKey + '：' + rec.reason); res.items.push(rec); continue;
+    }
+    // 以清单内声明的 batchId 为准（精确/回退两种模式下都成立），避免「门禁批次 ≠ 生产批次」误杀
+    const declaredBatch = (m && m.batchId) || batchId;
+    if (pv.batchId && String(pv.batchId) !== String(declaredBatch)) {
+      res.rejected++; res.provenanceValid = false;
+      rec.reason = 'provenance.batchId 与所属批次清单不一致（跨批次串货）';
+      res.blockers.push(it.stubKey + '：' + rec.reason); res.items.push(rec); continue;
+    }
+    if (String(pv.level) === '3') {
+      let vr;
+      try { vr = await verifyFn(Number(pv.cdpPort), String(pv.pageUrl)); }
+      catch (e) { vr = { ok: false, reason: '独立取证异常：' + e.message }; }
+      if (!vr || !vr.ok) {
+        res.rejected++; res.provenanceValid = false;
+        rec.reason = 'level=3 独立 CDP 取证失败：' + ((vr && vr.reason) || '无返回');
+        res.blockers.push(it.stubKey + '：' + rec.reason); res.items.push(rec); continue;
+      }
+      rec.evidence = { browser: vr.browser || '', port: vr.port || null, matchedTab: !!vr.matchedTab };
+    }
+    if (it.state !== 'done') { it.state = 'done'; it.doneAt = new Date().toISOString(); changed = true; }
+    res.done++; rec.ok = true; rec.state = 'done'; rec.reason = 'ok';
+    res.items.push(rec);
+  }
+  if (changed) atomicWriteJson(fp, m);
+  res.batchDone = res.total > 0 && res.done === res.total && res.pending === 0 && res.missing === 0 && res.rejected === 0;
+  res.ok = res.batchDone && res.provenanceValid;
+  if (!res.batchDone) res.blockers.push(`批次未全量完成：done=${res.done}/${res.total} pending=${res.pending} missing=${res.missing} rejected=${res.rejected}`);
+  if (!res.provenanceValid) res.blockers.push('provenance 校验未全通过（含 level=3 独立 CDP 取证）');
+  return res;
+}
+
 // 完整性闸门（纯函数，可离线单测）：从正文文本判定是否达入库门槛。
 // 抽离自主流程④⑤，供 --ingest-pending 消费 handback 时复用（G3 强制复验同一判据）。
 function evaluateGate(text, html) {
@@ -387,11 +664,15 @@ async function main() {
     console.error('用法：node pipeline.js --workspace <工区> --card <卡> (--search "<检索结果.json>" | --ingest-pending | --ingest-quarantine) [--kb-id K] [--folder-id F] [--limit N] [--dry-run]');
     process.exit(1);
   }
-  // 三种合法模式：--search（主流程）/ --ingest-pending（handback 回收）/ --ingest-quarantine（隔离区补入）。
+  // 四种合法模式：--search（主流程）/ --ingest-pending（handback 回收）/ --ingest-quarantine（隔离区补入）
+  // / --verify-batch（收尾前离线批次门禁）。
   // 审计 E-23：原守卫漏了 ingestPending，导致引导词中的 handback 回收命令 exit=1 只打印用法。
+  // F-14：--verify-batch 是纯离线门控，不触碰 KB、不依赖 ima_api.cjs，故不要求 --kb-id/--folder-id。
   if (!opt.search && !opt.ingestPending && !opt.ingestQuarantine) {
-    console.error('用法：node pipeline.js --workspace <工区> --card <卡> (--search "<检索结果.json>" | --ingest-pending | --ingest-quarantine) [--kb-id K] [--folder-id F] [--limit N] [--dry-run]');
-    process.exit(1);
+    if (!opt.verifyBatch) {
+      console.error('用法：node pipeline.js --workspace <工区> --card <卡> (--search "<检索结果.json>" | --ingest-pending | --ingest-quarantine | --verify-batch --batch-id B) [--kb-id K] [--folder-id F] [--limit N] [--dry-run]');
+      process.exit(1);
+    }
   }
   const WS = opt.workspace;
   // STATE_EXTRA：将 agent 引导词传入的 --skill-base 透传给每个 state.js 子进程（传入 > 内置默认）
@@ -405,6 +686,34 @@ async function main() {
   state.progressPath = progressPath;
   const quarantine = path.join(WS, 'failed_quarantine');
 
+  // ── 收尾前批次门禁（F-01/F-14/F-16）：纯离线，先于任何 KB 调用与 handback 消费 ──
+  // 引导词要求置于 --ingest-pending 之前；未通过则禁止消费 handback 与写 status=completed。
+  if (opt.verifyBatch) {
+    const v = await verifyBatchClosure({ ws: WS, card: opt.card, batchId: opt.batchId, progressPath });
+    if (opt.json) {
+      process.stdout.write(JSON.stringify(v, null, 2) + '\n');
+    } else {
+      const L = [];
+      L.push('=== 批次闭环门禁（--verify-batch | 收尾前，须在 --ingest-pending 之前）===');
+      L.push(`card=${v.card}  batchId=${v.batchId}`);
+      L.push(`批次清单 : ${v.manifest}`);
+      if (v.note) L.push(`批次回退 : ${v.note}`);
+      L.push(`篇目     : ${v.done}/${v.total} 已通过（pending=${v.pending} missing=${v.missing} rejected=${v.rejected}）`);
+      L.push(`batchDone=${v.batchDone}  provenanceValid=${v.provenanceValid}  needsFetch=${v.needsFetch === null ? '(进度文件缺失)' : v.needsFetch}`);
+      L.push(`本卡 pending_fetch/ 残留      : ${v.pendingFetchFiles.length}`);
+      L.push(`本卡 failed_quarantine/ 残留 : ${v.quarantineFiles.length}`);
+      if (v.blockers.length) {
+        L.push('阻断项：');
+        v.blockers.forEach((b, i) => L.push(`  ${i + 1}. ${b}`));
+      }
+      L.push(v.ok
+        ? '闭环判定 : ✅ 批次门禁通过（batchDone=true / provenanceValid=true），可执行 --ingest-pending；消费后仍须经 report 复核 needsFetch=0 与幽灵记录'
+        : '闭环判定 : ❌ 批次门禁未通过，禁止 --ingest-pending 与 status=completed（须补齐 handback 或重跑独立取证）');
+      process.stdout.write(L.join('\n') + '\n');
+    }
+    process.exit(v.ok ? 0 : 1);
+  }
+
   const imaApiPath = locateImaApi({ skillBase: opt.skillBase });
   if (!imaApiPath) { console.error('[错误] 未找到 ima_api.cjs（可用 IMA_API_CJS 环境变量或 --skill-base 指定）'); process.exit(2); }
   const { imaApi } = require(imaApiPath);
@@ -416,6 +725,18 @@ async function main() {
     if (imaApiPath) args.push('--ima-api', imaApiPath);
     if (opt.kbId) args.push('--kb-id', opt.kbId);
     if (opt.folderId) args.push('--folder-id', opt.folderId);
+    return args;
+  }
+
+  /**
+   * handback 消费专用状态迁移参数（F-02）。
+   * 消费端已完成 listAllKb 全量分页复验（media_type===11 且确在目标子目录），故显式
+   * --no-verify 跳过 state.js 的单页复核（后者在子目录 >50 条时会误判「未真正入库」）。
+   */
+  function markHandbackConsumedArgs(mediaId, title, stubKey, pv) {
+    const args = ['--card', opt.card, '--title', title, '--media-id', String(mediaId),
+      '--stub-key', stubKey, '--level', String((pv && pv.level) || '2'), '--no-verify'];
+    if (pv && pv.batchId) args.push('--batch-id', String(pv.batchId));
     return args;
   }
 
@@ -557,12 +878,16 @@ async function main() {
       console.error('[错误] --ingest-pending 需要 --kb-id 与 --folder-id 才能关联到目标子目录入库。');
       process.exit(1);
     }
-    console.log('=== 消费 Agent 编排 handback（--ingest-pending：重跑过滤+闸门，G3 强制复验）===');
+    console.log('=== 消费 Agent 编排 handback（--ingest-pending：批次门禁 + 过滤 + 闸门，G3 强制复验）===');
     const dir = path.join(WS, PENDING_DIR);
     if (!fs.existsSync(dir)) { console.log('[pending] 无 pending_fetch/，跳过。'); return; }
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
-    if (!files.length) { console.log('[pending] 无 .md 待消费。'); return; }
-    const stat = { attempted: 0, ingested: 0, skipped: 0, filtered: 0, failed: 0, stillPending: 0, rejected: 0 };
+    // F-06：只消费本卡前缀 stub 与无前缀旧格式；带他卡前缀的一律跳过（与隔离区闸 1 同款，防跨卡污染）
+    const ownPrefix = safeFile(opt.card) + '__';
+    const all = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
+    const files = all.filter((f) => f.startsWith(ownPrefix) || !/__.+\.md$/.test(f));
+    const skippedOtherCard = all.length - files.length;
+    if (!files.length) { console.log('[pending] 无本卡 .md 待消费。'); return; }
+    const stat = { attempted: 0, ingested: 0, skipped: 0, filtered: 0, failed: 0, stillPending: 0, rejected: 0, blockedByBatch: 0 };
     for (const f of files) {
       const fp = path.join(dir, f);
       const raw = fs.readFileSync(fp, 'utf8');
@@ -574,11 +899,21 @@ async function main() {
       }
       // G3 增强：handback 形态验收（审计 E-17）。不合格者保留文件供 Agent 重新回交，
       // 绝不进入 import_doc —— 反爬验证码页一旦入库即不可逆（无 delete 端点）。
-      const hv = validateHandback(raw);
+      // G3 增强（F-09/F-16）：注入批次条目做 triedLevels 顺级校验，杜绝跳过 0/1 级直接回交
+      const stubKey = f.replace(/\.md$/, '');
+      const meta = findStubMeta(WS, opt.card, stubKey);
+      const hv = validateHandback(raw, meta && meta.item);
       if (!hv.ok) {
         stat.rejected++;
-        state('mark-failed', ['--card', opt.card, '--title', f.replace(/\.md$/, ''), '--reason', 'handback 验收未过:' + hv.reason], true);
+        state('mark-failed', ['--card', opt.card, '--title', stubKey, '--reason', 'handback 验收未过:' + hv.reason], true);
         console.log(`[拒收] ${hv.reason} | ${f.slice(0, 40)}（文件保留待重新回交）`);
+        continue;
+      }
+      // 硬门禁（F-01）：level=3 必须已通过 --verify-batch 的独立 CDP 取证（批次条目 state=done）。
+      // 这样即使调度方跳过批次门禁直接跑 --ingest-pending，也无法把「无头冒充有头」写进 KB。
+      if (String(hv.provenance.level) === '3' && !(meta && meta.item && meta.item.state === 'done')) {
+        stat.blockedByBatch++;
+        console.log(`[门禁拦截] level=3 未经 --verify-batch 独立取证通过，禁止入库：${f.slice(0, 40)}（文件保留）`);
         continue;
       }
       const m = raw.match(/^#\s*(.+?)\s*$/m);
@@ -621,7 +956,10 @@ async function main() {
         if (!hit) throw new Error('复验未命中：media_id 不在目标子目录');
         if (Number(hit.media_type) !== 11) throw new Error('复验 media_type=' + hit.media_type + ' 非笔记(11)');
         stat.ingested++;
-        state('mark-ingested', markIngestedArgs(mediaId, title), true);
+        // F-02：handback 消费是唯一能把 fetchStatus='needs-fetch' 归零的路径。
+        // 原 mark-ingested 只改 ingestStatus，导致 report 第 5 栏永不归零、闭环不可达。
+        state('mark-handback-consumed', markHandbackConsumedArgs(mediaId, title, stubKey, hv.provenance), true);
+        updateBatchItem(WS, opt.card, String(hv.provenance.batchId || opt.batchId || 'default'), stubKey, 'done');
         fs.unlinkSync(fp);
         console.log(`[补入] ✅ ${title.slice(0, 40)}`);
       } catch (e) {
@@ -638,6 +976,8 @@ async function main() {
     console.log(`失败 : ${stat.failed}`);
     console.log(`待 Agent 抓取(stub) : ${stat.stillPending}`);
     console.log(`handback 验收拒收 : ${stat.rejected}（文件保留，需重新回交）`);
+    console.log(`批次门禁拦截     : ${stat.blockedByBatch}（level=3 须先跑 --verify-batch 独立取证）`);
+    console.log(`跳过他卡前缀残留 : ${skippedOtherCard}`);
     if (opt.kbId && opt.folderId) {
       const rr = spawnSync('node', [STATE_JS, '--progress', progressPath, ...STATE_EXTRA, 'report', '--kb-id', opt.kbId, '--folder-id', opt.folderId], { encoding: 'utf-8', timeout: 120000 });
       if (rr.status === 0) console.log('\n' + (rr.stdout || '').trim());
@@ -767,8 +1107,8 @@ async function main() {
       // 此处仅落盘 pending_fetch/<url>.md 移交 Agent 编排，并标记 needs-fetch，不直接判失败，
       // 避免无谓失败计数与限流预算消耗；Agent 回交 handback 后由 --ingest-pending 消费。
       const reason = fetchErr ? fetchErr.message : '未知原生抓取失败';
-      emitNeedsFetch(a, candidates, reason, WS);
-      state('mark-needs-fetch', ['--card', opt.card, '--title', title, '--reason', reason], true);
+      const stubKey = emitNeedsFetch(a, candidates, reason, WS, opt.card, opt.batchId);
+      state('mark-needs-fetch', ['--card', opt.card, '--title', title, '--reason', reason, '--stub-key', stubKey], true);
       console.log(`${tag} 1 级原生抓取失败，已移交 Agent 编排（pending_fetch）${title.slice(0, 30)}`);
       await sleep(800);
       continue;
@@ -880,4 +1220,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('FATAL', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, shouldReingest, buildFetchFailureReason, buildFetchHeaders, WECHAT_REFERER, emitNeedsFetch, isPendingStub, pendingKeyOf, evaluateGate, looksLikeErrorPage, classifyFetchResult, computeIngestSummary, validateHandback, PENDING_DIR, NEEDS_FETCH_MARKER, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };
+module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, shouldReingest, buildFetchFailureReason, buildFetchHeaders, WECHAT_REFERER, emitNeedsFetch, isPendingStub, pendingKeyOf, evaluateGate, looksLikeErrorPage, classifyFetchResult, computeIngestSummary, validateHandback, parseProvenance, buildProvenanceLine, PROVENANCE_FIELDS, batchManifestPath, atomicWriteJson, updateBatchItem, verifyBatchClosure, PENDING_DIR, NEEDS_FETCH_MARKER, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };

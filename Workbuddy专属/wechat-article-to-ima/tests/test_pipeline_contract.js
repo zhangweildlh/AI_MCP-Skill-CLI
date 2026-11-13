@@ -157,8 +157,13 @@ check('★ validateHandback 拒收仅含搜狗中转链接的回交',
   P.validateHandback('# 标题\n\n原文直链：https://weixin.sogou.com/link?url=x\n\n正文').ok === false);
 check('★ validateHandback 拒收缺 # 标题的回交',
   P.validateHandback('正文第一段。\n\n正文第二段。').ok === false);
-check('★ validateHandback 接纳合规 handback',
-  P.validateHandback('# 文章标题\n\n来源：某公众号\n发布时间：2026-11-11\n作者：某\n原文直链：https://mp.weixin.qq.com/s?x=1\n采集日期：2026-11-11\n\n' + '正文。'.repeat(300)).ok === true);
+check('★ validateHandback 接纳合规 handback（含 provenance 证据行）', (() => {
+  const head = '# 文章标题\n\n来源：某公众号\n发布时间：2026-11-11\n作者：某\n原文直链：https://mp.weixin.qq.com/s?x=1\n采集日期：2026-11-11\n\n' + '正文。'.repeat(300) + '\n';
+  const line = (chars) => P.buildProvenanceLine({ level: '2', cdpPort: '', pageUrl: '', agentSkill: 'web-search/firecrawl',
+    extractedAt: '2026-11-13T00:00:00.000Z', chars: String(chars), batchId: 'b1', stubKey: 'k1' });
+  const bodyLen = (head + line(1000)).replace(/\s/g, '').length;
+  return P.validateHandback(head + line(bodyLen)).ok === true;
+})());
 // E-22 源码级确定性门禁：入库成功分支不得再引用未定义的 chars/periods
 const PIPE_SRC = fs.readFileSync(PIPE_JS, 'utf8');
 // 判据须精确命中「入库成功日志」这一处，不能用全文裸字符串判据：
@@ -413,9 +418,14 @@ for (const cmd of CMDS) {
 check('★ 引导词全部命令参数均在脚本 parseArgs 白名单内（零错误参数）',
   BAD_FLAGS.length === 0, BAD_FLAGS.slice(0, 3).join(' ; '));
 const PIPE_CMDS = CMDS.filter((c) => c.includes('pipeline.js'));
-check('★ 每条 pipeline.js 命令都带 --workspace/--card/--kb-id/--folder-id',
-  PIPE_CMDS.length >= 8 && PIPE_CMDS.every((c) => ['--workspace', '--card', '--kb-id', '--folder-id'].every((x) => c.includes(x))),
-  String(PIPE_CMDS.length));
+const VB_CMDS = PIPE_CMDS.filter((c) => c.includes('--verify-batch'));
+check('★ 每条 pipeline.js 命令都带 --workspace/--card；--verify-batch 为纯离线门控、不触碰 KB 故豁免 --kb-id/--folder-id，其余命令仍须带 --kb-id/--folder-id',
+  PIPE_CMDS.length >= 8 && PIPE_CMDS.every((c) => c.includes('--workspace') && c.includes('--card')) &&
+  PIPE_CMDS.filter((c) => !c.includes('--verify-batch')).every((c) => c.includes('--kb-id') && c.includes('--folder-id')),
+  '总=' + PIPE_CMDS.length + ' 离线门控=' + VB_CMDS.length);
+check('★ 所有 --verify-batch 命令必带 --batch-id（判据自身有效：此类命令 >= 1 条）',
+  VB_CMDS.length >= 1 && VB_CMDS.every((c) => c.includes('--batch-id')),
+  String(VB_CMDS.length));
 const RECYCLE = CMDS.filter((c) => c.includes('--ingest-pending') || c.includes('--ingest-quarantine'));
 check('★ handback / 隔离区回收命令全部带 --card',
   RECYCLE.length >= 8 && RECYCLE.every((c) => c.includes('--card')), String(RECYCLE.length));
@@ -449,6 +459,27 @@ try {
 } finally {
   try { fs.rmSync(TMPG, { recursive: true, force: true }); } catch (_) { /* ignore */ }
 }
+
+console.log('\n=== ⑫ --verify-batch 离线门控端到端 + 源码级静态断言 ===');
+// B4：--verify-batch 是收尾前纯离线门控，先于任何 KB 调用与 handback 消费，
+//     故不依赖 ima_api.cjs / --kb-id / --folder-id；清单不存在时须 exit=1 且给出闭环否定判定。
+const TMPV = fs.mkdtempSync(path.join(os.tmpdir(), 'wai-verify-batch-'));
+try {
+  const rv = pipe(['--workspace', TMPV, '--card', 'A', '--verify-batch', '--batch-id', 'no-such-batch']);
+  check('★ --verify-batch 清单不存在：exit=1', rv.code === 1,
+    'code=' + rv.code + ' err=' + rv.err.slice(0, 160));
+  check('★ stdout 含「批次清单不存在」', /批次清单不存在/.test(rv.out), rv.out.slice(0, 200));
+  check('★ stdout 含「闭环判定 : ❌」', /闭环判定\s*:\s*❌/.test(rv.out), rv.out.slice(-200));
+  check('★ 不因缺 ima_api.cjs 而 exit=2 或打印用法串（证明离线门控不依赖 KB 凭据）',
+    rv.code !== 2 && !/用法：node pipeline\.js/.test(rv.out + rv.err) && !/未找到 ima_api\.cjs/.test(rv.out + rv.err),
+    'code=' + rv.code + ' err=' + rv.err.slice(0, 160));
+} finally {
+  try { fs.rmSync(TMPV, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+}
+// B5：源码级静态断言，防止新合同关键实现被删改（复用 ⑧b 的 PIPE_SRC）。
+check('★ pipeline.js 源码含 verifyBatchClosure（批次闭环门控实现）', /verifyBatchClosure/.test(PIPE_SRC));
+check('★ pipeline.js 源码含 findStubMeta（批次条目反查实现）', /findStubMeta/.test(PIPE_SRC));
+check('★ pipeline.js 源码含 mark-handback-consumed（handback 消费标记）', /mark-handback-consumed/.test(PIPE_SRC));
 
 console.log('\n=== 汇总 ===');
 console.log(`通过 ${pass} / 失败 ${fail}`);
