@@ -109,6 +109,28 @@ function firecrawlKeyPresent(base) {
   } catch (_) { return false; }
 }
 
+// 缺陷 B 修复：ima 凭证就绪探针（离线、无网络）。
+// SKILL.md 前置依赖要求「ima 凭证可用」，但本检查器原只查 ima_api.cjs 文件存在，不查凭证是否配置；
+// 缺失时运行期（入库阶段）才暴露 → 静默失败。此处确定性预检，早于入库失败暴露根因。
+// 判定口径与 ima-skills 实际凭证解析对齐（env: IMA_CLIENT_ID/IMA_OPENAPI_CLIENTID + IMA_API_KEY/IMA_OPENAPI_APIKEY；
+// 或配置文件：<homedir>/.config/ima/client_id、api_key，长度需 ≥16 且非 dummy）。
+function imaCredentialReady() {
+  const has = (k) => { const v = process.env[k]; return !!v && String(v).trim() && String(v).trim() !== 'dummy'; };
+  const envOk = (has('IMA_CLIENT_ID') || has('IMA_OPENAPI_CLIENTID')) && (has('IMA_API_KEY') || has('IMA_OPENAPI_APIKEY'));
+  if (envOk) return { ready: true, via: 'env' };
+  try {
+    const up = process.env.USERPROFILE || require('os').homedir();
+    const cid = path.join(up, '.config', 'ima', 'client_id');
+    const key = path.join(up, '.config', 'ima', 'api_key');
+    if (fileOk(cid) && fileOk(key)) {
+      const cidV = fs.readFileSync(cid, 'utf8').trim();
+      const keyV = fs.readFileSync(key, 'utf8').trim();
+      if (cidV.length >= 16 && keyV.length >= 16 && cidV !== 'dummy' && keyV !== 'dummy') return { ready: true, via: 'file' };
+    }
+  } catch (_) { /* 读配置失败视为未配置 */ }
+  return { ready: false, via: null };
+}
+
 async function main() {
   const opt = parseArgs(process.argv.slice(2));
   const base = resolveSkillsBase(opt.base || opt.skillsDir);
@@ -135,6 +157,10 @@ async function main() {
   const imaApiPath = base ? locateImaApi() : null;
   result.hard.imaSkills = { present: !!imaApiPath, imaApiCjs: imaApiPath };
   if (!imaApiPath) result.hardMissing.push('ima-skills');
+
+  // 缺陷 B 修复：ima 凭证就绪探针（离线预检，不阻断——仅告警，避免运行期静默失败）。
+  const imaCred = imaCredentialReady();
+  result.hard.imaCredentials = imaCred;
 
   // wechat-article-search：提供 search_wechat.js 与 get_sogou_cookie.js
   let wasOk = false, wasScripts = { search: false, cookie: false };
@@ -211,6 +237,7 @@ async function main() {
     L.push('');
     L.push('【硬依赖 · 缺失即阻断】');
     L.push('  ima-skills            : ' + (result.hard.imaSkills.present ? '✅ ' + result.hard.imaSkills.imaApiCjs : '❌ 缺失 ima_api.cjs'));
+    L.push('  ima 凭证就绪        : ' + (result.hard.imaCredentials.ready ? ('✅ (' + result.hard.imaCredentials.via + ')') : '⚠️ 未配置（请从 ima.qq.com/agent-interface 获取 Client ID/API Key 后写入 ~/.config/ima/ 或设 IMA_CLIENT_ID/IMA_API_KEY 环境变量）'));
     L.push('  wechat-article-search : ' + (result.hard.wechatArticleSearch.present
       ? (result.hard.wechatArticleSearch.searchWechatJs && result.hard.wechatArticleSearch.getSogouCookieJs ? '✅ 脚本齐全' : '⚠️ 目录在但脚本缺失')
       : '❌ 缺失'));
@@ -244,4 +271,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('[FATAL]', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { resolveSkillsBase, relExists, firecrawlKeyPresent, checkCookieCompleteness };
+module.exports = { resolveSkillsBase, relExists, firecrawlKeyPresent, checkCookieCompleteness, imaCredentialReady };
