@@ -135,6 +135,31 @@ check('update-card 写入全部卡级字段',
 check('pendingKeywords 逗号/分号均可分隔且已去空白',
   JSON.stringify(ca.pendingKeywords) === JSON.stringify(['EPC', '总包', '总承包EPC']),
   JSON.stringify(ca.pendingKeywords));
+
+// ★ 缺陷 A 回归：--pending-keywords 必须「累积并集」，而非「覆盖写」。
+// 旧实现每次调用整体覆盖，导致分两次登记的关键词（如先 EPC/总包，后 总承包EPC）会丢失前一批，
+// 闭环时 pendingKeywords 清不掉、续跑守护误判「尚有未搜词」而空转。
+console.log('\n=== ⑤b 缺陷 A 回归：--pending-keywords 累积并集（非覆盖）===');
+// 先写入空白基态（CLI 不支持空串清空，故直接重置进度文件），确保累积起点确定。
+writeProgress({ schema: '1.1', updatedAt: '', cards: { A: { name: '总包', folder_id: 'fA', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0, searchedKeywords: [], failureClass: '', pendingKeywords: [] } }, articles: [] });
+r = state('update-card', ['--card', 'A', '--pending-keywords', 'EPC, 总包']);
+check('第一次登记退出码 0', r.code === 0, r.err);
+p = readProgress();
+check('第一次登记后 pendingKeywords = [EPC, 总包]',
+  JSON.stringify(p.cards.A.pendingKeywords) === JSON.stringify(['EPC', '总包']),
+  JSON.stringify(p.cards.A.pendingKeywords));
+r = state('update-card', ['--card', 'A', '--pending-keywords', '总承包EPC']);
+check('第二次登记退出码 0', r.code === 0, r.err);
+p = readProgress();
+check('★ 缺陷 A：两次登记后累积为 [EPC, 总包, 总承包EPC]（非覆盖丢失前一批）',
+  JSON.stringify(p.cards.A.pendingKeywords) === JSON.stringify(['EPC', '总包', '总承包EPC']),
+  JSON.stringify(p.cards.A.pendingKeywords));
+r = state('update-card', ['--card', 'A', '--pending-keywords', 'EPC']);
+p = readProgress();
+check('★ 缺陷 A：重复关键词集合去重（不膨胀）',
+  JSON.stringify(p.cards.A.pendingKeywords) === JSON.stringify(['EPC', '总包', '总承包EPC']),
+  JSON.stringify(p.cards.A.pendingKeywords));
+
 r = state('set-attempts', ['--card', 'A', '--n', '3']);
 check('set-attempts 写入', r.code === 0 && readProgress().cards.A.attempts === 3, r.err);
 r = state('reset-attempts', ['--card', 'A']);
@@ -284,6 +309,18 @@ check('classifyFailure(未知) = unknown', classifyFailure('锅里的错误') ==
 writeProgress({ schema: '1.1', updatedAt: '', cards: { A: { name: 'A', folder_id: 'f', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0 } }, articles: [] });
 r = state('validate', []);
 check('validate 对缺 searchedKeywords/failureClass 的旧卡向后兼容（loadProgress 补齐）', r.code === 0, r.err);
+
+console.log('\n=== ⑩ 缺陷 E 回归：mark-needs-fetch 必须置 gateResult=\'\'（非沿用默认 pass）===');
+writeProgress({ schema: '1.1', updatedAt: '', cards: { A: { name: '总包', folder_id: 'fA', lastRun: '', nextDue: '', rotateIndex: 0, status: 'pending', nextRetryAt: null, attempts: 0 } }, articles: [] });
+// 既有文章若经 upsertArticle 默认会被置 gateResult='pass'；mark-needs-fetch 须显式清空。
+r = state('mark-needs-fetch', ['--card', 'A', '--title', '某篇待 Agent 兜底', '--reason', 'js_content 为空（1 级抓取失败）']);
+check('mark-needs-fetch 退出码 0', r.code === 0, r.err);
+p = readProgress();
+const ne = p.articles.find((a) => a.title === '某篇待 Agent 兜底');
+check('★ 缺陷 E：fetchStatus = needs-fetch', ne && ne.fetchStatus === 'needs-fetch', JSON.stringify(ne));
+check('★ 缺陷 E：ingestStatus = pending（未真正入库）', ne && ne.ingestStatus === 'pending', JSON.stringify(ne));
+check('★ 缺陷 E：gateResult = \'\'（非默认 pass，避免「未过闸却被标 pass」误导）', ne && ne.gateResult === '', JSON.stringify(ne));
+check('★ 缺陷 E：reason 记录原始抓取失败原因', ne && /js_content 为空/.test(ne.note || ''), JSON.stringify(ne));
 
 console.log('\n=== 汇总 ===');
 console.log(`通过 ${pass} / 失败 ${fail}`);

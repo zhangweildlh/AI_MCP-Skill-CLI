@@ -259,6 +259,76 @@ console.log('\n=== ③ Issue3：state.js resolve-folder 按名实时解析 folde
 }
 
 // ════════════════════════════════════════════════════════════════
+console.log('\n=== ④ 缺陷 B：check-deps ima 凭证就绪探针（离线、无网络、零运行期静默失败）===');
+{
+  const mod = require(CHECK_DEPS_JS);
+  check('imaCredentialReady 已导出且为函数', typeof mod.imaCredentialReady === 'function');
+
+  // 隔离助手：每次调用前清空全部 4 个 ima 凭证键（避免宿主环境既有值泄漏干扰判定）；
+  // 可选覆盖 USERPROFILE，将配置文件路径隔离到临时空目录，避免命中宿主真实 ~/.config/ima。
+  const IMA_KEYS = ['IMA_CLIENT_ID', 'IMA_API_KEY', 'IMA_OPENAPI_CLIENTID', 'IMA_OPENAPI_APIKEY'];
+  function withImaEnv(overrides, fn) {
+    const saved = {};
+    for (const k of IMA_KEYS) saved[k] = process.env[k];
+    saved.__UP = process.env.USERPROFILE;
+    for (const k of IMA_KEYS) process.env[k] = (overrides[k] !== undefined) ? overrides[k] : '';
+    if (overrides.USERPROFILE !== undefined) process.env.USERPROFILE = overrides.USERPROFILE;
+    try { return fn(); } finally {
+      for (const k of IMA_KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
+      if (overrides.USERPROFILE !== undefined) { if (saved.__UP === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = saved.__UP; }
+    }
+  }
+  // 隔离用临时家目录（无 .config/ima，确保文件分支不被宿主真实配置干扰）
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wai-ima-home-'));
+
+  // B1：env 双变量齐全（长度≥16）→ ready=true, via='env'
+  const r1 = withImaEnv({ IMA_CLIENT_ID: 'client_id_0123456789', IMA_API_KEY: 'api_key_0123456789', USERPROFILE: fakeHome }, () => mod.imaCredentialReady());
+  check('env 双变量齐全 → ready=true', r1.ready === true, JSON.stringify(r1));
+  check('env 路径 via=\'env\'', r1.via === 'env', JSON.stringify(r1));
+
+  // B2：仅 CLIENT_ID、缺 API_KEY → ready=false（双变量需同时就绪；USERPROFILE 隔离避免命中宿主真实配置）
+  const r2 = withImaEnv({ IMA_CLIENT_ID: 'client_id_0123456789', USERPROFILE: fakeHome }, () => mod.imaCredentialReady());
+  check('仅 CLIENT_ID 缺 API_KEY → ready=false', r2.ready === false, JSON.stringify(r2));
+
+  // B3：env 值为 dummy → 视为未配置（ready=false）；USERPROFILE 隔离避免命中宿主真实配置
+  const r3 = withImaEnv({ IMA_CLIENT_ID: 'dummy', IMA_API_KEY: 'dummy', USERPROFILE: fakeHome }, () => mod.imaCredentialReady());
+  check('env 值为 dummy → ready=false', r3.ready === false, JSON.stringify(r3));
+
+  // B4：无 env 且配置文件缺失（隔离 USERPROFILE 到临时空目录）→ ready=false
+  const r4 = withImaEnv({ USERPROFILE: fakeHome }, () => mod.imaCredentialReady());
+  check('无 env 且无配置文件 → ready=false', r4.ready === false && r4.via === null, JSON.stringify(r4));
+
+  // B5：无 env、配置文件齐全且长度≥16 → ready=true, via='file'
+  const cfgDir = path.join(fakeHome, '.config', 'ima');
+  fs.mkdirSync(cfgDir, { recursive: true });
+  fs.writeFileSync(path.join(cfgDir, 'client_id'), 'client_id_0123456789', 'utf8');
+  fs.writeFileSync(path.join(cfgDir, 'api_key'), 'api_key_0123456789', 'utf8');
+  const r5 = withImaEnv({ USERPROFILE: fakeHome }, () => mod.imaCredentialReady());
+  check('配置文件齐全且长度≥16 → ready=true', r5.ready === true, JSON.stringify(r5));
+  check('配置文件路径 via=\'file\'', r5.via === 'file', JSON.stringify(r5));
+
+  // B6：配置文件存在但长度<16 → ready=false（长度门槛）
+  fs.writeFileSync(path.join(cfgDir, 'client_id'), 'short', 'utf8');
+  fs.writeFileSync(path.join(cfgDir, 'api_key'), 'short', 'utf8');
+  const r6 = withImaEnv({ USERPROFILE: fakeHome }, () => mod.imaCredentialReady());
+  check('配置文件长度<16 → ready=false', r6.ready === false, JSON.stringify(r6));
+
+  try { fs.rmSync(fakeHome, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+
+  // B7：CLI --json 也暴露 hard.imaCredentials（与函数口径一致）
+  const skillsWithKey = path.join(TMPDIR, 'skills_withkey');
+  const imaStubDummy = path.join(TMPDIR, 'ima_api_dummy.cjs');
+  const r7 = runNode(CHECK_DEPS_JS, ['--json', '--skills-dir', skillsWithKey],
+    Object.assign({}, process.env, {
+      WORKBUDDY_SKILLS_DIR: skillsWithKey, IMA_API_CJS: imaStubDummy,
+      IMA_CLIENT_ID: 'client_id_0123456789', IMA_API_KEY: 'api_key_0123456789',
+      IMA_OPENAPI_CLIENTID: '', IMA_OPENAPI_APIKEY: '',
+    }));
+  let j7; try { j7 = JSON.parse(r7.out); } catch (e) { j7 = null; }
+  check('CLI --json 含 hard.imaCredentials 且 ready=true', j7 && j7.hard && j7.hard.imaCredentials && j7.hard.imaCredentials.ready === true, JSON.stringify(j7 && j7.hard && j7.hard.imaCredentials));
+}
+
+// ════════════════════════════════════════════════════════════════
 console.log('\n=== 汇总 ===');
 console.log(`通过 ${pass} / 失败 ${fail}`);
 if (fail) {

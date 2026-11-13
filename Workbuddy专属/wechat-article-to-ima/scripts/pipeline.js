@@ -129,6 +129,40 @@ function looksLikeErrorPage(text) {
   for (const m of ERROR_PAGE_MARKERS) if (s.includes(m)) hits++;
   return hits >= 2 || s.includes('此验证码用于确认') || s.includes('VerifyCode');
 }
+/**
+ * 抓取结果归因（纯函数，离线可回归）——缺陷 D 修复核心：
+ * 反爬/验证码页语义否决必须优先于「正文为空」判定。
+ * 顺序即契约：先识别反爬页（looksLikeErrorPage），再判 js_content 长度。
+ * 否则「无浏览器→中转链接未解析→取回反爬页」会被误报为「js_content 为空（内容已删除）」，
+ * 掩盖真实根因，误导诊断、续跑决策与 report 归因。
+ * @returns {{kind:'error-page'|'empty'|'ok', err?:string, inner?:string, author?:string}}
+ */
+function classifyFetchResult(html) {
+  if (looksLikeErrorPage(html)) {
+    return { kind: 'error-page', err: '命中反爬/验证码页（疑似无浏览器→中转链接未解析，或搜狗限流；非内容已删除）' };
+  }
+  const inner = extractContent(html);
+  if (!inner || inner.replace(/<[^>]+>/g, '').trim().length < 50) {
+    return { kind: 'empty', err: 'js_content 为空或过短（页面异常/内容已删除）' };
+  }
+  return { kind: 'ok', inner, author: extractAuthor(html) };
+}
+/**
+ * 采集统计摘要（纯函数，离线可回归）——缺陷 C 修复核心：
+ * 内联摘要「实入库」口径与 state.js report 四栏对齐（KB 已存在跳过不计入新入）。
+ * 实入库 = ingested - dupSkipped（Math.max 兜底非负），KB 已存在跳过单独披露。
+ * @param {{shouldIngest?:number,ingested?:number,filtered?:number,failed?:number,dupSkipped?:number}} stat
+ */
+function computeIngestSummary(stat) {
+  const newlyIngested = Math.max(0, (stat.ingested || 0) - (stat.dupSkipped || 0));
+  return {
+    shouldIngest: stat.shouldIngest || 0,
+    newlyIngested,
+    dupSkipped: stat.dupSkipped || 0,
+    filtered: stat.filtered || 0,
+    failed: stat.failed || 0,
+  };
+}
 /** Agent 回交 handback 的形态验收（G3 增强，审计 E-17）：不合格一律拒收并保留文件。 */
 function validateHandback(raw) {
   const s = String(raw || '');
@@ -665,11 +699,12 @@ async function main() {
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const html = await res.text();
-      const inner = extractContent(html);
-      if (!inner || inner.replace(/<[^>]+>/g, '').trim().length < 50) {
-        throw new Error('js_content 为空或过短（页面异常/内容已删除）');
-      }
-      return { html: inner, author: extractAuthor(html) };
+      // 缺陷 D 修复：复用 classifyFetchResult 纯函数，反爬页语义否决优先于「内容为空」判定。
+      // 无浏览器→中转链接未解析→直接抓原始搜狗中转链会取回反爬页（非「内容已删除」），
+      // 该纯函数已锁定「先识别反爬页、再判正文长度」的契约顺序（见 classifyFetchResult）。
+      const fr = classifyFetchResult(html);
+      if (fr.kind !== 'ok') throw new Error(fr.err);
+      return { html: fr.inner, author: fr.author };
     } finally { clearTimeout(timer); }
   };
 
@@ -814,10 +849,14 @@ async function main() {
   fs.writeFileSync(path.join(WS, '_process_summary_' + safeFile(opt.card) + '.json'), JSON.stringify(summary, null, 2), 'utf8');
   console.log('\n=== 采集流水线统计（本轮回填口径）===');
   console.log(`去重后候选 : ${uniq.length}`);
-  console.log(`应入库     : ${stat.shouldIngest}（含 KB 已存在跳过 ${stat.dupSkipped} 篇）`);
-  console.log(`实入库     : ${stat.ingested}`);
-  console.log(`被过滤     : ${stat.filtered}`);
-  console.log(`失败       : ${stat.failed}`);
+  // 缺陷 C 修复：内联摘要与 state.js report 四栏口径对齐。
+  // 原「实入库」把「KB 已存在跳过」也计入，导致与 report 的「实入库」口径不一致（如内联显 14、report 显 2）。
+  // 现「实入库」仅计本批新入，KB 已存在跳过单独列出、明确不计入新入（computeIngestSummary 纯函数锁定口径）。
+  const sum = computeIngestSummary(stat);
+  console.log(`应入库     : ${sum.shouldIngest}（含 KB 已存在跳过 ${sum.dupSkipped} 篇）`);
+  console.log(`实入库     : ${sum.newlyIngested}（本批新入；KB 已存在跳过 ${sum.dupSkipped} 篇不计入，与 report 四栏口径一致）`);
+  console.log(`被过滤     : ${sum.filtered}`);
+  console.log(`失败       : ${sum.failed}`);
 
   // 权威四栏清单：给定 --kb-id/--folder-id 时，自动经 state.js report 产出「KB 复核模式」增强清单
   // （含逐条原因、实入库 KB 复核确认、目标子目录、应入未入根因、幽灵记录标注）。
@@ -841,4 +880,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('FATAL', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, shouldReingest, buildFetchFailureReason, buildFetchHeaders, WECHAT_REFERER, emitNeedsFetch, isPendingStub, pendingKeyOf, evaluateGate, looksLikeErrorPage, validateHandback, PENDING_DIR, NEEDS_FETCH_MARKER, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };
+module.exports = { matchFilter, FILTER_RULES, htmlToText, extractContent, extractAuthor, buildMd, auxCriteria, safeFile, parseImaResponse, shouldReingest, buildFetchFailureReason, buildFetchHeaders, WECHAT_REFERER, emitNeedsFetch, isPendingStub, pendingKeyOf, evaluateGate, looksLikeErrorPage, classifyFetchResult, computeIngestSummary, validateHandback, PENDING_DIR, NEEDS_FETCH_MARKER, dedupKeyOf: (t) => require(STATE_JS).dedupKey(t) };

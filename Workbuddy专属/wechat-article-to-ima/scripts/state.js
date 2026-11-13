@@ -405,6 +405,9 @@ function cmdMarkNeedsFetch(opt, data) {
   // 也不计 ingested；ingestStatus 保持 pending，fetchStatus 标 needs-fetch 供 report 单列。
   art.fetchStatus = 'needs-fetch';
   art.ingestStatus = 'pending';
+  // 缺陷 E 修复：置 gateResult='' 而非沿用 upsertArticle 默认的 'pass'，
+  // 避免「未过闸却被标 pass」的误导性状态（该条目尚未经 G3 闸门复验）。
+  art.gateResult = '';
   if (opt.reason) art.note = opt.reason;
   saveProgress(opt.progress, data);
   console.error(`✅ 已标记 needs-fetch（移交 Agent 编排）：card=${opt.card} title=${opt.title} reason=${opt.reason || '(未提供)'}`);
@@ -504,7 +507,13 @@ function cmdUpdateCard(opt, data) {
   if (opt.nextRetryAt !== undefined) card.nextRetryAt = opt.nextRetryAt;
   if (opt.note !== undefined) card.note = opt.note;
   if (opt.pendingKeywords !== undefined) {
-    card.pendingKeywords = String(opt.pendingKeywords).split(/[,，;；]/).map((s) => s.trim()).filter(Boolean);
+    // 缺陷 A 修复：累积并集（与 --searched-keywords 同款实现）。
+    // 原实现为「覆盖写入」，引导词 D4 的逐词调用（每词一次 --pending-keywords）会静默吞掉已记录的词，
+    // 导致 F4a 熔断后「待续跑关键词」丢失、续跑守护漏搜。改为 Set 并集累积，重复自动去重。
+    const add = String(opt.pendingKeywords).split(/[,，;；]/).map((s) => s.trim()).filter(Boolean);
+    const set = new Set(card.pendingKeywords || []);
+    add.forEach((k) => set.add(k));
+    card.pendingKeywords = Array.from(set);
   }
   if (opt.clearSearched) {
     card.searchedKeywords = [];
