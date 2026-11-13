@@ -9,14 +9,14 @@ metadata:
   author: zhangweildlh
   version: 1.3.0
   category: knowledge-management
-allowed-tools: Bash Read Write Edit WebFetch
+allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 ---
 
 ## 角色与目标
 
 你是一名微信公众号文章采集与归档专员。你的职责是：在被调用时，读取工区进度文件，确定本轮执行的任务卡与关键词簇，在微信公众号中检索文章，抓取正文后每篇单独存为一个 Markdown 文件，批量存入腾讯 ima 知识库的指定子目录，并在入库后复验内容确实完整。
 
-本技能不负责调度。触发即执行。
+本技能不负责定时调度；执行期由 Agent 自调度自编排第三方独立技能。触发即执行。
 
 ## 编排协调型架构原则（本技能定位与协作纪律）
 
@@ -43,12 +43,23 @@ allowed-tools: Bash Read Write Edit WebFetch
 - **已裁断的「必要且高价值」例外（须显式注明，不得泛化）**：
   - `ima_api.cjs`（来自 `ima-skills`）：该技能以 `ima_api.cjs` 为**唯一 HTTP 客户端**，并无更高层的「import_doc 命令」可委派；且长 Markdown 正文走 CLI 位置参数会触长度上限，`require()` 模块导出为唯一可行路径。故本技能经 `require(ima_api.cjs)`（pipeline.js）与 `spawnSync` 子进程（state.js）调用，属无法经主 `SKILL.md` 工序绕开的必要集成点。
   - `resolve_midlink.js` 直连 CDP `/json` 端点：仅复用调试浏览器已开放的**通用 DevTools 协议**，不依赖 `chrome-devtools` 的 MCP / 代码，不算越权其实现；浏览器的探查与拉起仍由 Agent 编排交 `chrome-devtools`。
+  - **有头检索受控例外（B 兜底路径）**：仅当 A 主检索路径触发用户裁定的**唯一三条可机读触发条件**之一时方启用，逐条为：
+    - **信号一**：`wechat-article-search/scripts/search_wechat.js` 退出码 1 且 stderr 含 `ANTI_SPIDER`；
+    - **信号二**：同一会话内连续 ≥2 个关键词命中 `ANTI_SPIDER`（F4a 会话级反爬熔断）；
+    - **信号三**：`check-deps.js --cookie-file <文件> --json` 返回 `cookie.ok=false`，且经有头浏览器刷新 Cookie 后复检仍被拦。
+    三条信号分别以退出码 / stderr 标记 / `--json` 结构化字段判定（见「检索执行规则」退出码判据表与会话级反爬熔断）；`total=0` 仅表示服务端零收录、不构成反爬信号，**不得以结果 `total` 等模糊字段兜底**。**除此之外一律走 A 主检索路径**；**IP 维封锁（出口 IP 已被风控标记）一律跳过、交循环定时续跑守护**，不启用 B 兜底（有头重试同样会被拦，纯耗配额）。由 Agent 经 `chrome-devtools` 主 `SKILL.md` 在有头窗口取渲染后 `outerHTML`，**复用 `wechat-article-search` 导出的解析函数（不重写解析器）**，产出与 A 路径同构的检索结果 JSON 交 `pipeline.js --search` 消费。此例外仅限 B 兜底检索，不泛化到正文抓取或入库环节。
 
 ### 五、统一优雅的 Agent 编排调用风格
 
 - 所有对第三方的委派**统一为「触发条件 → 读其 `SKILL.md` → 按工序执行」三段式**，绝不在此复述第三方内部步骤（避免双源漂移 + 陈旧误报）。
 - 降级严格 0 → 1 → 2 → 3 递进；落盘契约（handback）统一使用 `NEEDS_FETCH` 标记与字段，回收端统一 `--ingest-pending` / `--ingest-quarantine` 两入口。
 - 缺依赖一律「降级 + 告警 + 文档回退」，不阻断主链路、不静默失败；**无 Agent 编排在场时**仅 0/1 级生效，2/3 级不执行、相关篇目停留 `pending_fetch` 待下一轮。
+
+### 六、职责边界（唯一口径）
+
+- **代码层（本技能 `scripts/`）**：负责可机读合同（handback / 进度文件 / 检索结果 JSON）、硬门禁（G1/G2/G3 与 `check-deps.js`）、provenance 校验、闭环状态机与入库。
+- **Agent 层**：负责自调度自编排第三方主 `SKILL.md`（`wechat-article-search` / `web-search` / `chrome-devtools` / `ima-skills`）、新启或复用有头浏览器、并在可见窗口内真实操作（逐篇填词 / 导航 / 读渲染正文）。
+- **铁律**：代码层不替 Agent 调度第三方技能；Agent 不得绕过门禁（尤其 G3 强制复验）直接标成功。
 
 ## 参数配置区（唯一维护入口，全部带默认值）
 
@@ -99,12 +110,15 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 > **硬依赖（缺失即阻断本轮，见「缺失处置」）**：第 1、2 项。
 > **可选依赖（仅用于 2 级 Agent 编排抓取兜底，缺失不阻断，运行时降级）**：第 3、4 项——`web-search`（含 `firecrawl` 适配层）与 `chrome-devtools` 是 **Agent 编排层**的下游技能，**本技能代码不自动调用**；1 级原生抓取失败时，`pipeline.js` 落盘 `pending_fetch/<url>.md` 移交 Agent 编排，由 Agent 经读其 `SKILL.md` 后执行 2 级（`web-search`→`firecrawl` 正文抓取）或 3 级（`chrome-devtools`）；下游技能缺失则相关篇目停留在 `pending_fetch` 待人工/下一轮 Agent 编排。
+> **chrome-devtools 依赖口径（A/B 双路径，须分情况判定）**：`chrome-devtools` 不再一律按「可选依赖」处理——
+> - **A 主检索路径**：为可选降级项，缺失不阻断、运行时降级（走免 Cookie / 2 级兜底）；
+> - **B 有头兜底路径**：为**条件硬依赖**，须先经 `node scripts/check-deps.js --require-headed` 门控通过（确认有头浏览器可拉起、CDP 端口可达）方可进入 3 级正文抽取；门控不通过则禁止进入 3 级，相关篇目停留 `pending_fetch` 待下一轮。
 
 1. `wechat-article-search`：基址下 `wechat-article-search/` 目录存在且含 `SKILL.md`，并确认其 `scripts/` 子目录下存在 `search_wechat.js` 与 `get_sogou_cookie.js`（优先 `-c` 接口取 Cookie 与检索均依赖这两个脚本，缺失则检索 / 取 Cookie 将失败）。
 2. `ima-skills`：基址下 `ima-skills/` 目录存在且含 `SKILL.md`（正确标识为复数形式 ima-skills，不含单数形式的 ima-skill）。
 3. `web-search`（可选）：基址下 `web-search/` 目录存在且含 `SKILL.md`。仅作为 2 级 Agent 编排正文抓取的下游技能（其 `firecrawl` 适配层提供 `firecrawl scrape`）；**本技能代码不自动调用**，由 Agent 经读其 `SKILL.md` 后执行（见「下级路由」）。
 4. `web-search` 的火爬适配层（可选）：基址下 `web-search/firecrawl/` 目录存在且含 `SKILL.md`。Agent 经 2 级取正文时复用其封装的官方 `firecrawl` CLI（`firecrawl scrape <URL>`），需本机已全局安装 `firecrawl` 且 `FIRECRAWL_API_KEY` 就绪（或 `web-search/.env` 已配置）。属 Agent 编排能力，非代码自动路径。
-5. 探测浏览器自动化能力是否可用，仅作记录，不作为阻断项。
+5. 探测浏览器自动化能力是否可用（chrome-devtools）：A 主检索路径下仅作记录、不作为阻断项；B 有头兜底路径下按上方「chrome-devtools 依赖口径」升级为条件硬依赖，须经 `check-deps.js --require-headed` 门控通过方可进入 3 级。
 6. **ima 知识库连接器（ima-mcp）连通性探测（告警项，非阻断）**：确认 ima-mcp 已连接且已授权；若未连接/未授权，须显式告警并提示用户确认 ima-mcp 已连接后再继续「入库流程」，避免「前置依赖检查通过却运行中入库失败」。同时须将 `search_script_dir` 解析为 `<技能基址>/wechat-article-search/scripts` 并用于步骤 4 命令拼接。
 7. **ima 凭据可用性探测（告警项，非阻断）**：确认 ima 开放接口凭据（client_id / api_key）已配置且有效，按以下**优先级**解析，任一层存在即视为具备：
    - ① 环境变量 `IMA_CLIENT_ID` 与 `IMA_API_KEY`（**最优先**，用户级持久化或本次执行已注入，明文不落盘）；
@@ -265,6 +279,14 @@ allowed-tools: Bash Read Write Edit WebFetch
 - **移交（pipeline.js 写）**：1 级失败 → `pending_fetch/<url>.md` 含 `<!-- NEEDS_FETCH -->` 标记 + 原 URL + 失败原因 + 已试层级。
 - **回交（Agent 写）**：经 2/3 级取到正文后，把文章 markdown 覆写同一 `<url>.md`（**去除 `<!-- NEEDS_FETCH -->` 标记**）；文件名须与移交时一致（pipeline.js 据文件名消费）。回交物须同时满足：① 含 `# 文章标题` 元数据头；② `原文直链` 为 `mp.weixin.qq.com` 真实直链，不得仍是搜狗中转 / 反爬链接；③ 不得回交反爬验证码页。
 - **消费（pipeline.js 读）**：`--ingest-pending` 读取 `pending_fetch/*.md`；仍含 `<!-- NEEDS_FETCH -->` 视为 stub（Agent 未取回）→ 跳过；否则经 `validateHandback()` 形态验收（不合格者**拒收并保留文件**待重新回交，绝不进入 `import_doc`）→ 过滤 + 闸门 → 入库或标记失败。
+- **provenance 字段（Agent 回交写、代码层校验）**：每篇 handback 须带 provenance，供代码层做 provenance 校验（G3 硬门禁组成），字段定义为：`level`（抓取层级 2/3）、`cdpPort`（所用有头实例 CDP 端口）、`pageUrl`（实际读取的渲染页 URL）、`agentSkill`（驱动该篇的第三方主 `SKILL.md`）、`extractedAt`（抽取时刻 ISO 8601）、`chars`（渲染正文字符数）、`batchId`（所属批次 ID）、`stubKey`（与移交时一致的 `pending_fetch` stub 确定性键）。
+- **「下载」定义（B 兜底 / 3 级，逐一序贯）**：「下载」指 Agent 在有头窗口内对每篇**逐一序贯**执行 `navigate_page`（打开真实直链）→ `evaluate_script` 读渲染后 `#js_content` 正文 → 落盘 handback（`pending_fetch/<url>.md`）；禁止并发批量，禁止依赖 `--filePath`（受工作区根约束，产物只落 `[workspace]` 内）。
+- **batch manifest（批次台账）**：主 Agent 按批次派发子 Agent，台账为 `[workspace]/_batch_<card>_<ts>.json`，每篇 state 取 `pending → inflight → done` 三态流转，收尾前由 `--verify-batch --batch-id "<批次ID>"` 门控复核（见引导词守护段收尾前门禁）。
+- **批次闭环门禁 `--verify-batch --batch-id B [--json]`（收尾前，纯离线）**：该命令**不触碰 KB、不依赖 `ima_api.cjs`**，故**不带 `--kb-id` / `--folder-id`**；必须置于 `--ingest-pending` **之前**执行，未通过（退出码 1）则**禁止消费 handback、禁止写 `status=completed`**。其职责仅判定「批次是否可交付给 `--ingest-pending`」：`batchDone` 与 `provenanceValid` 全通过方可放行；`needsFetch` / 幽灵记录属消费后判据，由 `state.js report` 复核。
+- **level=3 独立 CDP 取证要求有头实例仍存活**：批次门禁对 provenance 中 `level=3` 的篇目，经 `resolve_midlink.js` 的 `verifyHeadedSession()` **直连 CDP `/json/version` + `/json/list`** 校验实例身份（拒 `WorkBuddy/Electron`）与 `pageUrl`（须存在同源已打开文章页），不采信 Agent 自述；该取证**要求有头浏览器实例仍存活**，故批次门禁**必须在关闭浏览器之前执行**，浏览器已关闭时须先经 `chrome-devtools` 重新拉起有头实例再跑门禁。
+- **消费端二次硬门禁（防调度方跳过批次门禁）**：`--ingest-pending` 对 `level=3` 另有硬门禁——批次清单中该 `stubKey` 的 `state` 必须为 `done`（即已通过 `--verify-batch` 独立取证），否则**拒收并保留文件**（日志「批次门禁拦截」），杜绝跳过批次门禁直接把「无头冒充有头」写进 KB。
+- **消费成功的状态迁移（F-02）**：`state.js` 新增 `mark-handback-consumed` 子命令，`--ingest-pending` 入库成功时经其把 `fetchStatus='needs-fetch'` 迁移为 `ok`、`ingestStatus` 迁移为 `ingested`，使 `report` 第 5 栏「移交Agent编排」存在归零路径（否则 `needsFetch` 恒 >0、闭环不可达）。
+- **写操作命令白名单（所有写操作必带 `--card`，唯一口径）**：综上，本技能所有 `pipeline.js` / `state.js` 写操作命令一律带 `--card <卡>`（卡前缀隔离、防跨卡污染），完整清单为：`pipeline.js` 的 `--search "<检索结果.json>"` / `--ingest-pending` / `--ingest-quarantine` / `--verify-batch --batch-id B`，以及 `state.js` 的 `mark-ingested` / `mark-failed` / `mark-filtered` / `mark-needs-fetch` / `mark-handback-consumed` / `set-attempts` / `reset-attempts` / `reset-card` / `update-card`；其中 `--verify-batch` 为纯离线门控，**仅豁免 `--kb-id` / `--folder-id`、不豁免 `--card`**（仍须带 `--workspace --card --batch-id B`），其余入库类命令均须同时带 `--kb-id` 与 `--folder-id`；引导词四套「关键命令」/「收尾轮转」的每条 node 命令均遵守本清单（由 `tests/test_pipeline_contract.js` 静态判据锁定）。
 
 ## 规则与知识库
 
@@ -338,7 +360,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 4. **单篇抓取策略（代码内）**：对每篇候选直链先走 0 级解析（如有）+ 1 级原生抓取；1 级失败即落盘 `pending_fetch` 移交 Agent 编排，**不自动切换浏览器自动化、不自动调用 firecrawl**。不达标即降级移交，禁止代码内连续硬重试。
 5. **Agent 编排回交（handback）**：Agent 经 2/3 级抓到正文后，把文章 markdown 覆写回 `pending_fetch/<url>.md`（去除 `<!-- NEEDS_FETCH -->` 标记）；`pipeline.js` 由 `--ingest-pending` 模式消费该 handback，重跑过滤 + 完整性闸门（G3 强制复验）后入库。**无 Agent 编排在场时仅 0/1 级生效，2/3 级不执行**——见「硬门禁·G3 / Agent-present 假设」（此处「Agent 在场」指有 Agent 自调度，与无头浏览器无关）。
 
-> **有头操作铁律（对抗「防无头浏览器」的核心，最高优先）**：降级链 0/1 级为代码自动的**无头**廉价前置（HTTP 直连 + 中转解析），2 级 `web-search→firecrawl` 为云端**无头**兜底；二者一旦命中平台「防无头浏览器」风控即失败并落盘 `pending_fetch`。**3 级 `chrome-devtools` 是唯一的有头逃逸舱**：Agent 须经其主 `SKILL.md` 工序，在**真实可见的本地 360Chromex**中亲自导航、滚动、读取渲染后正文（`js_content`），**模拟真实用户操作本地浏览器**——绝不以 `fetch()`、截图 OCR 或任何无头 / 代理方式替代，也绝不把 chrome-devtools 当作「代抓代理」去消费其产物。「无 Agent 编排在场」与「无头浏览器」为两个不同概念：前者指无 Agent 编排驱动（此时 2/3 级整体不执行），后者指浏览器以隐藏方式运行（3 级严格禁止）。
+> **有头操作铁律（对抗「防无头浏览器」的核心，最高优先）**：降级链 0/1 级为代码自动的**无 HTTP 头交互**廉价前置（HTTP 直连 + 中转解析），但 0 级经 `resolve_midlink.js` 复用同一有头实例的 CDP 端点做中转链接解析；2 级 `web-search→firecrawl` 为云端**无头**兜底；二者一旦命中平台「防无头浏览器」风控即失败并落盘 `pending_fetch`。**3 级 `chrome-devtools` 是唯一由 Agent 真实模拟用户操作、可见窗口内逐篇填词 / 导航 / 读渲染正文的有头链路**：Agent 须经其主 `SKILL.md` 工序，在**真实可见的本地 360Chromex**中亲自导航、滚动、读取渲染后正文（`js_content`），**模拟真实用户操作本地浏览器**——绝不以 `fetch()`、截图 OCR 或任何无头 / 代理方式替代，也绝不把 chrome-devtools 当作「代抓代理」去消费其产物。「无 Agent 编排在场」与「无头浏览器」为两个不同概念：前者指无 Agent 编排驱动（此时 2/3 级整体不执行），后者指浏览器以隐藏方式运行（3 级严格禁止）。
 
 ### 完整性闸门
 
@@ -473,6 +495,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 - `mark-ingested --card C --title T --media-id M [--no-verify] [--ima-api P] [--kb-id K] [--folder-id F]`：标记入库（**默认联机复核** `media_type===11`；需提供 `--ima-api` 与 `--kb-id`，否则报错）；
 - `mark-failed --card C --title T --reason R`：标记失败；
 - `mark-filtered --card C --title T --reason R`：标记被过滤（写 `filterResult=filtered:<reason>`；**缺失此命令会导致 `report` 的「被过滤」列恒为 0**——`report` 只统计 `filterResult` 以 `filtered` 开头的条目）；
+- `mark-handback-consumed --card C --title T --media-id M [--stub-key K] [--batch-id B] [--level L]`：handback 消费成功时把 `fetchStatus='needs-fetch'` 迁移为 `ok`、`ingestStatus` 迁移为 `ingested`（F-02；`report` 第 5 栏「移交Agent编排」归零的唯一路径，否则闭环不可达）；
 - `set-attempts --card C --n N` / `reset-attempts --card C`：设置 / 重置已尝试次数；
 - `reset-card --card C`：清空该卡全部文章记录与卡级累积态（**重跑前重置**，强制全量重搜、解除旧 `failureClass` 锁定；仅清本卡、不动他卡）；**续跑请勿调用本命令**——续跑应保留 `searchedKeywords` 并用 `diff-keywords` 仅搜剩余词，调用本命令会清空已搜词导致全量重搜、重触发限流；
 - `update-card --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K] [--searched-keywords K] [--clear-searched] [--failure-class C]`：更新卡级字段（**步骤 13 轮转规则所需**，缺此命令则 F9 与步骤 13 自相矛盾——卡级字段无法经唯一入口写入）；`--searched-keywords` 为**累积并集**写入已搜词（重复自动去重，支撑定向续跑只搜剩余词）、`--clear-searched` 清空已搜词集合、`--failure-class` 写 `transient` / `permanent` / 空串（清除）；
@@ -528,10 +551,11 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 ## 收尾清扫
 
-1. 工区保留：每卡进度文件 `_progress_*.json`、工作区元数据目录 `.workbuddy/`；此外**必须保留尚未成功入库的本地 `.md` 文章副本**（移至 `failed_quarantine/` 子目录，禁止随过程文件一并删除，避免内容不可逆丢失）。（与「入库流程」步骤 4 一致：仅「成功入库」的 `.md` 删除，未成功者在此保留。）
-2. 可清除：检索结果中间文件（如 `[关键词].json`）、临时日志与其余过程文件；清除须先移至临时 quarantine 再彻底删除。
-3. Markdown 文件成功入库后不在工区保留副本（由「入库流程」步骤 4 删除）。
-4. 清扫完成后输出保留文件清单。
+1. 工区保留（白名单）：每卡进度文件 `_progress_*.json`、工作区元数据目录 `.workbuddy/`（含 `.workbuddy/collect_cache/` 采集缓存）、`pending_fetch/`（待回交 stub）、`failed_quarantine/`（未入库 `.md` 隔离区）、检索结果 JSON（如 `[关键词].json`）——以上均**续跑保留**，供 `pipeline.js --search` 与差集续跑复用；此外**必须保留尚未成功入库的本地 `.md` 文章副本**（移至 `failed_quarantine/` 子目录，禁止随过程文件一并删除，避免内容不可逆丢失）。（与「入库流程」步骤 4 一致：仅「成功入库」的 `.md` 删除，未成功者在此保留。）
+2. `_process_summary_<card>.json` 为**过程摘要**（本轮运行统计，属可清除过程文件），与每卡进度文件 `_progress_<card>.json`（**状态机唯一事实源，必须保留**）命名相近但语义不同，清扫时须按前缀区分、严禁误删 `_progress_*.json`。
+3. 可清除：临时日志与其余过程文件（**不含上列白名单**）；清除须先移至临时 quarantine 再彻底删除。
+4. Markdown 文件成功入库后不在工区保留副本（由「入库流程」步骤 4 删除）。
+5. 清扫完成后输出保留文件清单。
 
 ## 示例
 
@@ -539,13 +563,13 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 输入：无任何参数传入。
 
-输出：前置依赖检查四项全部具备；进度文件存在且三张卡上次运行日期均为空，按轮转规则选择 A 卡；因未传入轮转序号，主词簇（工程总承包、EPC、总包）与变体词簇（总承包EPC、EPC总承包）逐一全搜，目标子目录为 folder_7511772189689986。检索到 12 篇，去重后 10 篇，过滤剔除 2 篇开工类，抓取成功 8 篇，闸门全部通过，入库 8 篇，复验列表条目数 8 且目标子目录（folder_id）标识正确。四栏清单为「应入库 8 / 实入库 8 / 被过滤 2 / 失败 0」。执行完成后 A 卡上次运行日期设为今天、下次到期日设为今天加 10 天；因两簇均已覆盖，轮转序号保持 0 不变。
+输出：前置依赖检查四项全部具备；进度文件存在且三张卡上次运行日期均为空，按轮转规则选择 A 卡；因未传入轮转序号，主词簇（工程总承包、EPC、总包）与变体词簇（总承包EPC、EPC总承包）逐一全搜，目标子目录为「由 `resolve-folder` 运行时解析所得 `folder_id`」（禁止硬编码 media_id）。检索到 12 篇，去重后 10 篇，过滤剔除 2 篇开工类，抓取成功 8 篇，闸门全部通过，入库 8 篇，复验列表条目数 8 且目标子目录（folder_id）标识正确。四栏清单为「应入库 8 / 实入库 8 / 被过滤 2 / 失败 0」。执行完成后 A 卡上次运行日期设为今天、下次到期日设为今天加 10 天；因两簇均已覆盖，轮转序号保持 0 不变。
 
 ### 示例二：边界场景（指定任务卡且命中变体轮次）
 
 输入：`card_id` 为 B，且显式传入 `rotate_index` 为 1。
 
-输出：直接执行 B 卡，只检索序号 1 对应的变体词簇（有机更新、微更新、城市双修、小区整治、城中村更新、街区整治、街区打造、社区整治、社区打造、基础设施更新），目标子目录为 folder_7512040100861636。执行完成后 B 卡轮转序号由 1 切换为 0，下次到期日设为今天加 10 天。
+输出：直接执行 B 卡，只检索序号 1 对应的变体词簇（有机更新、微更新、城市双修、小区整治、城中村更新、街区整治、街区打造、社区整治、社区打造、基础设施更新），目标子目录为「由 `resolve-folder` 运行时解析所得 `folder_id`」（禁止硬编码 media_id）。执行完成后 B 卡轮转序号由 1 切换为 0，下次到期日设为今天加 10 天。
 
 ### 示例三：异常场景（平台限流）
 

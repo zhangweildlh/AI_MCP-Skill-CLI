@@ -19,8 +19,11 @@
  *                                             标记失败
  *   mark-filtered --card C --title T --reason R
  *                                             标记被过滤（filterResult=filtered:<reason>，不计入 failed）
- *   mark-needs-fetch --card C --title T --reason R
+ *   mark-needs-fetch --card C --title T --reason R [--stub-key K] [--batch-id B]
  *                                             标记 1 级抓取失败、移交 Agent 编排（pending_fetch），不计 failed
+ *   mark-handback-consumed --card C --title T --media-id M [--stub-key K] [--batch-id B] [--level L]
+ *                                             handback 消费成功：fetchStatus needs-fetch→ok 且
+ *                                             ingestStatus→ingested（report 第 5 栏归零的唯一路径）
  *   set-attempts  --card C --n N              设置某卡已尝试次数
  *   reset-attempts --card C                   重置某卡已尝试次数为 0
  *   reset-card    --card C                    清空该卡的全部文章记录，并重置卡级累积态（searchedKeywords=[]、failureClass=''），重跑/续跑前重置用（强制全量重搜、解除旧失败类锁定）
@@ -125,7 +128,8 @@ function usage() {
   mark-ingested --card C --title T --media-id M [--no-verify] [--ima-api P] [--kb-id K] [--folder-id F]
   mark-failed   --card C --title T --reason R
   mark-filtered --card C --title T --reason R
-  mark-needs-fetch --card C --title T --reason R
+  mark-needs-fetch --card C --title T --reason R [--stub-key K] [--batch-id B]
+  mark-handback-consumed --card C --title T --media-id M [--stub-key K] [--batch-id B] [--level L]
   set-attempts  --card C --n N
   reset-attempts --card C
   reset-card    --card C                     （清空文章记录 + 重置 searchedKeywords/failureClass）
@@ -146,7 +150,7 @@ function fail(msg) {
 }
 
 function parseArgs(argv) {
-  const opt = { progress: '', command: '', card: '', title: '', mediaId: '', reason: '', n: null, verify: true, noVerify: false, imaApi: '', kbId: '', folderId: '', kbSnapshot: '', json: false, searchedKeywords: '', clearSearched: false, failureClass: '', keywords: '', skillBase: '', name: '' };
+  const opt = { progress: '', command: '', card: '', title: '', mediaId: '', reason: '', n: null, verify: true, noVerify: false, imaApi: '', kbId: '', folderId: '', kbSnapshot: '', json: false, searchedKeywords: '', clearSearched: false, failureClass: '', keywords: '', skillBase: '', name: '', stubKey: '', level: '', batchId: '' };
   let i = 0;
   while (i < argv.length) {
     const a = argv[i];
@@ -176,6 +180,9 @@ function parseArgs(argv) {
     else if (a === '--name') opt.name = argv[++i] || fail('缺少 --name 值');
     else if (a === '--json') opt.json = true;
     else if (a === '--skill-base') opt.skillBase = argv[++i] || fail('缺少 --skill-base 值');
+    else if (a === '--stub-key') opt.stubKey = argv[++i] || fail('缺少 --stub-key 值');
+    else if (a === '--level') opt.level = argv[++i] || fail('缺少 --level 值');
+    else if (a === '--batch-id') opt.batchId = argv[++i] || fail('缺少 --batch-id 值');
     else if (!opt.command) opt.command = a;
     else fail(`未知参数：${a}`);
     i++;
@@ -372,9 +379,39 @@ function cmdMarkIngested(opt, data) {
   // 这正是隔离区补入（定向续跑③）等合法重入场景 —— 旧实现因强约束无条件拒绝，导致隔离区补入静默失效（文件被删、进度仍 failed）。
   if (opt.verify) verifyMediaType11(opt, card.folder_id);
   art.ingestStatus = 'ingested';
+  // F-02 根因修复：handback 成功消费后若 fetchStatus 仍为 needs-fetch，report 第 5 栏
+  // 「移交Agent编排」永不归零、classifyReport.closed 恒为 false → 闭环不可达。
+  // 所有 mark-ingested 调用点（主流程 / 隔离区补入 / handback 消费）统一在此迁移。
+  if (art.fetchStatus === 'needs-fetch') art.fetchStatus = 'ok';
   if (opt.mediaId) art.note = `media_id=${opt.mediaId}`;
   saveProgress(opt.progress, data);
   console.error(`✅ 已标记 ingested：card=${opt.card} title=${opt.title}${opt.verify ? '（已联机复核 media_type===11）' : '（未联机复核：--no-verify）'}`);
+}
+
+/**
+ * handback 消费成功的状态机归零（F-02 显式语义入口）。
+ *
+ * 与 mark-ingested 的差别：① 强制把 fetchStatus 从 needs-fetch 迁移为 ok、gateResult 归 pass，
+ * 使 report 第 5 栏存在归零路径；② 额外记录 stubKey / batchId / provenance.level，
+ * 让「哪一篇经哪一批次、哪一级降级链回交」可审计。
+ *
+ * 不做联机复核：pipeline.js 消费端已用 listAllKb() 全量分页复验 media_type===11 且确在目标
+ * 子目录；此处若再跑 verifyMediaType11 的单页 limit:50 复核，反而会在子目录 >50 条时误判
+ * 「未真正入库」并把已成功入库的条目打回失败。
+ */
+function cmdMarkHandbackConsumed(opt, data) {
+  if (!opt.card || !opt.title) fail('mark-handback-consumed 需要 --card 与 --title。');
+  ensureCard(data, opt.card);
+  const art = upsertArticle(data, opt.card, opt.title);
+  art.fetchStatus = 'ok';
+  art.ingestStatus = 'ingested';
+  art.gateResult = 'pass';
+  if (opt.mediaId) art.note = `media_id=${opt.mediaId}`;
+  if (opt.stubKey) art.stubKey = opt.stubKey;
+  if (opt.batchId) art.batchId = opt.batchId;
+  if (opt.level) art.provenance = { level: String(opt.level), verifiedBy: 'pipeline.js --verify-batch' };
+  saveProgress(opt.progress, data);
+  console.error(`✅ handback 已消费：card=${opt.card} title=${opt.title} fetchStatus=needs-fetch→ok ingestStatus=ingested${opt.stubKey ? ' stubKey=' + opt.stubKey : ''}`);
 }
 
 function cmdMarkFailed(opt, data) {
@@ -409,6 +446,9 @@ function cmdMarkNeedsFetch(opt, data) {
   // 避免「未过闸却被标 pass」的误导性状态（该条目尚未经 G3 闸门复验）。
   art.gateResult = '';
   if (opt.reason) art.note = opt.reason;
+  // F-06/F-14：把 stub 确定性键与批次 ID 写进进度条目，供批次门禁按 stubKey 反查 triedLevels
+  if (opt.stubKey) art.stubKey = opt.stubKey;
+  if (opt.batchId) art.batchId = opt.batchId;
   saveProgress(opt.progress, data);
   console.error(`✅ 已标记 needs-fetch（移交 Agent 编排）：card=${opt.card} title=${opt.title} reason=${opt.reason || '(未提供)'}`);
 }
@@ -451,6 +491,21 @@ function cleanCardResidue(opt, data) {
   for (const t of titles) {
     const key = dedupKey(t);
     if (key) tryUnlink(path.join(ws, 'pending_fetch', key + '.md'));
+  }
+  // ①b F-06：新 stub 带 `<card>__` 前缀，旧 ① 的「按标题 dedupKey」映射已覆盖不到；
+  //     按前缀精确清理，绝不误删他卡残留（与 ② 的隔离区闸 1 同款）。
+  const pdEarly = path.join(ws, 'pending_fetch');
+  if (fs.existsSync(pdEarly)) {
+    for (const f of fs.readdirSync(pdEarly)) {
+      if (f.startsWith(prefix) && f.endsWith('.md')) tryUnlink(path.join(pdEarly, f));
+    }
+  }
+  // ①c 批次清单：reset-card 是「强制全量重搜」起点，旧批次条目不得混入新一轮门禁
+  if (fs.existsSync(ws)) {
+    const bp = '_batch_' + safeFile(card) + '_';
+    for (const f of fs.readdirSync(ws)) {
+      if (f.startsWith(bp) && f.endsWith('.json')) tryUnlink(path.join(ws, f));
+    }
   }
   // ② failed_quarantine 卡前缀残留
   const qd = path.join(ws, 'failed_quarantine');
@@ -674,6 +729,48 @@ function cmdReport(opt, data) {
     catch (e) { kbErr = 'KB 联机复核失败，降级为离线口径：' + e.message; }
   }
   const rep = classifyReport(data, kbEntries, { cardFilter: opt.card });
+  // ── 目录残留 + 批次门禁（F-06/F-14）──
+  // classifyReport 是纯函数、不读文件系统，故目录侧证据在此注入；provenanceValid 需 CDP
+  // 独立取证，report 不伪造，明确交由 pipeline.js --verify-batch 给出权威值。
+  const ws = path.dirname(path.resolve(opt.progress));
+  const card = opt.card || '';
+  const prefix = card ? safeFile(card) + '__' : '';
+  const listPrefixed = (d) => {
+    if (!fs.existsSync(d)) return [];
+    return fs.readdirSync(d).filter((f) => f.endsWith('.md') && (!prefix || f.startsWith(prefix)));
+  };
+  rep.pendingFetchFiles = listPrefixed(path.join(ws, 'pending_fetch'));
+  rep.quarantineFiles = listPrefixed(path.join(ws, 'failed_quarantine'));
+  let batchDone = null;
+  if (fs.existsSync(ws)) {
+    // 引导词的复验命令 `report --kb-id K --folder-id F` **不带 --card**，若仅按 opt.card
+    // 扫描批次清单，batchDone 会恒为 null，文档承诺的闭环机读值在真实命令下不可得。
+    // 故：指定卡时只扫该卡；未指定时按进度文件里全部卡（report 默认全卡口径）聚合。
+    const cardKeys = card ? [card] : Object.keys(data.cards || {});
+    const prefixes = cardKeys.map((c) => '_batch_' + safeFile(c) + '_');
+    const mfs = fs.readdirSync(ws).filter((f) => f.endsWith('.json') && (
+      prefixes.length ? prefixes.some((p) => f.startsWith(p)) : f.startsWith('_batch_')
+    ));
+    if (mfs.length) {
+      let total = 0, done = 0;
+      for (const f of mfs) {
+        try {
+          const m = JSON.parse(fs.readFileSync(path.join(ws, f), 'utf8'));
+          for (const it of (m.items || [])) { total++; if (it.state === 'done') done++; }
+        } catch (_) { /* 损坏清单跳过，不计入 total */ }
+      }
+      if (total > 0) batchDone = (done === total);
+    }
+  }
+  rep.batchDone = batchDone;
+  rep.provenanceValid = null; // 权威值由 --verify-batch 独立 CDP 取证给出
+  const dirBlockers = [];
+  if (rep.pendingFetchFiles.length) dirBlockers.push(`pending_fetch/ 本卡残留 ${rep.pendingFetchFiles.length} 个`);
+  if (rep.quarantineFiles.length) dirBlockers.push(`failed_quarantine/ 本卡残留 ${rep.quarantineFiles.length} 个`);
+  if (batchDone === false) dirBlockers.push('batchDone=false（批次清单仍有未完成篇目）');
+  rep.dirBlockers = dirBlockers;
+  // 审计 E-12 延伸：四栏 + 第 5 栏齐全仍可能被目录残留 / 未完成批次卡死，闭环判定必须一并纳入
+  rep.closed = rep.closed && dirBlockers.length === 0;
   if (opt.json) { process.stdout.write(JSON.stringify(rep, null, 2) + '\n'); return; }
 
   const L = [];
@@ -716,9 +813,13 @@ function cmdReport(opt, data) {
   if (rep.needsFetch) blockers.push(`移交Agent编排 ${rep.needsFetch} 篇`);
   if (rep.pending) blockers.push(`待入库/卡死 ${rep.pending} 篇`);
   if (rep.ghost) blockers.push(`幽灵记录 ${rep.ghost} 篇`);
+  rep.dirBlockers.forEach((b) => blockers.push(b));
+  L.push(`本卡目录残留 : pending_fetch/ ${rep.pendingFetchFiles.length} 个、failed_quarantine/ ${rep.quarantineFiles.length} 个（已纳入闭环判定）`);
+  L.push(`batchDone=${rep.batchDone === null ? '(无批次清单)' : rep.batchDone}  provenanceValid=由 --verify-batch 独立取证给出（report 不伪造）`);
   L.push(blockers.length
     ? `闭环判定 : ❌ 未闭环（${blockers.join('、')}）；四栏齐全≠闭环，禁止写 status=completed`
-    : '闭环判定 : ✅ 四栏无待办；仍须另核 pending_fetch/ 目录余量与本卡 failed_quarantine/ 残留');
+    : '闭环判定 : ✅ 四栏无待办、本卡目录残留为 0；仍须另核 --verify-batch 的 provenanceValid=true');
+  L.push('提示：status=completed 须同时满足 batchDone=true、provenanceValid=true、needsFetch=0、无幽灵记录。');
   L.push('');
   if (rep.kbVerified) L.push('复核说明：实入库 ' + rep.confirmed + ' 篇均经 get_knowledge_list 复核 media_type===11 真实存在。');
   else L.push('⚠️ 离线模式：实入库为进度文件声称值，未经 KB 复核，幽灵记录检测不可用。请加 --kb-id/--folder-id（或 --kb-snapshot）复验。');
@@ -814,6 +915,7 @@ function main() {
     case 'mark-failed': cmdMarkFailed(opt, data); break;
     case 'mark-filtered': cmdMarkFiltered(opt, data); break;
     case 'mark-needs-fetch': cmdMarkNeedsFetch(opt, data); break;
+    case 'mark-handback-consumed': cmdMarkHandbackConsumed(opt, data); break;
     case 'set-attempts': cmdSetAttempts(opt, data); break;
     case 'reset-attempts': cmdResetAttempts(opt, data); break;
     case 'reset-card': cmdResetCard(opt, data); break;
@@ -830,4 +932,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { dedupKey, TITLE_CAP, cardOf, locateImaApi, classifyReport, fetchKbEntries, readKbSnapshot, parseMediaIdFromNote, classifyFailure, assertOutsideSkillDir, cmdResolveFolder };
+module.exports = { dedupKey, TITLE_CAP, cardOf, locateImaApi, classifyReport, fetchKbEntries, readKbSnapshot, parseMediaIdFromNote, classifyFailure, assertOutsideSkillDir, cmdResolveFolder, cmdMarkHandbackConsumed };

@@ -476,6 +476,7 @@ function parseCliArgs(args) {
   let resolveRealUrl = false;
   let days = 0; // 客户端按 datetime 二次过滤的时间窗（天），0 表示不过滤
   let cookieStr = ''; // 浏览器 Cookie：从 chrome-devtools（或浏览器手动）过验证码后提取的 cookie，用于绕过 antispider
+  let fromHtml = ''; // 离线入口：读取本地搜狗结果页 HTML 直接解析，不发起任何网络请求
 
   // 非法输入一律显式抛错（由 main 统一转成 stderr 提示 + 退出码 2），
   // 不做静默降级——静默回落默认值会让「用户请求」与「实际行为」背离。
@@ -513,6 +514,11 @@ function parseCliArgs(args) {
       const raw = args[++i];
       if (raw === undefined) fail(`${a} 需要一个 Cookie 字符串`);
       cookieStr = raw;
+    } else if (a === '--from-html') {
+      // 离线解析入口：读取本地搜狗结果页 HTML，跳过全部网络请求
+      const raw = args[++i];
+      if (!raw) fail(`${a} 需要一个文件路径`);
+      fromHtml = raw;
     } else if (a.startsWith('-')) {
       fail(`未知选项：${a}`);
     } else {
@@ -521,7 +527,13 @@ function parseCliArgs(args) {
     }
   }
 
-  return { query, num, output, resolveRealUrl, days, cookieStr };
+  // --from-html 是纯离线解析入口；-r/--resolve-url 需要对每条中转链接发起网络请求做直链解析，
+  // 二者语义冲突（离线入口约定不发起任何网络请求），按参数非法处理（main 统一转退出码 2）。
+  if (fromHtml && resolveRealUrl) {
+    fail('--from-html（离线解析）与 -r/--resolve-url（需网络解析直链）不能同时使用；离线入口不发起任何网络请求，请去掉 -r，或改走在线检索。');
+  }
+
+  return { query, num, output, resolveRealUrl, days, cookieStr, fromHtml };
 }
 
 /**
@@ -887,14 +899,15 @@ async function main() {
     console.error('用法：node search_wechat.js <关键词> [-n 数量] [-d 天数] [-o 文件] [-r] [-c cookie]');
     process.exit(2);
   }
-  const { query, num, output, resolveRealUrl, days, cookieStr } = cli;
+  const { query, num, output, resolveRealUrl, days, cookieStr, fromHtml } = cli;
 
   // Cookie 关键键齐全性告警（不阻断，保持向后兼容；残缺 Cookie 大概率仍触发反爬，提示调用方补救后重提）
   if (cookieStr && (!/SNUID=/i.test(cookieStr) || !/SUID=/i.test(cookieStr))) {
     console.error('[告警] 传入的 Cookie 缺少关键键（SNUID/SUID），大概率仍触发搜狗反爬；建议先在浏览器访问 weixin.sogou.com 首页完成一次正常浏览后重新提取。');
   }
 
-  if (!query) {
+  // --from-html 允许不带关键词（结果 query 回退为 '<from-html>'）；仅当既无关键词、也无离线文件时才打印用法。
+  if (!query && !fromHtml) {
     console.log(`
 微信公众号文章搜索工具（零第三方依赖，可离线运行）
 
@@ -907,6 +920,7 @@ async function main() {
   -o, --output <文件>    输出JSON文件路径
   -r, --resolve-url      解析真实的微信文章URL（会额外请求每个链接）
   -c, --cookie <cookie>  传入从 chrome-devtools（或浏览器手动）取得的 weixin.sogou.com Cookie，用于绕过 antispider
+      --from-html <文件> 离线解析本地搜狗结果页 HTML（不发起任何网络请求，不可与 -r 同用）
 
 示例:
   node search_wechat.js "人工智能" -n 20
@@ -918,12 +932,20 @@ async function main() {
   }
   
   try {
-    console.error(`正在搜索: "${query}"...`);
-    
-    const articles = await searchWechatArticles(query, num, resolveRealUrl, days, cookieStr);
-    
+    let articles;
+    if (fromHtml) {
+      // 离线入口：读取本地 HTML 并直接解析，全程不发起任何网络请求。
+      // 未走 -r 直链解析，显式给每篇补 url_resolved=false，交由下游 resolve_midlink 处理中转链接。
+      const fs = require('fs');
+      const html = fs.readFileSync(fromHtml, 'utf-8');
+      articles = parseArticlesFromSearchHtml(html, num).map((a) => ({ ...a, url_resolved: false }));
+    } else {
+      console.error(`正在搜索: "${query}"...`);
+      articles = await searchWechatArticles(query, num, resolveRealUrl, days, cookieStr);
+    }
+
     const result = {
-      query,
+      query: query || '<from-html>',
       total: articles.length,
       articles
     };
@@ -945,7 +967,8 @@ async function main() {
 
 // 导出模块供其他脚本使用
 module.exports = {
-  searchWechatArticles
+  searchWechatArticles,
+  parseArticlesFromSearchHtml
 };
 
 // 如果直接运行此脚本

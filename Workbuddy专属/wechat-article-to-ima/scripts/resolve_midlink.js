@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 中转链接解析器（抓取降级链 · 一级）：把搜狗中转链接 `weixin.sogou.com/link?url=…`
+ * 中转链接解析器（抓取降级链 · 零级）：把搜狗中转链接 `weixin.sogou.com/link?url=…`
  * 解析为真实 `mp.weixin.qq.com/s?…` 直链。
  *
  * 【为什么必须有这个脚本】
@@ -18,16 +18,24 @@
  * 【端口契约（重要）】
  * 调试浏览器端口由 chrome-devtools 经 Agent 编排负责探查与拉起（其 start.cjs 扫描 9222~9240 并回传真实端口），
  * 本脚本**不自行读 local-config.json、不自行扫描端口、不自行拉起**——只连接编排回传的端口。
- * 端口来源：环境变量 SOGOU_CDP_PORT（编排注入）；缺省 9222（chrome-devtools 扫描区间起点，真实监听端口）。
+ * 端口来源：环境变量 SOGOU_CDP_PORT（编排注入）；缺省 9222 是 WorkBuddy 自身 Electron，
+ * checkBrowser() 会主动识别并拒绝，因此**必须显式注入 SOGOU_CDP_PORT** 才能进入 0/3 级链路。
  * 使用前建议先 `node resolve_midlink.js --check` 探活 `GET http://127.0.0.1:<port>/json/version`。
+ *
+ * 【独立取证（F-01）】
+ * verifyHeadedSession() 由本脚本**直接连 CDP 端口**读取运行时状态，不采信 Agent 自述的
+ * provenance 字段，用于把「有头」从声明式自证变成第三方可核验证据。复用同一 httpReq 通道，
+ * 不新增 MCP 客户端、不新写浏览器驱动。
  *
  * 【用法】
  *   node resolve_midlink.js "<中转链接>"                  # 单条：成功输出真实直链（stdout）
  *   node resolve_midlink.js --file "<检索结果.json>" [--out "<映射.json>"]
  *                                                          # 批量：输出 {原url: {ok,url,reason}} 映射
  *   node resolve_midlink.js --check                        # 仅探活调试端口
+ *   node resolve_midlink.js --verify-headed --port <P> [--page-url <U>]
+ *                                                          # 独立取证：输出 JSON（V-03）
  *
- * 【退出码】0=成功（或批量完成）；1=参数错误；2=调试端口不可达
+ * 【退出码】0=成功（或批量完成）；1=参数错误；2=调试端口不可达 / 取证未通过
  */
 
 'use strict';
@@ -38,6 +46,7 @@ const path = require('path');
 /**
  * 解析调试浏览器端口（仅取编排回传值，不自行发现/拉起）：
  *   SOGOU_CDP_PORT 环境变量（由 Agent 编排调用 chrome-devtools 拉起后注入）→ 缺省 9222。
+ * 缺省 9222 为 WorkBuddy 自身 Electron，checkBrowser() 必拒绝；故实际链路一律要求显式注入。
  * 本脚本不读 chrome-devtools/local-config.json、不扫描端口——端口探查与浏览器拉起属 chrome-devtools 职责
  * （经 Agent 编排的 MCP 连接器完成），避免「读陈旧配置 / 自行造轮子」导致的端口误报不可达。
  */
@@ -49,9 +58,9 @@ const CDP_PORT = resolveCdpPort();
 const HOST = '127.0.0.1';
 const DEFAULT_TIMEOUT_MS = 25000;
 
-function httpReq(method, p, timeoutMs = 15000) {
+function httpReq(method, p, timeoutMs = 15000, port = CDP_PORT) {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: HOST, port: CDP_PORT, path: p, method }, (res) => {
+    const req = http.request({ host: HOST, port, path: p, method }, (res) => {
       let d = '';
       res.on('data', (c) => (d += c));
       res.on('end', () => resolve(d));
@@ -80,12 +89,63 @@ async function checkBrowser() {
     const ident = String(v.Browser || '') + ' ' + String(v['User-Agent'] || v.userAgent || '');
     if (/WorkBuddy|Electron/i.test(ident)) {
       return { ok: false, browser: v.Browser || '', port: CDP_PORT,
-        reason: 'workbuddy-electron（该端口是 WorkBuddy 自身 Electron，非调试浏览器；须经 Agent 编排拉起真实浏览器并注入 SOGOU_CDP_PORT）' };
+        reason: 'workbuddy-electron（该端口是 WorkBuddy 自身 Electron，非调试浏览器；须经 Agent 编排拉起真实浏览器并显式注入 SOGOU_CDP_PORT，切勿依赖缺省 9222）' };
     }
     return { ok: true, browser: v.Browser || '', port: CDP_PORT };
   } catch (e) {
-    return { ok: false, reason: e.message, port: CDP_PORT };
+    return { ok: false, reason: `${e.message}（请经 Agent 编排拉起有头浏览器并显式注入 SOGOU_CDP_PORT 后重试）`, port: CDP_PORT };
   }
+}
+
+/**
+ * 读取 CDP 运行时快照（版本 + 标签列表）。供独立取证复用，不新增通道。
+ * @param {number} port 显式端口
+ */
+async function cdpSnapshot(port) {
+  const p = Number(port) || CDP_PORT;
+  const version = JSON.parse(await httpReq('GET', '/json/version', 15000, p));
+  const tabs = JSON.parse(await httpReq('GET', '/json/list', 15000, p));
+  return { port: p, browser: String(version.Browser || ''), userAgent: String(version['User-Agent'] || version.userAgent || ''), tabs: Array.isArray(tabs) ? tabs : [] };
+}
+
+/**
+ * 独立取证：验证「有头浏览器实例真实存在，且确有目标文章页」。
+ * 证据源是本脚本直连 CDP，而非 Agent 写入 handback 的 provenance 自述（F-01 根因修复）。
+ * @param {number} port 调试端口
+ * @param {string} expectedPageUrl handback 声明的 pageUrl（可为空，为空时只验实例）
+ * @returns {Promise<{ok:boolean,reason:string,browser:string,port:number,tabs:Array,matchedTab:(object|null)}>}
+ */
+async function verifyHeadedSession(port, expectedPageUrl) {
+  let snap;
+  try {
+    snap = await cdpSnapshot(port);
+  } catch (e) {
+    return { ok: false, reason: 'CDP 端口不可达：' + e.message, browser: '', port: Number(port) || CDP_PORT, tabs: [], matchedTab: null };
+  }
+  const ident = snap.browser + ' ' + snap.userAgent;
+  if (/WorkBuddy|Electron/i.test(ident)) {
+    return { ok: false, reason: '实例为 WorkBuddy/Electron，非有头调试浏览器（V-03 辨识失败）', browser: snap.browser, port: snap.port, tabs: snap.tabs, matchedTab: null };
+  }
+  if (!snap.browser) {
+    return { ok: false, reason: 'CDP /json/version 未返回 Browser 标识，实例类型不可判定', browser: '', port: snap.port, tabs: snap.tabs, matchedTab: null };
+  }
+  let matchedTab = null;
+  if (expectedPageUrl) {
+    const want = String(expectedPageUrl);
+    matchedTab = snap.tabs.find((t) => {
+      const u = String(t.url || '');
+      if (u === want) return true;
+      // 微信直链常带时间戳/签名差异，按 host + 路径同源判定，避免精确串比对误判
+      try {
+        const a = new URL(u); const b = new URL(want);
+        return a.host === b.host && a.pathname === b.pathname && a.host.includes('mp.weixin.qq.com');
+      } catch (_) { return false; }
+    }) || null;
+    if (!matchedTab) {
+      return { ok: false, reason: 'CDP /json/list 中未找到与 provenance.pageUrl 同源的已打开文章页（疑似无头代抓或伪造来源）', browser: snap.browser, port: snap.port, tabs: snap.tabs, matchedTab: null };
+    }
+  }
+  return { ok: true, reason: '有头实例可辨识且目标页已打开', browser: snap.browser, port: snap.port, tabs: snap.tabs, matchedTab };
 }
 
 /** 解码 URL 语境下的 HTML 实体（搜狗中转链接的 `&` 被写作 `&amp;`） */
@@ -156,19 +216,34 @@ function usage() {
   node resolve_midlink.js "<中转链接>"                       单条解析（成功输出真实直链）
   node resolve_midlink.js --file "<检索结果.json>" [--out M]  批量解析
   node resolve_midlink.js --check                           仅探活调试端口
+  node resolve_midlink.js --verify-headed --port <P> [--page-url <U>]
+                                                            独立取证（输出 JSON）
 
 环境变量：
-  SOGOU_CDP_PORT   调试浏览器端口（由 Agent 编排调用 chrome-devtools 拉起后注入；缺省 9222）`);
+  SOGOU_CDP_PORT   调试浏览器端口（由 Agent 编排调用 chrome-devtools 拉起后显式注入；
+                   缺省 9222 为 WorkBuddy 自身 Electron，必被拒绝）`);
 }
 
 async function main() {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) { usage(); process.exit(0); }
 
+  // F-01 / V-03：独立取证入口（只读，不新建/关闭任何标签）
+  if (args.includes('--verify-headed')) {
+    const pi = args.indexOf('--port');
+    const port = pi >= 0 ? Number(args[pi + 1]) : CDP_PORT;
+    if (!Number.isFinite(port) || port <= 0) { console.error('[错误] --verify-headed 需要合法的 --port <端口>'); usage(); process.exit(1); }
+    const ui = args.indexOf('--page-url');
+    const pageUrl = ui >= 0 ? String(args[ui + 1] || '') : '';
+    const r = await verifyHeadedSession(port, pageUrl);
+    process.stdout.write(JSON.stringify(r, null, 2) + '\n');
+    process.exit(r.ok ? 0 : 2);
+  }
+
   if (args.includes('--check')) {
     const r = await checkBrowser();
     if (r.ok) { console.log(`OK 调试浏览器就绪：${r.browser} @ 127.0.0.1:${r.port}`); process.exit(0); }
-    console.error(`[不可达] 127.0.0.1:${r.port}：${r.reason}\n请经 Agent 编排调用 chrome-devtools（MCP 连接器）拉起调试浏览器并回传 SOGOU_CDP_PORT 后再探活（本脚本不自行拉起）。`);
+    console.error(`[不可达] 127.0.0.1:${r.port}：${r.reason}\n请经 Agent 编排调用 chrome-devtools（MCP 连接器）拉起调试浏览器并显式注入 SOGOU_CDP_PORT 后再探活（本脚本不自行拉起）。`);
     process.exit(2);
   }
 
@@ -215,4 +290,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('[FATAL]', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { resolveMidLink, resolveAll, checkBrowser, decodeUrlEntities, isMidLink, CDP_PORT };
+module.exports = { resolveMidLink, resolveAll, checkBrowser, decodeUrlEntities, isMidLink, CDP_PORT, cdpSnapshot, verifyHeadedSession };

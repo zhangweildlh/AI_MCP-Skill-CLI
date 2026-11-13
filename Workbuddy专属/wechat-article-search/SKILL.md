@@ -30,13 +30,14 @@ metadata:
 | -o, --output | 字符串 | 否 | 输出 JSON 的文件路径，缺省时输出到标准输出 |
 | -r, --resolve-url | 布尔 | 否 | 是否解析真实微信文章直链，开启会额外请求每条结果，默认关闭 |
 | -c, --cookie | 字符串 | 否 | 从 chrome-devtools（或浏览器手动）取得的 weixin.sogou.com Cookie 串，用于绕过 antispider |
+| --from-html | 字符串 | 否 | 离线解析入口：读取本地搜狗搜索结果页 HTML 文件直接解析文章，不发起任何网络请求；每篇输出补 `url_resolved: false` 交由下游 `resolve_midlink` 处理；不可与 `-r` 同用（否则退出码 2） |
 
 ## 工作流
 
 1. 确认检索要素：与用户确认关键词与返回数量（默认 10，最大 50）；若用户关注时间窗，确认最近 N 天。
 2. 获取 Cookie（优先路径）：通过 chrome-devtools 驱动支持 CDP 远程调试的 Chrome / Chromium 内核浏览器（例如 360Chrome）取得 `weixin.sogou.com` 的 Cookie。
    1. 经 chrome-devtools 激活调试浏览器（其 `start.cjs` 会自动探测真实调试端口并写入 `local-config.json` 的 `debugPort`；本机实测常为 9223 而非 9222），调试实例随即就绪；脚本 `get_sogou_cookie.js` 会自动探测 9222~9240 或读取 `SOGOU_CDP_PORT` 环境变量定位该实例。
-   2. 用 chrome-devtools 驱动浏览器访问 `weixin.sogou.com` 搜索页；若跳转验证页，提示用户在浏览器窗口中**手动完成人机验证**（自动化无法过码且不合规），验证通过后 Cookie 写入浏览器存储。**先访问 `weixin.sogou.com` 首页完成一次正常浏览再进搜索页**（2026-11-02 实测）：仅跳搜索结果页通常只种访客标识 `SUV`，残缺 Cookie 检索仍会被拦截。
+   2. 用 chrome-devtools 驱动浏览器访问 `weixin.sogou.com` 搜索页；若跳转验证页，提示用户在浏览器窗口中**手动完成人机验证**（自动化无法过码且不合规），验证通过后 Cookie 写入浏览器存储。**关于「先访问 `weixin.sogou.com` 首页完成一次正常浏览再进搜索页」的补充修正（2026-11-13 实测）**：实测 `SUV`（关键 Cookie 之一，搜狗会话级访客标识）由搜狗主域 `www.sogou.com` 种下，**仅访问 `weixin.sogou.com` 首页并不足以保证 `SNUID/SUID/SUV` 三键齐全**（残缺 Cookie 检索仍会被反爬拦截）。正确姿势是：用有头浏览器**先加载 `https://www.sogou.com/` 主域**，再访问微信搜索页；随后用 `get_sogou_cookie.js` 取回 Cookie，把 Cookie 暂存为文件并经下游 `wechat-article-to-ima` 技能的 `check-deps.js --cookie-file` 做 **E3 三键预检（`SNUID/SUID/SUV`）**，预检通过（关键标识齐全）后再执行检索。
    3. 运行零依赖脚本提取 Cookie：执行 `node scripts/get_sogou_cookie.js`，其向标准输出打印 `SNUID=...; ...` 形式的字符串。退出码语义：0=成功且关键键（`SNUID`/`SUID`）齐全（向 stdout 输出 Cookie 串）；3=读取成功但 Cookie 残缺（标准错误给出告警与首页补救建议，stdout 不再输出 Cookie 串以免调用方误用）；2=未读取到 Cookie；1=读取失败。
 3. 执行检索（携带 Cookie）：运行 `node scripts/search_wechat.js "[关键词]" -n [数量] -c "[Cookie 字符串]"`；若用户要求时间窗或解析直链，追加 `-d [天数]` 或 `-r`。
 4. 处理返回：解析脚本输出的 JSON，提取文章标题、地址、概要、发布时间、来源公众号，以结构化列表呈现给用户。
@@ -68,7 +69,7 @@ metadata:
 
 - 脚本标准输出为 JSON：`{"query": "...", "total": N, "articles": [{"title": "...", "url": "...", "summary": "...", "datetime": "...", "date_text": "...", "date_description": "...", "source": "..."}]}`。
 - 文章字段含义：标题、文章地址、文章概要、发布时间、来源公众号名称。
-- 启用 `-r` 时，每篇文章额外含 `url_resolved`（布尔）：`true` 表示已解析为微信真实直链，`false` 表示仍保留搜狗中转链接（反爬导致解析失败时的优雅降级）。
+- 启用 `-r` 时，每篇文章额外含 `url_resolved`（布尔）：`true` 表示已解析为微信真实直链，`false` 表示仍保留搜狗中转链接（反爬导致解析失败时的优雅降级）。离线入口 `--from-html` 因约定不触网、未走直链解析，同样给每篇补 `url_resolved: false`，交由下游「抓取降级链」处理。
 - **输出的 `url` 一律是「HTML 实体已解码」的良构 URL（2026-11-05 实测修正）**：搜狗结果页的 `href` 属性中 `&` 被写作 `&amp;`，脚本在提取时即解码为 `&`。此前原样输出/请求会得到**畸形 URL**，搜狗跳转页将其判为无效参数并重定向到 `weixin.sogou.com/antispider/`（反爬页），导致 `url_resolved` 恒为 `false`、正文永远取不到（实测 49 条检索结果中 24 条为未解析中转链接，全部含未解码的 `&amp;`）。
 - **`url_resolved=false` 时的下游契约**：此时 `url` 是**已解码**的搜狗中转链接（`weixin.sogou.com/link?url=…`）。调用方**不得直接丢弃**，也不得直接当作文章直链抓取——须交由下游「抓取降级链」用**真实调试浏览器**导航该链接、待其 JS 跳转完成后取最终地址（`mp.weixin.qq.com/s?…`）再抓取；纯 HTTP 请求无法完成该跳转（会落 antispider 页）。下游实现见 `wechat-article-to-ima` 技能的 `scripts/resolve_midlink.js`。
 - `datetime` / `date_text` 统一为**北京时间（UTC+8）墙钟**口径，与运行机器的本地时区无关；时间窗过滤（`-d`）亦按该口径解析。
