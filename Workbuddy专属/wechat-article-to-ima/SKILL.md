@@ -153,14 +153,21 @@ allowed-tools: Bash Read Write Edit WebFetch
    ```
    > `原文直链` 一律填**解析后的真实直链**（`mp.weixin.qq.com/s?…`），中转链接未解析成功时填已解码的原链接。
 7. 对每份 Markdown 文件执行「完整性闸门」，未通过者标记为失败并跳过，禁止入库。
-8. 将通过闸门的文件按「入库流程」逐篇存入 `[knowledge_base_id]` 下 `[folder_id]` 指定的子目录，每篇处理完立即写回进度文件。**`[folder_id]` 须先经 `state.js resolve-folder --name "<任务卡配置表的 folder_name>" --kb-id [knowledge_base_id]` 实时解析**（见「任务卡配置表」，禁止硬编码 media_id），解析结果填入本步与第 9 步的 `--folder-id`。
-9. 执行「复验」，输出**增强四栏清单**：必须以 `state.js report` 产出，**不得手工拼凑**。强烈建议带 `--kb-id` / `--folder-id` 走 KB 复核模式：
+8. 将通过闸门的文件按「入库流程」逐篇存入 `[knowledge_base_id]` 下 `[folder_id]` 指定的子目录，每篇处理完立即写回进度文件。**`[folder_id]` 须先经 `state.js resolve-folder --name "<任务卡配置表的 folder_name>" --kb-id [knowledge_base_id]` 实时解析**（见「任务卡配置表」，禁止硬编码 media_id），解析结果填入本步、步骤 9（回交消费）与步骤 10（复验）的 `--folder-id`。
+9. （主流程内联·消除卡点①②）2/3 级 Agent 编排抓取回交与消费闭环：步骤 6 抓取降级链中，0/1 级为代码自动（无头可跑），2/3 级为 Agent 编排路径——1 级原生抓取失败的文章会落盘为 `pending_fetch/<url>.md`、含 `<!-- NEEDS_FETCH -->` 标记的 stub，**不会在前序步骤自动入库**。为使 Agent 在**当次会话内**走完「搜索 → 2/3 级抓取 → 消费 handback → 入库」完整闭环（无需用户二次发起采集任务），本步骤须按 9.1–9.5 在当次会话内串起：
+   - 9.1 **拉起/复用有头浏览器**：先经 `chrome-devtools` 技能主 `SKILL.md`（MCP 直连 形态一优先；连接器不可用则 CLI 兜底）由其 `localization/start.cjs` 扫描 9222~9240、复用或新启带调试端口的本地 360Chromex（继承登录态），并回传真实端口。**务必 `export SOGOU_CDP_PORT=<编排回传的真实端口>`**（禁止依赖缺省 9222，否则命中 WorkBuddy 自身 Electron 被拒绝）；`resolve_midlink.js --check` 仅探活该真实端口。
+   - 9.2 **2/3 级抓取回交**：遍历 `pending_fetch/` 下本卡 stub，经 `chrome-devtools` 真实打开每篇 `原文直链`（`mp.weixin.qq.com` 直链，禁止搜狗中转/反爬链接），提取正文，将文章 Markdown（含元数据头，格式同步骤 6）覆写回同一 `<url>.md`，**去除 `<!-- NEEDS_FETCH -->` 标记**（文件名须与移交时一致；回交物须含 `# 文章标题` 头、真实直链、且非反爬验证码页）。
+   - 9.3 **消费 handback（G3 强制复验）**：`node scripts/pipeline.js --workspace "[workspace]" --card [card] --ingest-pending --kb-id [knowledge_base_id] --folder-id [folder_id]` 重跑过滤 + 完整性闸门后再入库；仍含 `NEEDS_FETCH` 标记者视为 Agent 未取回、自动跳过。
+   - 9.4 **回收隔离区**：`node scripts/pipeline.js --workspace "[workspace]" --card [card] --ingest-quarantine --kb-id [knowledge_base_id] --folder-id [folder_id]` 消费 `failed_quarantine/` 下未入库 `.md` 直接补入库（不通重搜）。
+   - 9.5 **闭环约束**：9.1–9.4 须在**当次会话内串起**，禁止将 `pending_fetch/` 与 `failed_quarantine/` 残留留待下一轮；完成后本卡 `pending_fetch/` stub 与 `failed_quarantine/` 本卡前缀残留均应清零（见各引导词闭环判据）。**无 Agent 在场（无头模式）时 2/3 级不执行**：本步骤降级为仅跑 9.4 隔离区补入，相关 stub 留待下一轮 Agent 编排（由「断点续跑与续跑守护」或定时任务接续）。
+
+10. 执行「复验」，输出**增强四栏清单**：必须以 `state.js report` 产出，**不得手工拼凑**。强烈建议带 `--kb-id` / `--folder-id` 走 KB 复核模式：
    ```bash
    node scripts/state.js --progress "[workspace]/_progress_[card].json" report \
      --kb-id "[knowledge_base_id]" --folder-id "[folder_id]" [--ima-api "<ima_api.cjs 路径>"]
    ```
    该清单须包含：① 四栏计数（应入库 / 实入库 / 被过滤 / 失败）；② **被过滤栏**逐条列出标题与命中原因（词族 + 标题层/正文层）；③ **失败栏**逐条列出标题与失败原因（抓取失败 / 闸门未过 / 入库失败）；④ **实入库栏**须为 **KB 复核确认数**（经 `get_knowledge_list` 复核 `media_type===11` 真实存在）、并标注**目标子目录 `folder_id`**；⑤ **应入库但未入库**差额及其根因拆解（失败数 / 幽灵记录数 / 待入库卡死数）；⑥ 若存在**幽灵记录**（进度声称 `ingested` 但 KB 子目录查无此文）须**显式标注**并附 note 明细。未带 KB 参数时 report 降级为离线模式，实入库为进度声称值、幽灵检测不可用——此时须显式告警并提示补 `--kb-id/--folder-id` 复验。
-10. 执行「写入项目级记忆」：
+11. 执行「写入项目级记忆」：
     - 生成记忆文件名：`[workspace]/.workbuddy/memory/[YYYY-MM-DD]_[cardId]_r[rotateIndex].md`（若文件不存在则创建，存在则追加）；
     - 内容包含：
       * 本次处理的任务卡 ID、名称、目标子目标识、关键词簇；
@@ -170,7 +177,7 @@ allowed-tools: Bash Read Write Edit WebFetch
       * 本轮结束时的进度文件关键字段；
       * 任何路径核验异常或依赖缺失情况；
       * 生成时间戳（ISO 8601 格式）。
-11. 执行「收尾清扫」：
+12. 执行「收尾清扫」：
     - 遍历 `[workspace]` 根目录下的所有条目；
     - 保留以下两项：
       a. `_progress_*.json` 文件（每卡一份）；
@@ -178,7 +185,7 @@ allowed-tools: Bash Read Write Edit WebFetch
     - 删除所有其他文件和目录，但**严禁删除尚未成功入库的本地 `.md` 文章副本**：此类文件须移动到 `[workspace]/failed_quarantine/` 子目录保留（供人工补做或下一轮续跑）；可安全删除的仅限检索结果中间文件（如 `[关键词].json`）、临时日志与其它过程文件；
     - 删除操作必须为彻底删除（不进入回收站），但出于安全考虑，先移动到临时 quarantine 目录再删除，确认无误后清空 quarantine；
     - 清扫完成后输出保留文件清单（含 `_progress_*.json`、`.workbuddy/` 目录，以及 `failed_quarantine/`（若存在））。
-12. 按「任务卡轮转规则」更新该卡的上次运行日期、下次到期日与轮转序号。**该步骤的写入必须经 `scripts/state.js update-card` 执行**（F9 唯一入口），示例：
+13. 按「任务卡轮转规则」更新该卡的上次运行日期、下次到期日与轮转序号。**该步骤的写入必须经 `scripts/state.js update-card` 执行**（F9 唯一入口），示例：
     ```bash
     node scripts/state.js --progress "[workspace]/_progress_A.json" update-card --card A \
       --last-run 2026-11-05 --next-due 2026-11-15 --rotate-index 0 \
@@ -201,6 +208,8 @@ allowed-tools: Bash Read Write Edit WebFetch
 ## 断点续跑与续跑守护
 
 本技能的运行由调度方（WorkBuddy / 任一 Agent）编排，关键词检索在技能**外部**（`wechat-article-search` 的 `search_wechat.js`）逐词完成，每词结果再由 `pipeline.js --search` 入库。因此「断点续跑」的全部**可机读信号都必须落在 `_progress_<card>.json`（每卡一份）**，由 `state.js` 承载，调度方据其决策，而非依赖运行日志。
+
+> **主流程已内联收尾回收（v-next 起生效）**：「工作流」步骤 9 已在当次会话内串起 2/3 级 Agent 编排回交（`chrome-devtools` 有头浏览器）与 `--ingest-pending` / `--ingest-quarantine` 消费，单卡单轮即闭环，无需用户二次发起采集任务。本节的「续跑守护」不再承担主流程本应内联的收尾回收，仅用于：① 跨会话残留（无头模式留下的 `pending_fetch/` stub、隔离区残留）；② 限流冷却后自动接续；③ 多卡（A/B/C）串行轮转。
 
 ### 触发场景（deep-discuss 收敛的边界）
 - 场景一：完成某卡**部分关键词**搜索（尚有另一部分关键词未搜），但未下载命中文章、也未入库；
@@ -399,7 +408,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 
 > **复验结果必须回写进度文件，且回写本身带复核**：`state.js mark-ingested` **默认联机复核**该条目 `media_type===11` 真实存在于目标子目录，复核不通过即拒绝写入（见「进度文件写操作纪律」）。禁止以「接口返回 code=0」代替内容核对——历史进度中曾出现声称已入库而 KB 全库查无此文的幽灵记录。
 >
-> **本轮结算的四栏清单须由 `state.js report --kb-id <kb> --folder-id <folder>` 产出**（KB 复核模式），而非凭运行日志自报。该清单对「实入库」做 KB 逐条复核：进度声称 `ingested` 但 KB 子目录经 `media_id` / 去重键均未命中的条目，**判为幽灵记录并显式标注**（开放接口无删除端点，历史脏数据仅可披露、不能自动修复）。详见步骤 9。
+> **本轮结算的四栏清单须由 `state.js report --kb-id <kb> --folder-id <folder>` 产出**（KB 复核模式），而非凭运行日志自报。该清单对「实入库」做 KB 逐条复核：进度声称 `ingested` 但 KB 子目录经 `media_id` / 去重键均未命中的条目，**判为幽灵记录并显式标注**（开放接口无删除端点，历史脏数据仅可披露、不能自动修复）。详见步骤 10。
 
 **调用层陷阱警示：`ima_api.cjs` 空响应**
 
@@ -464,7 +473,7 @@ allowed-tools: Bash Read Write Edit WebFetch
 - `mark-filtered --card C --title T --reason R`：标记被过滤（写 `filterResult=filtered:<reason>`；**缺失此命令会导致 `report` 的「被过滤」列恒为 0**——`report` 只统计 `filterResult` 以 `filtered` 开头的条目）；
 - `set-attempts --card C --n N` / `reset-attempts --card C`：设置 / 重置已尝试次数；
 - `reset-card --card C`：清空该卡全部文章记录与卡级累积态（**重跑前重置**，强制全量重搜、解除旧 `failureClass` 锁定；仅清本卡、不动他卡）；**续跑请勿调用本命令**——续跑应保留 `searchedKeywords` 并用 `diff-keywords` 仅搜剩余词，调用本命令会清空已搜词导致全量重搜、重触发限流；
-- `update-card --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K] [--searched-keywords K] [--clear-searched] [--failure-class C]`：更新卡级字段（**步骤 12 轮转规则所需**，缺此命令则 F9 与步骤 12 自相矛盾——卡级字段无法经唯一入口写入）；`--searched-keywords` 为**累积并集**写入已搜词（重复自动去重，支撑定向续跑只搜剩余词）、`--clear-searched` 清空已搜词集合、`--failure-class` 写 `transient` / `permanent` / 空串（清除）；
+- `update-card --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K] [--searched-keywords K] [--clear-searched] [--failure-class C]`：更新卡级字段（**步骤 13 轮转规则所需**，缺此命令则 F9 与步骤 13 自相矛盾——卡级字段无法经唯一入口写入）；`--searched-keywords` 为**累积并集**写入已搜词（重复自动去重，支撑定向续跑只搜剩余词）、`--clear-searched` 清空已搜词集合、`--failure-class` 写 `transient` / `permanent` / 空串（清除）；
 - `report`：输出增强四栏清单（应入库 / 实入库 / 被过滤 / 失败），被过滤/失败栏含逐条原因，实入库栏含 KB 复核确认数与目标子目录，应入未入含根因拆解，幽灵记录显式标注。支持 `--kb-id <kb> --folder-id <folder>`（KB 复核模式）、`--kb-snapshot <json>`（离线/审计快照）、`--card <卡>`（限定单卡）、`--json`（机器可读）。
 - `diff-keywords --card C --keywords "K1;K2;K3"`：给定该卡**全量关键词**（取自「任务卡配置表」），输出**尚未搜索**的差集（续跑时只搜剩余词，避免重触发限流）；支持 `--json`。
 - `classify-failure --reason "R"`：依据失败原因判定 `transient`（限流/网络，可重试）或 `permanent`（凭据失效，交人工），返回类别字符串；调度方据其决定是否续跑。
