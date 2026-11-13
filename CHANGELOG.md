@@ -1,5 +1,10 @@
 ---
 
+## [2026-11-13]
+
+### Fixed
+- **dir/Workbuddy专属：wechat-article-to-ima 缺陷 A-E 下沉消除（PR #250，`f7ec227`）**：基于卡片 A 全量强制重搜执行审计，将 5 项「能下沉到 SKILL 代码中消除」的缺陷全部闭环修复（IP 级限流按用户授权保留为运行期不可下沉项）。① 缺陷 A（`--pending-keywords` 覆盖写入致续跑差集丢失）：`state.js` 改为 Set 并集累积（`split` → `Set` 去重合并），续跑 `diff-keywords` 差集不再丢词。② 缺陷 B（`check-deps.js` 缺 ima 凭据就绪预检）：新增 `imaCredentialReady()`（校验 `IMA_CLIENT_ID/IMA_OPENAPI_CLIENTID` + `IMA_API_KEY/IMA_OPENAPI_APIKEY` 环境变量，或 `~/.config/ima/client_id`+`api_key` 文件，长度≥16 且 ≠'dummy'），`main()` 暴露 `result.hard.imaCredentials` 并 `module.exports` 导出。③ 缺陷 C（`pipeline.js` 入参汇总统计口径错误：`shouldIngest/newlyIngested/dupSkipped/filtered/failed` 错算）：抽取纯函数 `computeIngestSummary(stat)`（`newlyIngested = max(0, ingested - dupSkipped)`），内联汇总改调该函数。④ 缺陷 D（`pipeline.js` 反爬/验证码页误判为「内容已删除」→ 续跑被错杀）：抽取纯函数 `classifyFetchResult(html)`（`looksLikeErrorPage`→`error-page`；`js_content` 空/过短→`empty`；否则 `ok`），`antispider+empty` 仍判 `error-page` 不误判 `empty` 核心，下游续跑 `pending_fetch` 正确保留。⑤ 缺陷 E（`mark-needs-fetch` 未清 `gateResult`，默认 pass 经 `upsertArticle` 漏判）：`cmdMarkNeedsFetch` 在 `ingestStatus='pending'` 后补 `art.gateResult = ''`。新增离线回归：`tests/test_sink_defects_cd.js`（C/D 纯函数 10 断言）、`tests/test_state.js` 补 A/E 回归、`tests/test_deps_and_folder.js` 补 B 回归（`withImaEnv` 隔离宿主真实 env/`~/.config/ima`）；`scripts/smoke/test_manifest.py` 登记 `wai-sink-defects-cd`（scope `dir/Workbuddy专属`，regression/offline，10 断言）。验证：目录级全测 11 JS 套件 + 2 Python 套件 = **380 断言 / 0 失败**；pre-commit 冒烟 + scope 校验 `Workbuddy专属` 通过；因 `Workbuddy专属/` 顶层无 SKILL.md 被 scope-map 判为 meta，本 PR 触发**全量** tier0-3+5+6 且三项全绿。§7.2 聚合 md5 待下一轮 canonical 复采刷新（本条目不引入非权威 hash）；已更新 5 个变更文件 blob sha（state.js `605b4fef…`→`5b31f8d5…`、scripts/pipeline.js `ee344d00…`→`45b8dc95…`、tests/test_state.js `fbbc4f24…`→`4191dd3f…`、tests/test_deps_and_folder.js `b0e71f54…`→`b340d2a7…`、新增 tests/test_sink_defects_cd.js `512ec741…`）+ 引导词.md 陈旧值更正 `0934b089…`→`2c5be7d6…`；26 文件 / 387499 B / 5800 行，写后校验 25/25→26/26，项目级测试 13 套→14 套。部署态待合并后经 `scripts/deploy.js --ref main` 从 main blob 逐字节重建并刷新 §7.2。
+
 ## [2026-11-12]
 
 ### Added
