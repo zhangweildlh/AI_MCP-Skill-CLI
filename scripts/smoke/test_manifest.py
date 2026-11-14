@@ -235,6 +235,13 @@ TEST_ENTRIES = [
          note="仓库级唯一同步器 deploy-skill.cjs 离线回归：§7.2 注册表解析 / 单文件形态转换 / "
               "预演零写盘 / §7.3 三项判据 / 注入 1 字节腐坏的反向测试 / --exclude 与拒绝未登记技能；"
               "仅写 tempfile 临时目录，不触碰真实部署态"),
+    dict(scope="meta", name="gen-registry-row",
+         path="scripts/smoke/test_gen_registry_row.py",
+         cmd=[PYTHON, "scripts/smoke/test_gen_registry_row.py"], shell=False,
+         kind="regression", risk="offline",
+         note="AGENTS.md §7.2 主表「实测」列生成器 gen-registry-row.cjs 离线回归：--list 解析主表映射 / "
+              "--skill 人类可读输出含聚合 md5 与文件数维度 / --json 输出 aggregate_md5 为 32 位 hex；"
+              "纯只读复采 main blob，不调用 --rewrite、不写盘、不触碰真实部署态"),
 ]
 
 

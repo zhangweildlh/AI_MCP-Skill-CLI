@@ -1,5 +1,13 @@
 ---
 
+## [2026-11-14]
+
+### Fixed
+- **meta：AGENTS.md §7.2 主表「实测」列不可复现根因坐实并修复（待建 meta PR，分支 `meta/2026-11-14-registry-row-reproducibility`）**：经 `@skill:deep-discuss` 全链路授权审核坐实，§7.2 主表各「实测」列历史值由一次性脚本 `_recapture_72.py` 手写粘贴，其逐文件排序与 §7.3 规范（按相对路径升序）不一致，致聚合 md5 不可复现；且 `wechat-article-to-ima` 行曾把 metric 嵌入开发态形态列、缺「实测 / 判定」两列（仅 6 段 / 7 列畸形），`codebase-memory` 行 deployPath 列含内联反引号（`（**仅** `README.md` + `SKILL.md`）`）破坏解析正则，二者均无法被生成器识别。本轮：① 新增 `scripts/gen-registry-row.cjs`（零第三方依赖、纯 Node 内置模块）作为 §7.2「实测」列唯一可复现生成器，口径与 §7.3 完全一致（按相对路径升序序贯喂入 `相对路径+\0+文件字节` 取 md5）；② 以 `--rewrite` 全量刷新 20 个已部署行实测列（文件数 / 字节 / 行数等维度数保持原值不变，仅聚合 md5 按 canonical 序重算；如 `wechat-article-to-ima` 由 `c884bfb6…`→`27da87b6…`、`codebase-memory` 由 `cfad4df2…`→`cd836b1c…`），并修复上述两畸形行至 9 段 / 7 列规范结构（共 22 主表行 0 畸形、`ROW_RE` 解析 20 行全过）；③ 新增 §7.5.1「实测」列生成纪律（禁止手写粘贴、一律由生成器整列替换）与 §7.7「合并后校验门禁（post-merge gate）」（合并后须运行 `node scripts/deploy-skill.cjs --all --verify`，`verifyBad>0` 即阻断清理）。
+
+### Added
+- **meta：新增 `scripts/gen-registry-row.cjs`（§7.2 主表「实测」列可复现生成器）并补离线回归**：零第三方依赖、纯 Node 内置模块；`--skill <name>` / `--skill-rel <路径>` / `--list` / `--rewrite` / `--json` 五种入口，从 `<ref>`（默认 main）的 git blob 逐字节复采，输出可直接粘贴的表格行文本，确保跨 PR 可复现、杜绝列错位。同步新增 `scripts/smoke/test_gen_registry_row.py`（17 断言：--list 解析主表映射 / --skill 输出含聚合 md5 与文件数维度 / --json 输出 aggregate_md5 为 32 位 hex；纯只读复采、不调用 `--rewrite`、不写盘），已登记进 `scripts/smoke/test_manifest.py`（`gen-registry-row`，scope `meta`，regression/offline），经 §9 唯一入口 `--scope meta --project-tests` 调度。
+
 ## [2026-11-13]
 
 ### Fixed
