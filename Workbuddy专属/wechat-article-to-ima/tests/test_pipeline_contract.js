@@ -157,12 +157,21 @@ check('★ validateHandback 拒收仅含搜狗中转链接的回交',
   P.validateHandback('# 标题\n\n原文直链：https://weixin.sogou.com/link?url=x\n\n正文').ok === false);
 check('★ validateHandback 拒收缺 # 标题的回交',
   P.validateHandback('正文第一段。\n\n正文第二段。').ok === false);
-check('★ validateHandback 接纳合规 handback（含 provenance 证据行）', (() => {
+check('★ validateHandback 接纳合规 handback（level=3 完整有头证据）', (() => {
   const head = '# 文章标题\n\n来源：某公众号\n发布时间：2026-11-11\n作者：某\n原文直链：https://mp.weixin.qq.com/s?x=1\n采集日期：2026-11-11\n\n' + '正文。'.repeat(300) + '\n';
+  // 统一第 3 级：证据行须含 cdpPort / mp 直链 / chrome-devtools；chars 按纯正文口径核对。
+  const line = (chars) => P.buildProvenanceLine({ level: '3', cdpPort: '9223', pageUrl: 'https://mp.weixin.qq.com/s?x=1',
+    agentSkill: 'chrome-devtools/SKILL.md',
+    extractedAt: '2026-11-13T00:00:00.000Z', chars: String(chars), batchId: 'b1', stubKey: 'k1' });
+  const bodyLen = P.stripEvidenceComments(head + line(1000)).replace(/\s/g, '').length;
+  return P.validateHandback(head + line(bodyLen)).ok === true;
+})());
+check('★ validateHandback 拒收 level=2 旧形态（统一第 3 级反向判据）', (() => {
+  const head = '# 文章标题\n\n' + '正文。'.repeat(300) + '\n';
   const line = (chars) => P.buildProvenanceLine({ level: '2', cdpPort: '', pageUrl: '', agentSkill: 'web-search/firecrawl',
     extractedAt: '2026-11-13T00:00:00.000Z', chars: String(chars), batchId: 'b1', stubKey: 'k1' });
-  const bodyLen = (head + line(1000)).replace(/\s/g, '').length;
-  return P.validateHandback(head + line(bodyLen)).ok === true;
+  const bodyLen = P.stripEvidenceComments(head + line(1000)).replace(/\s/g, '').length;
+  return P.validateHandback(head + line(bodyLen)).ok === false;
 })());
 // E-22 源码级确定性门禁：入库成功分支不得再引用未定义的 chars/periods
 const PIPE_SRC = fs.readFileSync(PIPE_JS, 'utf8');
@@ -480,6 +489,10 @@ try {
 check('★ pipeline.js 源码含 verifyBatchClosure（批次闭环门控实现）', /verifyBatchClosure/.test(PIPE_SRC));
 check('★ pipeline.js 源码含 findStubMeta（批次条目反查实现）', /findStubMeta/.test(PIPE_SRC));
 check('★ pipeline.js 源码含 mark-handback-consumed（handback 消费标记）', /mark-handback-consumed/.test(PIPE_SRC));
+
+// ⑬ 统一第 3 级采集契约 + 13 项修复回归：复用本已登记入口的 check() / 汇总 / 退出码，
+// 不新增测试入口（§9.4 复用优先），故 test_manifest.py 清单的 kind / risk / cmd 均无需变更。
+require('./level3_unified_cases.js')(check, { P, PIPE_SRC, SKILL_DIR, fs, os, path, spawnSync });
 
 console.log('\n=== 汇总 ===');
 console.log(`通过 ${pass} / 失败 ${fail}`);

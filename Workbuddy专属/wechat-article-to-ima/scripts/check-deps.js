@@ -7,8 +7,9 @@
  * 才暴露依赖缺失（静默失败）。本脚本把它固化为**确定性、可机器判定的核查**：
  *   - 硬依赖（缺失即阻断）：ima-skills（提供 ima_api.cjs）、wechat-article-search（提供检索/取 Cookie 脚本）。
  *   - 软依赖（缺失仅告警 + 记录文档回退，不阻断，均经 Agent 编排委派，本技能代码不自行探查/调用）：
- *     chrome-devtools（调试浏览器端口探查与拉起经 Agent 编排委派 chrome-devtools MCP 连接器）、
- *     web-search / web-search/firecrawl（2 级抓取兜底，firecrawl 官方 CLI 探查/调用经 Agent 编排委派 web-search）。
+ *     chrome-devtools（调试浏览器端口探查与拉起经 Agent 编排委派 chrome-devtools MCP 连接器）。
+ *   - 统一第 3 级后已移除：web-search / web-search/firecrawl 的 2 级无头兜底探测（含 FIRECRAWL_API_KEY 判定）。
+ *     正文一律由第 3 级有头浏览器采集，2 级软依赖不再参与主链路，故本检查器不再登记其字段。
  *
  * 【复用】
  *   - checkBrowser：复用 resolve_midlink.js 的 CDP 端口探活（避免重复实现）。
@@ -23,8 +24,8 @@
  *                     不通过即退出码 1，禁止进入 3 级有头正文抽取。A 主检索路径不要加此参数。
  *   退出码：0 = 硬依赖齐全（含被要求的门控项）；1 = 任一硬依赖/门控项缺失
  *
- * 注：firecrawl / chrome-devtools 的「CLI 探查 / 端口探查 / 浏览器拉起」均经 Agent 编排委派对应技能完成，
- * 本检查器只判定「委派目标是否存在 + 密钥是否就绪」这一硬门禁，避免本技能重复造轮子并消除 Windows 下的误报。
+ * 注：chrome-devtools 的「端口探查 / 浏览器拉起」经 Agent 编排委派对应技能完成，本检查器只判定
+ * 「委派目标是否存在 + CDP 端口是否可达」，避免本技能重复造轮子；2 级 firecrawl 探测已随统一第 3 级移除。
  *
  * 注意：不使用 $HOME（执行沙箱中 $HOME 被虚拟化为 /HOME，会误判缺失）；
  * 技能基址解析与 SKILL.md §59-64 完全一致。
@@ -107,19 +108,9 @@ function relExists(base, rel, expectFile) {
   return expectFile ? fileOk(full) : dirHasSkill(full);
 }
 
-// firecrawl 密钥探测（只判有无，不读取值、不回显）。
-// 注意：firecrawl 官方 CLI 的「存在性探查 / 调用」统一经 Agent 编排委派 web-search 完成（web-search 的 firecrawl 适配层封装），
-// 本技能代码不自行 spawn firecrawl（Windows 下裸 spawn 全局无扩展名 bash 脚本会 ENOENT 误报缺失，属重复造轮子），
-// 故此处仅校验「委派目标（web-search/firecrawl 技能）存在 + 密钥就绪」这一硬门禁，CLI 可用性交由 web-search 运行时判定。
-function firecrawlKeyPresent(base) {
-  if (process.env.FIRECRAWL_API_KEY) return true;
-  const envPath = path.join(base, 'web-search', '.env');
-  if (!fileOk(envPath)) return false;
-  try {
-    const txt = fs.readFileSync(envPath, 'utf8');
-    return txt.split('\n').some((l) => /^\s*FIRECRAWL_API_KEY\s*=\s*.+/i.test(l));
-  } catch (_) { return false; }
-}
+// 统一第 3 级：2 级 web-search/firecrawl 软依赖探测已整体移除（含 FIRECRAWL_API_KEY 判定）。
+// 历史背景（只留说明、不留代码）：原实现因 Windows 下裸 spawn 全局无扩展名 firecrawl CLI 会 ENOENT 误报，
+// 曾退化为「仅判委派目标存在 + 密钥就绪」；统一第 3 级后该链路彻底无消费者，故连软依赖字段一并删除。
 
 // 缺陷 B 修复：ima 凭证就绪探针（离线、无网络）。
 // SKILL.md 前置依赖要求「ima 凭证可用」，但本检查器原只查 ima_api.cjs 文件存在，不查凭证是否配置；
@@ -210,25 +201,12 @@ async function main() {
     result.soft.chromeDevtools.note = '委派目标已安装但当前端口未连通：请经 Agent 编排调用 chrome-devtools 拉起调试浏览器并回传 SOGOU_CDP_PORT 后再探活';
   }
 
-  // web-search / firecrawl：2 级抓取兜底（经 Agent 编排委派 web-search，firecrawl CLI 探查/调用由 web-search 完成）
-  const wsOk = base ? relExists(base, 'web-search', false) : false;
-  const fcSkillOk = base ? relExists(base, 'web-search/firecrawl', false) : false;
-  const fcKey = base ? firecrawlKeyPresent(base) : false;
-  result.soft.webSearch = { present: wsOk };
-  result.soft.firecrawl = {
-    skillPresent: fcSkillOk,
-    keyPresent: fcKey,
-    cliDelegated: true,
-    usable: fcSkillOk && fcKey,
-    delegatedTo: 'web-search（Agent 编排调用，firecrawl CLI 探查/调用由 web-search 的 firecrawl 适配层负责，本技能不自行 spawn）',
-    fallback: '不可用 → 1 级失败即移交 Agent 编排（pending_fetch），2 级留作 Agent 经 web-search 兜底',
-  };
+  // 统一第 3 级：不再登记 web-search / firecrawl 2 级软依赖（无消费者，避免误导调度方以为存在 2 级兜底）。
 
   // ── 解析对外产物 ──
   result.resolved.searchScriptDir = base ? path.join(base, 'wechat-article-search', 'scripts') : null;
   result.resolved.imaApiCjs = imaApiPath;
   result.resolved.cdpPort = cdPort;
-  result.resolved.firecrawlUsable = fcSkillOk && fcKey;
 
   // E3 预检（可选）：检索 Cookie 完整性（缺失 SUV 将触发反爬熔断）
   const cookieCheck = checkCookieCompleteness(opt.cookieFile);
@@ -291,15 +269,12 @@ async function main() {
     L.push('  chrome-devtools       : 安装=' + (result.soft.chromeDevtools.installed ? '✅' : '❌')
       + ' 调试浏览器就绪=' + (result.soft.chromeDevtools.cdpReachable ? '✅:' + result.soft.chromeDevtools.port : '⚠️ 否'));
     if (cdReason) L.push('    原因 : ' + cdReason);
-    L.push('  web-search            : ' + (result.soft.webSearch.present ? '✅' : '❌（2 级兜底委派目标不可用）'));
-    L.push('  firecrawl(委派web-search): ' + (result.soft.firecrawl.usable ? '✅ 可用' : '⚠️ 不可用')
-      + '（skill=' + result.soft.firecrawl.skillPresent + ' Key=' + result.soft.firecrawl.keyPresent + '）');
+    L.push('  2 级软依赖            : 已移除（统一第 3 级有头采集，web-search/firecrawl 不再参与主链路）');
     L.push('');
     L.push('【解析产物】');
     L.push('  search_script_dir : ' + (result.resolved.searchScriptDir || '—'));
     L.push('  ima_api.cjs      : ' + (result.resolved.imaApiCjs || '—'));
     L.push('  cdp_port         : ' + (result.resolved.cdpPort != null ? result.resolved.cdpPort : '—'));
-    L.push('  firecrawl 可用   : ' + (result.resolved.firecrawlUsable ? '是' : '否'));
     if (result.cookie && result.cookie.checked) {
       L.push('  cookie 预检      : ' + (result.cookie.ok ? '✅ 关键标识齐全（SNUID/SUID + SUV）' : ('⚠️ ' + (result.cookie.warn || '不完整'))));
     }
@@ -327,4 +302,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('[FATAL]', e && e.message ? e.message : e); process.exit(1); });
 }
 
-module.exports = { resolveSkillsBase, relExists, firecrawlKeyPresent, checkCookieCompleteness, imaCredentialReady };
+module.exports = { resolveSkillsBase, relExists, checkCookieCompleteness, imaCredentialReady };

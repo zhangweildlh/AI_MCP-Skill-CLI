@@ -76,18 +76,23 @@ try {
   const MP = 'https://mp.weixin.qq.com/s?x=1';
   const BODY = '正文。'.repeat(300);
   function makeRaw(pv, forceChars) {
-    const base = { level: '2', cdpPort: '', pageUrl: '', agentSkill: 'web-search/firecrawl',
+    // 统一第 3 级：合规基线改为完整有头实例证据（level=3 + cdpPort + mp 直链 + chrome-devtools）。
+    const base = { level: '3', cdpPort: '9223', pageUrl: MP, agentSkill: 'chrome-devtools/SKILL.md',
       extractedAt: '2026-11-13T00:00:00.000Z', chars: '', batchId: 'b1', stubKey: 'k1' };
     const p = Object.assign({}, base, pv || {});
     const head = '# 文章标题\n\n来源：某某公众号\n\n' + BODY + '\n';
     const line = (chars) => P.buildProvenanceLine(Object.assign({}, p, { chars: String(chars) }));
     if (forceChars != null) return head + line(forceChars);
-    const bodyLen = (head + line(1000)).replace(/\s/g, '').length;
+    // G3 ⑦ 已改为按纯正文核对 chars，测试须复用同一 stripEvidenceComments 口径，勿另造解析。
+    const bodyLen = P.stripEvidenceComments(head + line(1000)).replace(/\s/g, '').length;
     return head + line(bodyLen);
   }
   const NO_PV = '# 文章标题\n\n来源：某某公众号\n\n' + BODY;
 
-  check('★ 合规 handback（含 provenance，level=2）通过验收', P.validateHandback(makeRaw()).ok === true);
+  check('★ 合规 handback（含 provenance，level=3 完整有头证据）通过验收', P.validateHandback(makeRaw()).ok === true);
+  // 统一第 3 级后，旧 1/2 级回交形态必须被拒收（契约变更的反向判据）。
+  check('★ level=2 旧形态回交被拒收', P.validateHandback(makeRaw({ level: '2' })).ok === false);
+  check('★ triedLevels=[0,1] 旧形态被拒收', P.validateHandback(makeRaw(), { triedLevels: [0, 1] }).ok === false);
   check('★ 反爬验证码页被拒收',
     P.validateHandback('# 搜狗搜索\n\nVerifyCode：abc\n\n此验证码用于确认这些请求是您的正常行为').ok === false);
   check('★ 未解析的中转链接回交被拒收',
@@ -101,9 +106,11 @@ try {
   check('★ level=3 的 agentSkill 不含 chrome-devtools → false',
     P.validateHandback(makeRaw({ level: '3', cdpPort: '9223', pageUrl: MP, agentSkill: 'web-search/firecrawl' })).ok === false);
   check('★ chars 与正文量级严重不符 → false（防伪造/张冠李戴）',
-    P.validateHandback(makeRaw({ level: '2' }, '99999999')).ok === false);
-  check('★ stubMeta.triedLevels 缺 0/1 → false（G2 顺级，禁止跳级）',
+    P.validateHandback(makeRaw({}, '99999999')).ok === false);
+  check('★ stubMeta.triedLevels 缺 0 级 → false（G2 顺级 0→3，禁止跳级）',
     P.validateHandback(makeRaw(), { triedLevels: [3] }).ok === false);
+  check('★ stubMeta.triedLevels=[0] → true（统一第 3 级合法形态）',
+    P.validateHandback(makeRaw(), { triedLevels: [0] }).ok === true);
   check('★ provenance.level 非法（9）→ false', P.validateHandback(makeRaw({ level: '9' })).ok === false);
   check('★ 合规 level=3 handback（完整有头实例证据）通过验收',
     P.validateHandback(makeRaw({ level: '3', cdpPort: '9223', pageUrl: MP, agentSkill: 'chrome-devtools/SKILL.md' })).ok === true);
@@ -130,7 +137,7 @@ try {
     check('_batch_A_b1.json 批次清单存在', fs.existsSync(mfp));
     const bm = JSON.parse(fs.readFileSync(mfp, 'utf8'));
     const bit = Array.isArray(bm.items) && bm.items[0];
-    check('批次清单 items[0].triedLevels 为 [0,1]', !!bit && JSON.stringify(bit.triedLevels) === '[0,1]');
+    check('批次清单 items[0].triedLevels 为 [0]（统一第 3 级）', !!bit && JSON.stringify(bit.triedLevels) === '[0]');
     check('批次清单 items[0].state === pending', !!bit && bit.state === 'pending');
     check('批次清单 items[0].stubKey 与文件名一致', !!bit && bit.stubKey === bKey);
     check('batchManifestPath 为确定性命名', P.batchManifestPath(wsBatch, 'A', 'b1') === mfp);

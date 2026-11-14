@@ -249,7 +249,9 @@ check('离线：kbVerified=false', repOff.kbVerified === false, JSON.stringify(r
 const SNAP = path.join(TMPDIR, 'kb_snapshot.json');
 fs.writeFileSync(SNAP, JSON.stringify(KB), 'utf8');
 r = state('report', ['--kb-snapshot', SNAP]);
-check('CLI --kb-snapshot 退出码 0', r.code === 0, r.err);
+// A1：report 现按 rep.closed 设 EXIT 码；本组数据含 2 篇「应入库但未入库」，closed=false → EXIT 1。
+// 闭环正向判据（closed=true → EXIT 0）见 tests/test_level3_unified.js，勿在此重复构造。
+check('★ A1：未闭环 report 退出码 1（--kb-snapshot）', r.code === 1, r.err);
 check('CLI 输出含 幽灵记录明细', /幽灵记录明细/.test(r.out), r.out);
 check('CLI 输出含 应入库但未入库 : 2', /应入库但未入库】 : 2 篇/.test(r.out), r.out);
 check('CLI 输出含 被过滤明细(1 篇)', /被过滤明细】\(1 篇\)/.test(r.out), r.out);
@@ -257,7 +259,7 @@ check('CLI 输出含 失败明细(1 篇)', /失败明细】\(1 篇\)/.test(r.out
 
 // CLI 离线模式（无 KB 参数）：告警提示
 r = state('report', []);
-check('CLI 离线 report 退出码 0', r.code === 0, r.err);
+check('★ A1：未闭环离线 report 退出码 1', r.code === 1, r.err);
 check('CLI 离线 report 提示未 KB 复核', /离线模式/.test(r.out), r.out);
 check('CLI 离线 report 被过滤计数正确', /被过滤 : 1/.test(r.out), r.out);
 check('★ E-12：report 输出显式闭环判定行（四栏齐全≠闭环）', /闭环判定/.test(r.out), r.out);
