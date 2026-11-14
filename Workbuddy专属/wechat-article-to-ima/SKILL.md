@@ -4,10 +4,10 @@
 name: wechat-article-to-ima
 description: 按关键词检索微信公众号文章，抓取正文并生成一文章一 Markdown 文件，批量存入腾讯 ima 知识库指定子目录，入库后复验内容完整性。关键词：微信公众号、文章检索、正文抓取、ima 知识库、批量入库、断点续跑、限流退避、任务卡轮转。当用户要求「抓取某主题的公众号文章并存入 ima」「把公众号文章入库到指定目录」，或用户输入包含「公众号文章抓取」「微信文章入库 ima」「按关键词抓取公众号文章」等指令时触发此技能。适用于按单个关键词或关键词组合批量采集公众号文章，并归档到 ima 知识库子目录的场景。不适用于行业政策深度调研、文章内容改写或摘要化处理，也不适用于 ima 以外的其他知识库产品。
 license: Proprietary
-compatibility: 依赖技能 wechat-article-search（检索）、技能 ima-skills（入库）、原生网页抓取能力（正文抓取）；可选依赖浏览器自动化能力与网页抓取服务用于兜底。需要可访问互联网，且已配置目标 ima 知识库的接口凭据。
+compatibility: 依赖技能 wechat-article-search（检索）、技能 ima-skills（入库）、chrome-devtools（第 3 级有头浏览器正文采集，必需）、resolve_midlink.js 所需的 CDP 调试端口；不再依赖原生无头 HTTP 抓取与 web-search/firecrawl 网页抓取服务。需要可访问互联网，且已配置目标 ima 知识库的接口凭据。
 metadata:
   author: zhangweildlh
-  version: 1.3.0
+  version: 1.4.0
   category: knowledge-management
 allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 ---
@@ -18,24 +18,50 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 
 本技能不负责定时调度；执行期由 Agent 自调度自编排第三方独立技能。触发即执行。
 
+## 统一第 3 级采集契约（v1.4.0 起唯一权威口径）
+
+> 本章是**正文采集路径的唯一权威口径**。卡片 A 实测表明：无头原生 HTTP 抓取对微信正文仅约 38% 成功，且与有头采集的证据链不统一、G2 门禁须伪造 `[0,1]` 顺级、已移除的 2 级 firecrawl 全程零调用。自 v1.4.0 起**全部文章统一走第 3 级有头浏览器采集**；下文各章残留的「0→1→2→3」「1 级」「2 级」等历史措辞一律以本章为准，不构成可执行指令。
+
+| 项 | 契约 |
+| --- | --- |
+| 采集路径 | `检索 → 0 级中转链解析（resolve_midlink.js，只解析直链、不抓正文）→ 每篇必落 pending_fetch stub → 第 3 级有头 CDP 取回 → 独立 CDP 取证 → 消费入库`；**不存在 1 级无头 HTTP 正文抓取与 已移除的 2 级 firecrawl 兜底** |
+| `--search` | 不直接入库；每篇候选一律经 `emitNeedsFetch()` 落 `pending_fetch/<card>__<key>.md`，并登记批次清单 |
+| `triedLevels` | 恒为 `[0]`；`[0,1]` 等旧形态由 `validateHandback()` 拒收 |
+| `provenance.level` | 仅允许 `3`；`level=2` 及缺 `cdpPort` / `pageUrl` / `agentSkill` 者拒收 |
+| G2 顺级 | `0（中转链解析）→ 3（有头正文采集）`，禁止跳级与伪造层级 |
+| G3 复验 | 反爬页 / 搜狗中转否决、`# 标题` 元数据头、provenance 必填、`chars` 按**纯正文**核对（`stripEvidenceComments` 剥离证据行与元数据头）、入库前 `bodyChars >= MIN_CHARS` 二次校验 |
+| 证据持久化 | handback 写 provenance HTML 注释**并附可见 `采集证据：` 行**（`import_doc` 会剥离 HTML 注释）；完整 provenance 同时落入 `_progress_<card>.json` 与 `_batch_<card>_<batchId>.json` |
+| 未成功入库 `.md` | 一律经 `quarantineStub()` 移入 `failed_quarantine/`，**禁止 `unlinkSync` 销毁**；仅成功入库后的本地副本可删 |
+| 回交 / 消费闭环 | `level3_drive.js` 串起 `level3_cdp_fetch.js --direct → --retire-stub → --verify-batch → --ingest-pending → --close-tabs → 进展检测`；停机原因与轮次经 `--l3-checkpoint` 写入 `_progress_<card>.json`（唯一事实源），不依赖运行日志 |
+| 新增脚本 | `scripts/level3_cdp_fetch.js`（有头 CDP 取回 + 可见证据行 + close-tabs）、`scripts/level3_drive.js`（续跑守护编排 + retry 对账 + 断点写入） |
+
+**运维提示（A5 补充）**：
+- **单会话 Level-3 成本**：第 3 级逐篇序贯导航，单卡百篇量级可能跨越多个会话；务必依赖续跑守护，不要因单轮未完成就重复 `--search`（会产生孤儿 stub）。
+- **孤儿 stub 清扫**：`--ingest-pending` 结束自动跑 `sweepOrphanStubs()`，并先经 `reconcileBatchManifest()` 对账批次清单孤儿条目；两者共同保证 `batchDone` 可达。
+- **`--direct` 优先 mp 直链**：无 `mp.weixin.qq.com` 候选时会显式 fallback 到搜狗中转链并告警（易撞反爬），须补齐直链后重试。
+- **单卡措辞**：四栏清单、闭环判据、隔离区残留均按 `<card>` 前缀统计，勿把多卡合计误判为单卡闭环。
+- **质量披露栏**：B-03 历史上曾致 24 篇短文误入库、2 篇边界待人工复核；ima 开放接口无 delete 端点，污染不可逆。任何闭环结论都必须同时披露质量缺陷，不得仅报 `status=completed`。
+
+---
+
 ## 编排协调型架构原则（本技能定位与协作纪律）
 
 > 本技能是**编排协调型（orchestration-coordination）**技能：自身不实现检索 / 抓取 / 入库等领域能力的完整内部实现，而是把各环节可下放的动作**派发给对应的独立技能**，并在其回交后**回收并消费其成果（含过程产出物）**以完成闭环。下列原则为本技能与所有第三方技能协作的根本约定，下游路由与硬门禁（见「第三方技能编排」章）均由此推导。
 
 ### 一、两种调用方式：Agent 编排（主）+ 代码自动（辅）
 
-- **Agent 编排调用（主要方式，配硬门禁 G1/G2/G3）**：凡涉及第三方独立技能的动作（微信公众号检索、2/3 级正文抓取、调试浏览器拉起等），**由 Agent 先读其主 `SKILL.md`、再按该技能工序执行**，本技能代码不自动调用。硬门禁见「第三方技能编排」章。
-- **代码自动调用（辅助方式，按技能）**：本技能自带脚本仅承担「无法或不便下放」的确定性环节——0/1 级链路（中转链接解析 + 原生网页抓取）、过滤规则、完整性闸门、状态机与进度文件、ima 开放接口 HTTP 调用、handback 回收。代码自动严格不跨出本技能边界去实现第三方领域能力。
+- **Agent 编排调用（主要方式，配硬门禁 G1/G2/G3）**：凡涉及第三方独立技能的动作（微信公众号检索、**第 3 级有头正文采集**、调试浏览器拉起等），**由 Agent 先读其主 `SKILL.md`、再按该技能工序执行**，本技能代码不自动调用。硬门禁见「第三方技能编排」章。
+- **代码自动调用（辅助方式，按技能）**：本技能自带脚本仅承担「无法或不便下放」的确定性环节——0 级中转链接解析（`resolve_midlink.js`，只解析直链、不抓正文）、stub 落盘与批次台账、过滤规则、完整性闸门、状态机与进度文件、ima 开放接口 HTTP 调用、handback 回收与第 3 级续跑守护编排。代码自动严格不跨出本技能边界去实现第三方领域能力；**微信正文一律由第 3 级有头浏览器采集**。
 
 ### 二、派发 → 回收消费（含过程产出物）
 
-- **派发**：经 `pending_fetch/<url>.md` 落盘契约把 1 级失败的待办移交 Agent 编排（降级链 2/3 级）；
-- **回收消费**：Agent 经 2/3 级抓到正文后覆写同一文件作为 handback，本技能经 `--ingest-pending`（以及 `--ingest-quarantine`）**重跑过滤 + 完整性闸门后再入库**（G3 强制复验），即消费第三方的过程产出物；`failed_quarantine/` 等本地过程产物亦被定向回收，不允许半成品残留或静默丢弃。
+- **派发**：`--search` 对每篇候选只做 0 级中转链解析，随后**一律**经 `pending_fetch/<card>__<key>.md` 落盘 stub 移交第 3 级有头采集（不再有 1 级 HTTP 直接入库）；
+- **回收消费**：第 3 级回交正文后覆写同一文件作为 handback，本技能经 `--verify-batch`（独立 CDP 取证）→ `--ingest-pending`（以及 `--ingest-quarantine`）**重跑过滤 + 完整性闸门后再入库**（G3 强制复验），即消费第三方的过程产出物；未成功入库的本地 `.md` 一律移入 `failed_quarantine/` 保留，不允许半成品残留或静默丢弃。
 - **铁律**：本技能对第三方回交成果一律「先复验、再消费」，**绝不绕过本地闸门直接标成功**。
 
 ### 三、不重复造轮子
 
-第三方技能已具备或可承担的能力，本技能**不自带副本实现**：检索交 `wechat-article-search`、2 级抓取交 `web-search→firecrawl`、3 级抓取与浏览器拉起交 `chrome-devtools`、入库交 `ima-skills`（开放接口）。本技能脚本之间亦不重复——去重键 `dedupKey`、ima_api 定位 `locateImaApi`、`checkBrowser` 端口探活均为**单一事实源**，跨脚本复用而非各写一份。
+第三方技能已具备或可承担的能力，本技能**不自带副本实现**：检索交 `wechat-article-search`、正文抓取与浏览器拉起交 `chrome-devtools`（统一第 3 级有头）、入库交 `ima-skills`（开放接口）；`web-search→firecrawl` 2 级链路已移除。本技能脚本之间亦不重复——去重键 `dedupKey`、ima_api 定位 `locateImaApi`、`checkBrowser` 端口探活均为**单一事实源**，跨脚本复用而非各写一份。
 
 ### 四、不越过独立技能主 Skill.md 调脚本（必要且高价值可突破）
 
@@ -52,13 +78,13 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 ### 五、统一优雅的 Agent 编排调用风格
 
 - 所有对第三方的委派**统一为「触发条件 → 读其 `SKILL.md` → 按工序执行」三段式**，绝不在此复述第三方内部步骤（避免双源漂移 + 陈旧误报）。
-- 降级严格 0 → 1 → 2 → 3 递进；落盘契约（handback）统一使用 `NEEDS_FETCH` 标记与字段，回收端统一 `--ingest-pending` / `--ingest-quarantine` 两入口。
-- 缺依赖一律「降级 + 告警 + 文档回退」，不阻断主链路、不静默失败；**无 Agent 编排在场时**仅 0/1 级生效，2/3 级不执行、相关篇目停留 `pending_fetch` 待下一轮。
+- 统一第 3 级：顺序恒为 0（中转链解析）→ 3（有头正文采集），无 1/2 级；落盘契约（stub / handback）统一使用 `NEEDS_FETCH` 标记与字段，回收端统一 `--ingest-pending` / `--ingest-quarantine` 两入口。
+- 缺依赖一律「降级 + 告警 + 文档回退」，不阻断主链路、不静默失败；**有头实例不可拉起时**正文采集不执行，相关篇目停留 `pending_fetch` 待下一轮续跑守护。
 
 ### 六、职责边界（唯一口径）
 
 - **代码层（本技能 `scripts/`）**：负责可机读合同（handback / 进度文件 / 检索结果 JSON）、硬门禁（G1/G2/G3 与 `check-deps.js`）、provenance 校验、闭环状态机与入库。
-- **Agent 层**：负责自调度自编排第三方主 `SKILL.md`（`wechat-article-search` / `web-search` / `chrome-devtools` / `ima-skills`）、新启或复用有头浏览器、并在可见窗口内真实操作（逐篇填词 / 导航 / 读渲染正文）。
+- **Agent 层**：负责自调度自编排第三方主 `SKILL.md`（`wechat-article-search` / `chrome-devtools` / `ima-skills`）、新启或复用有头浏览器、并在可见窗口内真实操作（逐篇填词 / 导航 / 读渲染正文）；`web-search` 已非本技能下游。
 - **铁律**：代码层不替 Agent 调度第三方技能；Agent 不得绕过门禁（尤其 G3 强制复验）直接标成功。
 
 ## 参数配置区（唯一维护入口，全部带默认值）
@@ -109,15 +135,15 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 ### 逐项检查（每项均须同时满足：目录存在且内含 SKILL.md）
 
 > **硬依赖（缺失即阻断本轮，见「缺失处置」）**：第 1、2 项。
-> **可选依赖（仅用于 2 级 Agent 编排抓取兜底，缺失不阻断，运行时降级）**：第 3、4 项——`web-search`（含 `firecrawl` 适配层）与 `chrome-devtools` 是 **Agent 编排层**的下游技能，**本技能代码不自动调用**；1 级原生抓取失败时，`pipeline.js` 落盘 `pending_fetch/<url>.md` 移交 Agent 编排，由 Agent 经读其 `SKILL.md` 后执行 2 级（`web-search`→`firecrawl` 正文抓取）或 3 级（`chrome-devtools`）；下游技能缺失则相关篇目停留在 `pending_fetch` 待人工/下一轮 Agent 编排。
+> **第 3 级有头采集依赖（统一契约，缺失则正文采集不可执行）**：第 3 项 `chrome-devtools` 是 **Agent 编排层**唯一正文采集下游技能，**本技能代码不自动调用**；`--search` 对每篇候选落盘 `pending_fetch/<card>__<key>.md` 后，由 Agent 经读其 `SKILL.md` 在有头实例内取回正文。第 4 项 `web-search/firecrawl` 为**已移除的 2 级链路**，本技能不再探测、不再委派。下游技能缺失则相关篇目停留在 `pending_fetch` 待下一轮续跑守护。
 > **chrome-devtools 依赖口径（A/B 双路径，须分情况判定）**：`chrome-devtools` 不再一律按「可选依赖」处理——
 > - **A 主检索路径**：为可选降级项，缺失不阻断、运行时降级（走免 Cookie / 2 级兜底）；
 > - **B 有头兜底路径**：为**条件硬依赖**，须先经 `node scripts/check-deps.js --require-headed` 门控通过（确认有头浏览器可拉起、CDP 端口可达）方可进入 3 级正文抽取；门控不通过则禁止进入 3 级，相关篇目停留 `pending_fetch` 待下一轮。
 
 1. `wechat-article-search`：基址下 `wechat-article-search/` 目录存在且含 `SKILL.md`，并确认其 `scripts/` 子目录下存在 `search_wechat.js` 与 `get_sogou_cookie.js`（优先 `-c` 接口取 Cookie 与检索均依赖这两个脚本，缺失则检索 / 取 Cookie 将失败）。
 2. `ima-skills`：基址下 `ima-skills/` 目录存在且含 `SKILL.md`（正确标识为复数形式 ima-skills，不含单数形式的 ima-skill）。
-3. `web-search`（可选）：基址下 `web-search/` 目录存在且含 `SKILL.md`。仅作为 2 级 Agent 编排正文抓取的下游技能（其 `firecrawl` 适配层提供 `firecrawl scrape`）；**本技能代码不自动调用**，由 Agent 经读其 `SKILL.md` 后执行（见「下级路由」）。
-4. `web-search` 的火爬适配层（可选）：基址下 `web-search/firecrawl/` 目录存在且含 `SKILL.md`。Agent 经 2 级取正文时复用其封装的官方 `firecrawl` CLI（`firecrawl scrape <URL>`），需本机已全局安装 `firecrawl` 且 `FIRECRAWL_API_KEY` 就绪（或 `web-search/.env` 已配置）。属 Agent 编排能力，非代码自动路径。
+3. `chrome-devtools`（第 3 级正文采集唯一下游技能）：基址下 `chrome-devtools/` 目录存在且含 `SKILL.md`；须经 `check-deps.js --require-headed` 门控确认有头实例身份非 WorkBuddy Electron、CDP 端口可达，方可进入正文抽取。
+4. `web-search` / `firecrawl`（**已移除**）：统一第 3 级后不再需要 2 级无头兜底；`check-deps.js` 已删除其目录探测、`FIRECRAWL_API_KEY` 判定与 `soft.firecrawl` / `resolved.firecrawlUsable` 字段，本技能不再委派该下游。
 5. 探测浏览器自动化能力是否可用（chrome-devtools）：A 主检索路径下仅作记录、不作为阻断项；B 有头兜底路径下按上方「chrome-devtools 依赖口径」升级为条件硬依赖，须经 `check-deps.js --require-headed` 门控通过方可进入 3 级。
 6. **ima 知识库连接器（ima-mcp）连通性探测（告警项，非阻断）**：确认 ima-mcp 已连接且已授权；若未连接/未授权，须显式告警并提示用户确认 ima-mcp 已连接后再继续「入库流程」，避免「前置依赖检查通过却运行中入库失败」。同时须将 `search_script_dir` 解析为 `<技能基址>/wechat-article-search/scripts` 并用于步骤 4 命令拼接。
 7. **ima 凭据可用性探测（告警项，非阻断）**：确认 ima 开放接口凭据（client_id / api_key）已配置且有效，按以下**优先级**解析，任一层存在即视为具备：
@@ -131,7 +157,7 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 > 本技能的 Cookie 提取依赖 chrome-devtools 已就绪的调试浏览器（含站点登录态 / Cookie）。其**拉起、端口探查、端口探活、免 Cookie 降级等完整指令与流程由 `chrome-devtools` 技能 `SKILL.md` 规定并经 Agent 编排调用**，本技能不重复其细节、也**不自行读 `local-config.json` / 不自行拉起**（避免重复造轮子 + 陈旧配置误报）。本技能仅约定与 `chrome-devtools` 的**契约**：
 
 - **端口由 Agent 编排回传（务必显式注入，勿依赖缺省）**：调试浏览器端口探查与拉起经 Agent 编排调用 `chrome-devtools`（其 `start.cjs` 扫描 9222~9240 并回传真实端口，经 MCP 连接器拉起 360Chrome）。本技能仅按编排回传的 `SOGOU_CDP_PORT` 连接。**关键事实**：`9222` 是 WorkBuddy 自身 Electron 的调试端口（非本地调试浏览器），`resolve_midlink.js` 会主动拒绝 9222；真正的调试浏览器（360Chrome）通常落在 `9223` 或 9222~9240 区间内的其他高位端口。因此**必须显式 `export SOGOU_CDP_PORT=<编排回传的真实端口>`（例如 9223），切勿依赖缺省 9222**（否则会命中 WorkBuddy Electron 被拒绝，导致 Cookie / 直链解析全部失败）。`scripts/resolve_midlink.js --check` 仅做端口探活（探活对象须为编排回传的真实端口），**不得只读 `local-config.json` 的 `debugPort` 配置值即判定就绪**（配置值与实际监听可能不一致）。
-- 未就绪时记为告警 `browser_unavailable`，检索走免 Cookie 降级，并在四栏清单标注「降级链三级（浏览器解析）不可用」；具体拉起步骤见 `chrome-devtools` 技能 `SKILL.md`，由 Agent 编排执行。
+- 未就绪时记为告警 `browser_unavailable`，检索走免 Cookie 降级，并在四栏清单标注「第 3 级有头浏览器不可用」；具体拉起步骤见 `chrome-devtools` 技能 `SKILL.md`，由 Agent 编排执行。
 - Cookie 提取后置 `-c` 传给 `search_wechat.js`；两段式取法与 ANTI_SPIDER 即停试策略见「检索执行规则」。
 - **E3（Cookie 完整性预检，建议在每轮检索前执行）**：`get_sogou_cookie.js` 取到的 Cookie 必须含 `SUV`（搜狗会话级访客标识）；**缺 `SUV` 会立刻命中反爬、检索提前熔断（ANTI_SPIDER）**。请在提取后将 Cookie 暂存为文件，并先跑 `node scripts/check-deps.js --cookie-file <cookie文件>` 确认 `cookie.ok=true`（即 SNUID/SUID + SUV 齐全）；若 `ok=false` 须回到 `chrome-devtools` 让调试浏览器**完整加载搜狗页面并保有登录会话**后重新提取，切勿带残缺 Cookie 直接检索。该预检为附加式、非阻断，仅用于早于运行期暴露问题。
 - **E2（调试浏览器跨轮次死亡，韧性提示）**：调试浏览器进程可能因资源回收 / 崩溃在轮次间死亡；`check-deps.js` 的 `cdpReachable` 会实时探活捕获「端口不可达」。建议**每轮检索前重跑 `node scripts/check-deps.js`** 先确认 `cdpReachable=true`，不可达则先经 Agent 编排调用 `chrome-devtools` 重新拉起调试浏览器并回传 `SOGOU_CDP_PORT` 再继续；浏览器不可用时应按前述「免 Cookie 降级」处理，切勿带无效端口强行解析。
@@ -168,12 +194,12 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
    > `原文直链` 一律填**解析后的真实直链**（`mp.weixin.qq.com/s?…`），中转链接未解析成功时填已解码的原链接。
 7. 对每份 Markdown 文件执行「完整性闸门」，未通过者标记为失败并跳过，禁止入库。
 8. 将通过闸门的文件按「入库流程」逐篇存入 `[knowledge_base_id]` 下 `[folder_id]` 指定的子目录，每篇处理完立即写回进度文件。**`[folder_id]` 须先经 `state.js resolve-folder --name "<任务卡配置表的 folder_name>" --kb-id [knowledge_base_id]` 实时解析**（见「任务卡配置表」，禁止硬编码 media_id），解析结果填入本步、步骤 9（回交消费）与步骤 10（复验）的 `--folder-id`。
-9. （主流程内联·消除卡点①②）2/3 级 Agent 编排抓取回交与消费闭环：步骤 6 抓取降级链中，0/1 级为代码自动（无头可跑），2/3 级为 Agent 编排路径——1 级原生抓取失败的文章会落盘为 `pending_fetch/<url>.md`、含 `<!-- NEEDS_FETCH -->` 标记的 stub，**不会在前序步骤自动入库**。为使 Agent 在**当次会话内**走完「搜索 → 2/3 级抓取 → 消费 handback → 入库」完整闭环（无需用户二次发起采集任务），本步骤须按 9.1–9.5 在当次会话内串起：
+9. （主流程内联·消除卡点①②）**第 3 级有头** Agent 编排抓取回交与消费闭环：步骤 6 中 0 级仅做中转链解析（代码自动、无头可跑），**每篇候选文章一律落盘** `pending_fetch/<card>__<key>.md`、带 `<!-- NEEDS_FETCH -->` 标记的 stub，**不会在前序步骤自动入库**；正文由第 3 级 Agent 编排有头采集。为使 Agent 在**当次会话内**走完「搜索 → 第 3 级有头抓取 → 消费 handback → 入库」完整闭环（无需用户二次发起采集任务），本步骤须按 9.1–9.5 在当次会话内串起：
    - 9.1 **拉起/复用有头浏览器（铁律：必须为有头/可见操作，禁止无头）**：先经 `chrome-devtools` 技能主 `SKILL.md`（MCP 直连 形态一优先；连接器不可用则 CLI 兜底）由其 `localization/start.cjs` 扫描 9222~9240、复用或新启**带调试端口的本地 360Chromex（真实可见窗口，继承登录态）**——此浏览器即本卡 **0 级中转链接解析、Cookie 提取与 3 级正文抽取共用的有头实例**。**务必 `export SOGOU_CDP_PORT=<编排回传的真实端口>`**：该端口是 0 级 `resolve_midlink.js` 与 Cookie 提取（搜狗会话维反爬绕过）连接**同一有头实例**的桥梁；**禁止依赖缺省 9222**（否则命中 WorkBuddy 自身 Electron 被拒绝）。`resolve_midlink.js --check` 仅探活该真实端口。3 级正文抽取本身经 chrome-devtools MCP 直连形态一（其 `--browserUrl` 即本实例端口）直接驱动该有头实例，无需另设端口。
-   - 9.2 **2/3 级抓取回交（铁律：有头驱动，禁止无头回退 / 截图 OCR / 消费产物）**：遍历 `pending_fetch/` 下本卡 stub，经 `chrome-devtools` 在**已拉起的有头 360Chromex 实例内**真实打开每篇 `原文直链`（`mp.weixin.qq.com` 直链，禁止搜狗中转/反爬链接）——**用 chrome-devtools 的 MCP 工具（`navigate_page` → `take_snapshot` / `evaluate_script` 读取渲染后的 `js_content`）在可见浏览器中模拟真实用户加载并读取正文**，**严禁退回 `fetch()` / 无头 HTTP 直连抓取、严禁截图后 OCR、严禁把 chrome-devtools 当作无头抓取代理消费其产物；Agent 须亲自经其主 `SKILL.md` 工序驱动有头浏览器，而非委托其代抓**。抽取到的文章 Markdown（含元数据头，格式同步骤 6）覆写回同一 `<url>.md`，**去除 `<!-- NEEDS_FETCH -->` 标记**（文件名须与移交时一致；回交物须含 `# 文章标题` 头、真实直链、且非反爬验证码页）。
+   - 9.2 **第 3 级有头抓取回交（铁律：有头驱动，禁止无头回退 / 截图 OCR / 消费产物）**：遍历 `pending_fetch/` 下本卡 stub，经 `chrome-devtools` 在**已拉起的有头 360Chromex 实例内**真实打开每篇 `原文直链`（`mp.weixin.qq.com` 直链，禁止搜狗中转/反爬链接）——**用 chrome-devtools 的 MCP 工具（`navigate_page` → `take_snapshot` / `evaluate_script` 读取渲染后的 `js_content`）在可见浏览器中模拟真实用户加载并读取正文**，**严禁退回 `fetch()` / 无头 HTTP 直连抓取、严禁截图后 OCR、严禁把 chrome-devtools 当作无头抓取代理消费其产物；Agent 须亲自经其主 `SKILL.md` 工序驱动有头浏览器，而非委托其代抓**。抽取到的文章 Markdown（含元数据头，格式同步骤 6）覆写回同一 `<url>.md`，**去除 `<!-- NEEDS_FETCH -->` 标记**（文件名须与移交时一致；回交物须含 `# 文章标题` 头、真实直链、且非反爬验证码页）。
    - 9.3 **消费 handback（G3 强制复验）**：`node scripts/pipeline.js --workspace "[workspace]" --card [card] --ingest-pending --kb-id [knowledge_base_id] --folder-id [folder_id]` 重跑过滤 + 完整性闸门后再入库；仍含 `NEEDS_FETCH` 标记者视为 Agent 未取回、自动跳过。
    - 9.4 **回收隔离区**：`node scripts/pipeline.js --workspace "[workspace]" --card [card] --ingest-quarantine --kb-id [knowledge_base_id] --folder-id [folder_id]` 消费 `failed_quarantine/` 下未入库 `.md` 直接补入库（不通重搜）。
-   - 9.5 **闭环约束**：9.1–9.4 须在**当次会话内串起**，禁止将 `pending_fetch/` 与 `failed_quarantine/` 残留留待下一轮；完成后本卡 `pending_fetch/` stub 与 `failed_quarantine/` 本卡前缀残留均应清零（见各引导词闭环判据）。**无 Agent 编排在场时 2/3 级不执行**：本步骤降级为仅跑 9.4 隔离区补入，相关 stub 留待下一轮 Agent 编排（由「断点续跑与续跑守护」或定时任务接续）。
+   - 9.5 **闭环约束**：9.1–9.4 须在**当次会话内串起**，禁止将 `pending_fetch/` 与 `failed_quarantine/` 残留留待下一轮；完成后本卡 `pending_fetch/` stub 与 `failed_quarantine/` 本卡前缀残留均应清零（见各引导词闭环判据）。**无 Agent 编排在场时 第 3 级有头不执行**：本步骤降级为仅跑 9.4 隔离区补入，相关 stub 留待下一轮 Agent 编排（由「断点续跑与续跑守护」或定时任务接续）。
 
 10. 执行「复验」，输出**增强四栏清单**：必须以 `state.js report` 产出，**不得手工拼凑**。强烈建议带 `--kb-id` / `--folder-id` 走 KB 复核模式：
    ```bash
@@ -223,7 +249,7 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 
 本技能的运行由调度方（WorkBuddy / 任一 Agent）编排，关键词检索在技能**外部**（`wechat-article-search` 的 `search_wechat.js`）逐词完成，每词结果再由 `pipeline.js --search` 入库。因此「断点续跑」的全部**可机读信号都必须落在 `_progress_<card>.json`（每卡一份）**，由 `state.js` 承载，调度方据其决策，而非依赖运行日志。
 
-> **主流程已内联收尾回收（v-next 起生效）**：「工作流」步骤 9 已在当次会话内串起 2/3 级 Agent 编排回交（`chrome-devtools` 有头浏览器）与 `--ingest-pending` / `--ingest-quarantine` 消费，单卡单轮即闭环，无需用户二次发起采集任务。本节的「续跑守护」不再承担主流程本应内联的收尾回收，仅用于：① 跨会话残留（无 Agent 编排在场时留下的 `pending_fetch/` stub、隔离区残留）；② 限流冷却后自动接续；③ 多卡（A/B/C）串行轮转。
+> **主流程已内联收尾回收（v-next 起生效）**：「工作流」步骤 9 已在当次会话内串起 第 3 级有头 Agent 编排回交（`chrome-devtools` 有头浏览器）与 `--ingest-pending` / `--ingest-quarantine` 消费，单卡单轮即闭环，无需用户二次发起采集任务。本节的「续跑守护」不再承担主流程本应内联的收尾回收，仅用于：① 跨会话残留（无 Agent 编排在场时留下的 `pending_fetch/` stub、隔离区残留）；② 限流冷却后自动接续；③ 多卡（A/B/C）串行轮转。
 
 ### 触发场景（deep-discuss 收敛的边界）
 - 场景一：完成某卡**部分关键词**搜索（尚有另一部分关键词未搜），但未下载命中文章、也未入库；
@@ -260,26 +286,24 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 | --- | --- | --- | --- | --- |
 | 中转链接解析 | 结果 `url_resolved=false` | （本技能 `resolve_midlink.js`，代码内） | — | — |
 | 关键词检索 | 每轮执行 | `wechat-article-search` | 「读其 `SKILL.md` → 按 `search_wechat.js` / `get_sogou_cookie.js` 工序执行」 | 复述其 Cookie 提取 / bash 细节 |
-| 1 级正文抓取 | 每篇候选直链 | （本技能 `pipeline.js`，代码内） | — | — |
-| 2 级正文抓取 | 1 级失败（移交 `pending_fetch`） | `web-search`（`firecrawl` 适配层） | 「读 `web-search` 主 `SKILL.md` → 按 `firecrawl scrape <URL>` 工序取正文」 | 把关键词检索交给 web-search；复述 firecrawl 内部步骤 |
-| 3 级正文抓取 | 1 级失败且 2 级不可得（移交 `pending_fetch`） | `chrome-devtools` | 「读 `chrome-devtools` 主 `SKILL.md` → 按 MCP 形态一在**有头**实例打开直链、用 `navigate_page` / `take_snapshot` / `evaluate_script` 读渲染 `js_content`」（有头逃逸舱，详见「有头操作铁律」） | 复述其拉起 / 端口细节；退回无头 `fetch` / 截图 OCR / 代抓代理 |
+| 第 3 级有头正文采集 | 每篇候选（0 级解析完成后一律移交 `pending_fetch`） | `chrome-devtools` | 「读 `chrome-devtools` 主 `SKILL.md` → 在**有头**实例打开 mp 直链、用 `navigate_page` / `take_snapshot` / `evaluate_script` 读渲染 `js_content` → 覆写 handback（含可见 `采集证据：` 行）」（有头逃逸舱，详见「有头操作铁律」） | 退回无头 `fetch` / 截图 OCR / 代抓代理；把关键词检索交给其他技能 |
 | 入库 | 抓取成功 / handback 通过 | `ima-skills`（开放接口） | 「读 `ima-skills` 主 `SKILL.md` → 按 import_doc / add_knowledge 工序」 | 复述其接口细节 |
 
-> 关键词检索 **永不** 委托给 `web-search`：`web-search` 仅用于 2 级**正文抓取**（firecrawl 取文章正文）；微信发现性检索由 `wechat-article-search` 独占。
+> `web-search` / `firecrawl` 已从本技能下游路由整体移除（统一第 3 级后无 2 级无头兜底）；关键词检索由 `wechat-article-search` 独占，正文抓取由 `chrome-devtools` 有头实例独占。
 
 ### 硬门禁（Agent 编排强制约束）
 
 **G1 · 强制读源**：调用任何下游独立技能前，Agent **必须**先 `Read` 该技能主 `SKILL.md`（或经 MCP 加载其能力说明），确认当前工序与参数后**再**执行；禁止凭记忆或本技能的简述直接拼命令。
 
-**G2 · 强制顺级、禁止跳级硬判失败**：降级严格 0 → 1 → 2 → 3 递进。1 级失败**只**落盘 `pending_fetch` 移交，不得跳过 2 级直接判永久失败；2 级不可得才进 3 级。Agent 不得因单篇 1 级偶发失败而整体切道或提前终止批次。
+**G2 · 强制顺级、禁止跳级硬判失败（统一第 3 级）**：顺序恒为 **0（中转链解析）→ 3（有头正文采集）**，无 1/2 级。`--search` 对每篇候选**只**落盘 `pending_fetch` stub，不得在无头 HTTP 层直接入库、也不得伪造 `triedLevels=[0,1]`。`validateHandback()` 仅接受 `provenance.level=3` 且 `triedLevels=[0]` 的回交物；旧形态一律拒收并保留文件。Agent 不得因单篇偶发失败而整体切道或提前终止批次。
 
-**G3 · 强制复验（Agent-present 假设）**：Agent 回交的 `pending_fetch/<url>.md` handback，`pipeline.js` 经 `--ingest-pending` **重跑本技能的过滤 + 完整性闸门**后才入库；Agent 不得绕过闸门直接标成功。`pipeline.js` 的 0/1 级为代码自动、无头可跑；**2/3 级依赖 Agent 在场（即 Agent 自调度驱动有头浏览器）**——无 Agent 编排时仅 0/1 级生效，2/3 级不执行（handback 合同不成立），相关篇目停留在 `pending_fetch` 待人工 / 下一轮 Agent 编排。**术语澄清**：此处「Agent 在场」指有 Agent 编排驱动，与「无头浏览器」无关；3 级 chrome-devtools 本身必须是有头（可见）操作（见「有头操作铁律」）。
+**G3 · 强制复验（Agent-present 假设）**：Agent 回交的 `pending_fetch/<url>.md` handback，`pipeline.js` 经 `--ingest-pending` **重跑本技能的过滤 + 完整性闸门**后才入库；Agent 不得绕过闸门直接标成功。`pipeline.js` 的 0 级为代码自动、无头可跑；**第 3 级正文采集依赖 Agent 在场（即 Agent 自调度驱动有头浏览器）**——有头实例不可拉起时正文采集不执行（handback 合同不成立），相关篇目停留在 `pending_fetch` 待下一轮续跑守护。**术语澄清**：此处「Agent 在场」指有 Agent 编排驱动，与「无头浏览器」无关；第 3 级 chrome-devtools 本身必须是有头（可见）操作（见「有头操作铁律」）。
 
 **handback 合同（落盘契约）**：
-- **移交（pipeline.js 写）**：1 级失败 → `pending_fetch/<url>.md` 含 `<!-- NEEDS_FETCH -->` 标记 + 原 URL + 失败原因 + 已试层级。
-- **回交（Agent 写）**：经 2/3 级取到正文后，把文章 markdown 覆写同一 `<url>.md`（**去除 `<!-- NEEDS_FETCH -->` 标记**）；文件名须与移交时一致（pipeline.js 据文件名消费）。回交物须同时满足：① 含 `# 文章标题` 元数据头；② `原文直链` 为 `mp.weixin.qq.com` 真实直链，不得仍是搜狗中转 / 反爬链接；③ 不得回交反爬验证码页。
+- **移交（pipeline.js 写）**：0 级解析完成后**每篇必移交** → `pending_fetch/<card>__<key>.md` 含 `<!-- NEEDS_FETCH -->` 标记 + 原 URL + 候选 mp 直链 + `triedLevels=[0]` + 「统一移交第 3 级有头采集」原因。
+- **回交（Agent 写）**：经 第 3 级有头取到正文后，把文章 markdown 覆写同一 `<url>.md`（**去除 `<!-- NEEDS_FETCH -->` 标记**）；文件名须与移交时一致（pipeline.js 据文件名消费）。回交物须同时满足：① 含 `# 文章标题` 元数据头；② `原文直链` 为 `mp.weixin.qq.com` 真实直链，不得仍是搜狗中转 / 反爬链接；③ 不得回交反爬验证码页。
 - **消费（pipeline.js 读）**：`--ingest-pending` 读取 `pending_fetch/*.md`；仍含 `<!-- NEEDS_FETCH -->` 视为 stub（Agent 未取回）→ 跳过；否则经 `validateHandback()` 形态验收（不合格者**拒收并保留文件**待重新回交，绝不进入 `import_doc`）→ 过滤 + 闸门 → 入库或标记失败。
-- **provenance 字段（Agent 回交写、代码层校验）**：每篇 handback 须带 provenance，供代码层做 provenance 校验（G3 硬门禁组成），字段定义为：`level`（抓取层级 2/3）、`cdpPort`（所用有头实例 CDP 端口）、`pageUrl`（实际读取的渲染页 URL）、`agentSkill`（驱动该篇的第三方主 `SKILL.md`）、`extractedAt`（抽取时刻 ISO 8601）、`chars`（渲染正文字符数）、`batchId`（所属批次 ID）、`stubKey`（与移交时一致的 `pending_fetch` stub 确定性键）。
+- **provenance 字段（Agent 回交写、代码层校验）**：每篇 handback 须带 provenance，供代码层做 provenance 校验（G3 硬门禁组成），字段定义为：`level`（恒为 3；2 级已移除）、`cdpPort`（所用有头实例 CDP 端口）、`pageUrl`（实际读取的渲染页 URL）、`agentSkill`（驱动该篇的第三方主 `SKILL.md`）、`extractedAt`（抽取时刻 ISO 8601）、`chars`（渲染正文字符数）、`batchId`（所属批次 ID）、`stubKey`（与移交时一致的 `pending_fetch` stub 确定性键）。**入库后 HTML 注释证据行会被 `import_doc` 剥离，故 handback 必须同时写可见 `采集证据：` 行，且完整 provenance 由 `mark-handback-consumed` / `updateBatchItem` 落入进度文件与批次清单**（B7）。
 - **「下载」定义（B 兜底 / 3 级，逐一序贯）**：「下载」指 Agent 在有头窗口内对每篇**逐一序贯**执行 `navigate_page`（打开真实直链）→ `evaluate_script` 读渲染后 `#js_content` 正文 → 落盘 handback（`pending_fetch/<url>.md`）；禁止并发批量，禁止依赖 `--filePath`（受工作区根约束，产物只落 `[workspace]` 内）。
 - **batch manifest（批次台账）**：主 Agent 按批次派发子 Agent，台账为 `[workspace]/_batch_<card>_<ts>.json`，每篇 state 取 `pending → inflight → done` 三态流转，收尾前由 `--verify-batch --batch-id "<批次ID>"` 门控复核（见引导词守护段收尾前门禁）。
 - **批次闭环门禁 `--verify-batch --batch-id B [--json]`（收尾前，纯离线）**：该命令**不触碰 KB、不依赖 `ima_api.cjs`**，故**不带 `--kb-id` / `--folder-id`**；必须置于 `--ingest-pending` **之前**执行，未通过（退出码 1）则**禁止消费 handback、禁止写 `status=completed`**。其职责仅判定「批次是否可交付给 `--ingest-pending`」：`batchDone` 与 `provenanceValid` 全通过方可放行；`needsFetch` / 幽灵记录属消费后判据，由 `state.js report` 复核。
@@ -346,7 +370,7 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 
 ### 抓取降级链
 
-> **实装范围（代码级，单一事实源 = `scripts/pipeline.js`）**：0 级（中转链接解析）+ 1 级（原生网页抓取）由 `pipeline.js` 自动串联实装；**2 级（web-search→firecrawl）与 3 级（chrome-devtools）为 Agent 编排路径（非代码自动路径）** —— `pipeline.js` 在 1 级失败时不自动调用任何第三方技能，而是落盘 `pending_fetch/<url>.md` 移交 Agent 编排（见「下级路由」「硬门禁」）。
+> **实装范围（代码级，单一事实源 = `scripts/pipeline.js`）**：**0 级（中转链接解析）由 `resolve_midlink.js` 实装，仅产出候选 mp 直链，不抓正文**；**全部文章的正文由第 3 级有头浏览器采集**（`chrome-devtools` Agent 编排，经 `scripts/level3_cdp_fetch.js` / `level3_drive.js` 驱动），`pipeline.js --search` 对每篇一律落盘 `pending_fetch/<card>__<key>.md` 移交。**1 级无头 HTTP 抓取与 2 级 web-search/firecrawl 已从主链路整体移除**（`fetchArticle()` 已删除）。
 
 0. **零级（代码实装）：中转链接解析**。搜狗结果中 `url_resolved=false` 的条目，其 `url` 为 `weixin.sogou.com/link?url=…` 中转链接，且其中的 `&` 被写作 HTML 实体 `&amp;`——**不解码则 URL 畸形**，直连会被重定向到 `weixin.sogou.com/antispider/`（反爬页），正文永远取不到。
    - **执行入口**：`scripts/resolve_midlink.js`（零依赖，走 Chrome DevTools HTTP 端点 `/json/new` + `/json/list` + `/json/close`，**不需要 WebSocket、不依赖 chrome-devtools MCP**）。
@@ -354,19 +378,17 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
    - **端口**：环境变量 `SOGOU_CDP_PORT`（由 Agent 编排调用 chrome-devtools 拉起后注入；**必须显式设置**）。须知 `9222` 为 WorkBuddy 自身 Electron 调试端口（非本地调试浏览器，会被 `resolve_midlink.js` 拒绝），真正调试浏览器通常落在 `9223` 或 9222~9240 区间其他高位端口；**切勿依赖缺省 9222**。本脚本**不读 `local-config.json`、不自行扫描端口、不自行拉起**，只连接编排回传的端口。
    - 解析失败时以**已解码**的原中转链接直接尝试抓取，最终以「完整性闸门」判定。
    - 检索命令已带 `-r` 且结果 `url_resolved=true` 时已是真实直链，无需本级解析。
-1. **一级（代码实装）：原生网页抓取**。`pipeline.js` 的 `fetchArticle()` 直接读取真实文章直链，获取标题、来源、作者、发布时间与正文（`js_content` 为空或过短判失败）。检索结果中已含 `title`、`url`、`summary`、`datetime`、`date_text`、`source` 字段，可直接作为元数据头输入。
-2. **二级（Agent 编排，非代码自动）：web-search → firecrawl 正文抓取**。**仅用于文章正文抓取，不把关键词检索交给 web-search**（关键词检索仍由 wechat-article-search 负责）。`pipeline.js` 1 级失败 → 落盘 `pending_fetch/<url>.md` → Agent 读取 `web-search` 技能主 `SKILL.md` 后按其 `firecrawl` 适配层工序执行 `firecrawl scrape <URL>` 取正文。**firecrawl 官方 CLI 的「存在性探查 / 调用」统一由 web-search 完成（其 firecrawl 适配层），本技能 `check-deps.js` 仅校验「web-search/firecrawl 委派目标存在 + `FIRECRAWL_API_KEY` 就绪」这一硬门禁，不自行 `spawn` firecrawl**（避免 Windows 下裸 spawn 全局无扩展名脚本误报缺失 + 跨技能代码耦合）**。
-3. **三级（Agent 编排，非代码自动，**有头逃逸舱**）：chrome-devtools**。`pipeline.js` 1 级失败、且 2 级仍不可得时，Agent 读取 `chrome-devtools` 技能主 `SKILL.md`，在**有头（可见）360Chromex 实例**内经其 MCP / 调试浏览器真实打开直链、读取渲染后正文并覆写 `pending_fetch/<url>.md`。**本级是专为对抗「网站防无头浏览器」而设的有头逃逸舱——必须真实有头、模拟用户，禁止任何无头 / 代理式抓取**（详见下方「有头操作铁律」）。
-4. **单篇抓取策略（代码内）**：对每篇候选直链先走 0 级解析（如有）+ 1 级原生抓取；1 级失败即落盘 `pending_fetch` 移交 Agent 编排，**不自动切换浏览器自动化、不自动调用 firecrawl**。不达标即降级移交，禁止代码内连续硬重试。
-5. **Agent 编排回交（handback）**：Agent 经 2/3 级抓到正文后，把文章 markdown 覆写回 `pending_fetch/<url>.md`（去除 `<!-- NEEDS_FETCH -->` 标记）；`pipeline.js` 由 `--ingest-pending` 模式消费该 handback，重跑过滤 + 完整性闸门（G3 强制复验）后入库。**无 Agent 编排在场时仅 0/1 级生效，2/3 级不执行**——见「硬门禁·G3 / Agent-present 假设」（此处「Agent 在场」指有 Agent 自调度，与无头浏览器无关）。
+1. **（历史）1 级无头 HTTP 抓取 / 已移除的 2 级 firecrawl 兜底已移除**：原 `pipeline.js::fetchArticle()` 与 `web-search→firecrawl` 云端抓取均不再是可执行路径。保留 `buildFetchHeaders()` / `classifyFetchResult()` / `htmlToText()` 等纯函数，仅因 handback 复验、过滤闸门与既有测试复用，非抓取链路（见代码内「保留原因」注释）。
+2. **3 级（唯一正文采集路径，有头逃逸舱）**：`--search` 落盘 stub 后，由 `level3_drive.js` 驱动 `level3_cdp_fetch.js --direct` 在**真实可见的 360Chromex** 内经 CDP 打开 mp 直链、读取渲染后 `#js_content`，覆写 handback（含 provenance HTML 注释 + 可见 `采集证据：` 行）。随后 `--verify-batch`（独立 CDP 取证，拒 WorkBuddy/Electron）→ `--ingest-pending`（G3 复验）→ `--close-tabs`，构成回交 / 消费闭环。**必须真实有头、模拟用户，禁止任何无头 / 代理式抓取**。
+3. **单篇策略与降级**：每篇候选 0 级解析后即落 stub，禁止代码内连续硬重试；永久不可达条目经 `--retire-stub` 退役，需人工复核 / 闸门未过 / 过滤命中的本地 `.md` 一律经 `quarantineStub()` 移入 `failed_quarantine/` 保留。无有头实例时正文采集不执行，篇目停留 `pending_fetch` 待下一轮续跑守护。
 
-> **有头操作铁律（对抗「防无头浏览器」的核心，最高优先）**：降级链 0/1 级为代码自动的**无 HTTP 头交互**廉价前置（HTTP 直连 + 中转解析），但 0 级经 `resolve_midlink.js` 复用同一有头实例的 CDP 端点做中转链接解析；2 级 `web-search→firecrawl` 为云端**无头**兜底；二者一旦命中平台「防无头浏览器」风控即失败并落盘 `pending_fetch`。**3 级 `chrome-devtools` 是唯一由 Agent 真实模拟用户操作、可见窗口内逐篇填词 / 导航 / 读渲染正文的有头链路**：Agent 须经其主 `SKILL.md` 工序，在**真实可见的本地 360Chromex**中亲自导航、滚动、读取渲染后正文（`js_content`），**模拟真实用户操作本地浏览器**——绝不以 `fetch()`、截图 OCR 或任何无头 / 代理方式替代，也绝不把 chrome-devtools 当作「代抓代理」去消费其产物。「无 Agent 编排在场」与「无头浏览器」为两个不同概念：前者指无 Agent 编排驱动（此时 2/3 级整体不执行），后者指浏览器以隐藏方式运行（3 级严格禁止）。
+> **有头操作铁律（对抗「防无头浏览器」的核心，最高优先）**：0 级 `resolve_midlink.js` 仅复用同一有头实例的 CDP 端点做中转链接解析，不抓正文；1 级无头 HTTP 与 2 级 `web-search→firecrawl` 云端兜底均已移除——历史上二者一旦命中平台「防无头浏览器」风控即失败并落盘 `pending_fetch`。**3 级 `chrome-devtools` 是唯一由 Agent 真实模拟用户操作、可见窗口内逐篇填词 / 导航 / 读渲染正文的有头链路**：Agent 须经其主 `SKILL.md` 工序，在**真实可见的本地 360Chromex**中亲自导航、滚动、读取渲染后正文（`js_content`），**模拟真实用户操作本地浏览器**——绝不以 `fetch()`、截图 OCR 或任何无头 / 代理方式替代，也绝不把 chrome-devtools 当作「代抓代理」去消费其产物。「无 Agent 编排在场」与「无头浏览器」为两个不同概念：前者指无 Agent 编排驱动（此时第 3 级整体不执行），后者指浏览器以隐藏方式运行（3 级严格禁止）。
 
 ### 完整性闸门
 
 每份 Markdown 文件须满足以下判定，否则标记内容不完整（**软硬结合**）：
 
-0. **错误页语义否决（最高优先，审计 E-17）**：命中 `VerifyCode` / `antispider` / `此验证码用于确认` / `需要您协助验证` 等反爬验证码页特征（`scripts/pipeline.js` 的 `looksLikeErrorPage()`）即直接判定不完整，**优先于一切长度 / 句号 / 辅助判据**。2 级 firecrawl 抓搜狗中转链接会返回 `exit=0` 但内容实为反爬页，该页长度与段落数均可满足辅助判据，若不经本条否决即可通过闸门并写入 KB（不可逆）。
+0. **错误页语义否决（最高优先，审计 E-17）**：命中 `VerifyCode` / `antispider` / `此验证码用于确认` / `需要您协助验证` 等反爬验证码页特征（`scripts/pipeline.js` 的 `looksLikeErrorPage()`）即直接判定不完整，**优先于一切长度 / 句号 / 辅助判据**。历史上 已移除的 2 级 firecrawl 抓搜狗中转链接会返回 `exit=0` 但内容实为反爬页，该页长度与段落数均可满足辅助判据，若不经本条否决即可通过闸门并写入 KB（不可逆）。
 1. **硬下限（防纯垃圾）**：正文字符数不小于 `[min_chars]`；未达直接判定不完整。
 2. **软告警（句号数不再硬拒）**：正文句号数不小于 `[min_periods]` 为理想态；若不足但满足任一**辅助判据**，标记 `periods_low` 交人工复核、**不自动拒**：
    - 正文段落数 ≥ 3；或
@@ -520,9 +542,11 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 | 脚本 | 职责 | 关键约束 |
 | --- | --- | --- |
 | `scripts/state.js` | `_progress_<card>.json` 唯一读写入口（F9） | 导出 `dedupKey()` / `TITLE_CAP` / `locateImaApi()` / `classifyReport()` / `classifyFailure()`，供流水线复用；`report` 子命令产出增强四栏清单（KB 复核 + 幽灵记录标注 + 逐条原因）；`diff-keywords` 输出未搜词差集、`classify-failure` 判定 transient/permanent；**`resolve-folder` 子命令按 ima 实际子目录名实时解析真实 `folder_id`（禁止硬编码）**；**不得**由其他脚本另写一份去重键或路径解析 |
-| `scripts/check-deps.js` | 前置依赖**代码级**核查器（硬依赖阻断、软依赖告警） | firecrawl / chrome-devtools 的「CLI 探查 / 端口探查 / 浏览器拉起」均经 Agent 编排委派对应技能，本检查器只判定「委派目标存在 + 密钥就绪」硬门禁（**不自行 spawn firecrawl、不读 local-config.json**），消除 Windows 下误报；解析并输出 `search_script_dir` / `ima_api` 路径 / `cdp_port` |
-| `scripts/resolve_midlink.js` | 中转链接 → 真实直链（降级链零级） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；端口仅取编排回传的 `SOGOU_CDP_PORT`（**必须显式设置；缺省 9222 即 WorkBuddy 自身 Electron，会被拒绝**；真正调试浏览器通常落 `9223` 或 9222~9240 区间其他高位端口），**不读 local-config.json、不自行扫描/拉起**；`--check` 为端口探活 |
-| `scripts/pipeline.js` | 抓取 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限）；`--ingest-quarantine` 模式消费 `failed_quarantine/` 未入库 `.md` 直接补入库而不重搜 |
+| `scripts/check-deps.js` | 前置依赖**代码级**核查器（硬依赖阻断、软依赖告警） | chrome-devtools 的「端口探查 / 浏览器拉起」经 Agent 编排委派，本检查器只判定「委派目标存在 + CDP 端口可达」（**不读 local-config.json**）；**已移除的 2 级 firecrawl / FIRECRAWL_API_KEY 探测已随统一第 3 级删除**；解析并输出 `search_script_dir` / `ima_api` 路径 / `cdp_port` |
+| `scripts/resolve_midlink.js` | 中转链接 → 真实直链（0 级，仅解析直链、不抓正文） | 走 Chrome DevTools HTTP 端点，**不依赖 MCP、不依赖 WebSocket**；端口仅取编排回传的 `SOGOU_CDP_PORT`（**必须显式设置；缺省 9222 即 WorkBuddy 自身 Electron，会被拒绝**；真正调试浏览器通常落 `9223` 或 9222~9240 区间其他高位端口），**不读 local-config.json、不自行扫描/拉起**；`--check` 为端口探活 |
+| `scripts/level3_cdp_fetch.js` | 第 3 级有头 CDP 取回器（`--direct` / `--close-tabs`） | 优先用 stub 的 `mp.weixin.qq.com` 直链，无候选时显式 fallback 告警；写 provenance HTML 注释 + 可见 `采集证据：` 行；成功即移出 `_l3_retry_<CARD>.json`；保留真实 mp 标签页供 `--verify-batch` 独立取证 |
+| `scripts/level3_drive.js` | 第 3 级续跑守护编排器 | 串起取回 → 退役 → 取证 → 消费 → 关标签 → 进展检测；`stubs()` 统计本卡全部 `.md`；启动对账 retry 清单；停机原因经 `--l3-checkpoint` 写入 `_progress_<card>.json`；日志 append 不覆盖 |
+| `scripts/pipeline.js` | 检索结果解析 → stub 落盘 → handback 复验 → 过滤 → 闸门 → 入库 → 状态回写 全流水线 | 过滤规则以 `matchFilter(text, layer)` 为唯一实现；ima 调用经 `ima_api.cjs` 的**模块导出**（规避长正文 CLI 参数长度上限）；`--ingest-quarantine` 模式消费 `failed_quarantine/` 未入库 `.md` 直接补入库而不重搜 |
 | `scripts/deploy.js` | 开发态 → 部署态同步**薄包装**（零第三方依赖） | 自身不含同步实现，参数转发至仓库级唯一入口 `scripts/deploy-skill.cjs`（§7.7）；入口运行时解析 `AGENTS.md §7.2` 注册表，从 main 的 git blob 逐字节重建（**不经工作树**，理由是内容权威性 + 避免未提交差异污染，§7.3），写后校验三项判据；`deploy-manifest.json` 显式登记 `ima_credentials.json` 为 `preserve`（部署态专有物，保留不覆盖）；`--dry-run` 预演、`--verify` 只校验、`--ref` 指定来源（默认 main） |
 
 ### 测试资产（`tests/`）
@@ -538,8 +562,8 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 | `tests/test_fetch_failure_taxonomy.js` | 回归（离线）+ 真实态 | 抓取失败五类归因分类器（样本 `tests/fixtures/fetch_response_samples.json`）+ `url_resolved` 交叉表 |
 | `tests/test_kb_consistency.js` | 回归（离线）+ 真实态 | ima 库五维一致性审计（重复条目 / front-matter 污染 / 截断 / 非笔记媒体类型 / 幽灵记录 / 孤儿条目；样本 `tests/fixtures/kb_snapshot_sample.json`） |
 | `tests/test_concurrent_lock.js` | 回归（离线） | 并发安全：多进程并发写进度文件，验证每卡文件锁（fs.openSync 'wx' 自管互斥、陈旧锁自动回收）、原子写不损坏、reset-card 只清目标卡 |
-| `tests/test_fetch_diagnosis.js` | 回归（离线） | 抓取失败原因保真（`buildFetchFailureReason` 原生 + Agent 编排兜底（2/3 级）双原因分离不吞 HTTP 状态码）+ 微信直连 Referer 头注入 |
-| `tests/test_aux_markdown.js` | 回归（离线） | `auxCriteria` 对 markdown 源（Agent 编排 2/3 级 handback）按 markdown 语法判辅助判据（列表 / 标题 / 表格），不再恒为 0 误关优质 md |
+| `tests/test_fetch_diagnosis.js` | 回归（离线） | 抓取失败原因保真（`buildFetchFailureReason` 原生 + Agent 编排兜底（第 3 级有头）双原因分离不吞 HTTP 状态码）+ 微信直连 Referer 头注入 |
+| `tests/test_aux_markdown.js` | 回归（离线） | `auxCriteria` 对 markdown 源（Agent 编排 第 3 级有头 handback）按 markdown 语法判辅助判据（列表 / 标题 / 表格），不再恒为 0 误关优质 md |
 | `tests/test_pending_handback.js` | 回归（离线） | Phase 7 handback 合同：`pendingKeyOf` 确定性 + 防碰撞、`emitNeedsFetch` 落盘 stub（NEEDS_FETCH 标记 + url/候选/原因）、`isPendingStub` 对 stub/handback 判别 |
 
 ## 输出格式约束

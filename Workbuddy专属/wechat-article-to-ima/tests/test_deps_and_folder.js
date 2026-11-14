@@ -84,14 +84,12 @@ if (mode === 'noteonly') {
   return p;
 }
 
-/** 临时技能基址：用于 check-deps 离线验证。withKey=false 时去掉 firecrawl 密钥。 */
+/** 临时技能基址：用于 check-deps 离线验证。withKey 仅用于区分两组独立基址目录（2 级密钥已随统一第 3 级移除）。 */
 function writeSkillsDir(withKey) {
   const base = path.join(TMPDIR, withKey ? 'skills_withkey' : 'skills_nokey');
   const mk = (rel) => { const d = path.join(base, rel); fs.mkdirSync(d, { recursive: true }); return d; };
   fs.writeFileSync(path.join(mk('ima-skills'), 'ima_api.cjs'), '// dummy ima_api for test\n', 'utf8');
-  fs.writeFileSync(path.join(mk('web-search'), 'SKILL.md'), '# web-search\n', 'utf8');
-  fs.writeFileSync(path.join(mk('web-search/firecrawl'), 'SKILL.md'), '# firecrawl\n', 'utf8');
-  if (withKey) fs.writeFileSync(path.join(base, 'web-search', '.env'), 'FIRECRAWL_API_KEY=test_key_123\n', 'utf8');
+  // 统一第 3 级：web-search/firecrawl 2 级软依赖已移除，无需再构造其目录与密钥文件。
   fs.writeFileSync(path.join(mk('wechat-article-search'), 'SKILL.md'), '# was\n', 'utf8');
   fs.writeFileSync(path.join(mk('wechat-article-search/scripts'), 'search_wechat.js'), '# search\n', 'utf8');
   fs.writeFileSync(path.join(mk('wechat-article-search/scripts'), 'get_sogou_cookie.js'), '# cookie\n', 'utf8');
@@ -117,12 +115,15 @@ function findFreePort() {
 }
 
 // ════════════════════════════════════════════════════════════════
-console.log('=== ① Issue1：check-deps 不再裸 spawn firecrawl CLI（消除 Windows 误报）===');
+console.log('=== ① 统一第 3 级：check-deps 不再登记 2 级 firecrawl 软依赖 ===');
 {
-  // A1：firecrawlCliOk 已从导出中彻底移除（裸 spawn 误报根源）
+  // Issue1 历史资产（裸 spawn firecrawl CLI 导致 Windows ENOENT 误报）：2 级链路整体移除后，
+  // 判据演进为「导出与 --json 结果均不得再出现 2 级依赖字段」，保留同等检出力、不新造平行测试。
   const mod = require(CHECK_DEPS_JS);
   check('check-deps 导出不含 firecrawlCliOk（裸 spawn 已拆除）', mod.firecrawlCliOk === undefined,
     '导出键=' + Object.keys(mod).join(','));
+  check('★ 统一第 3 级：导出不含 firecrawlKeyPresent（2 级密钥探测已删除）',
+    mod.firecrawlKeyPresent === undefined, '导出键=' + Object.keys(mod).join(','));
 
   const skillsWithKey = writeSkillsDir(true);
   const imaStubDummy = path.join(TMPDIR, 'ima_api_dummy.cjs');
@@ -137,19 +138,13 @@ console.log('=== ① Issue1：check-deps 不再裸 spawn firecrawl CLI（消除 
   try { json = JSON.parse(r.out); } catch (e) { json = null; }
   check('check-deps 输出为合法 JSON', json !== null, r.out.slice(0, 200));
   if (json) {
-    check('firecrawl.cliDelegated === true（委派 web-search，本技能不自行 spawn）',
-      json.soft && json.soft.firecrawl && json.soft.firecrawl.cliDelegated === true,
-      JSON.stringify(json.soft && json.soft.firecrawl));
-    check('firecrawl.skillPresent === true', json.soft.firecrawl.skillPresent === true, '');
-    check('firecrawl.keyPresent === true', json.soft.firecrawl.keyPresent === true, '');
-    check('firecrawl.usable === true（skill && key，而非依赖 CLI 存在）',
-      json.soft.firecrawl.usable === true, JSON.stringify(json.soft.firecrawl));
-    check('firecrawl 结果不含「CLI 缺失」类误报字段',
-      !('cliMissing' in (json.soft.firecrawl || {})) && !('cliOk' in (json.soft.firecrawl || {})),
-      JSON.stringify(json.soft.firecrawl));
+    check('★ 统一第 3 级：soft.firecrawl 已移除', !('firecrawl' in json.soft), JSON.stringify(json.soft));
+    check('★ 统一第 3 级：soft.webSearch 已移除', !('webSearch' in json.soft), JSON.stringify(json.soft));
+    check('★ 统一第 3 级：resolved.firecrawlUsable 已移除',
+      !('firecrawlUsable' in json.resolved), JSON.stringify(json.resolved));
   }
 
-  // A3：无 firecrawl 密钥时，usable=false 但 cliDelegated 仍为 true，且硬依赖齐全→退出码 0（不再因 CLI 误报阻断）
+  // A3：另一组独立基址下同样不得出现 2 级依赖字段；软依赖不阻断，退出码仍为 0。
   const skillsNoKey = writeSkillsDir(false);
   const envNoKey = Object.assign({}, process.env, {
     WORKBUDDY_SKILLS_DIR: skillsNoKey,
@@ -159,9 +154,7 @@ console.log('=== ① Issue1：check-deps 不再裸 spawn firecrawl CLI（消除 
   check('无密钥时 check-deps 仍退出码 0（软依赖不阻断）', r.code === 0, r.err || r.out.slice(0, 200));
   try { json = JSON.parse(r.out); } catch (e) { json = null; }
   if (json) {
-    check('无密钥时 firecrawl.usable === false', json.soft.firecrawl.usable === false, JSON.stringify(json.soft.firecrawl));
-    check('无密钥时 firecrawl.cliDelegated 仍为 true（委派关系不变）',
-      json.soft.firecrawl.cliDelegated === true, JSON.stringify(json.soft.firecrawl));
+    check('★ 另一基址下 soft.firecrawl 同样已移除', !('firecrawl' in json.soft), JSON.stringify(json.soft));
   }
 }
 

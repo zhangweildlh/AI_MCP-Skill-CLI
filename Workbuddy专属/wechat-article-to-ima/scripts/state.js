@@ -126,21 +126,24 @@ function usage() {
   validate
   migrate
   mark-ingested --card C --title T --media-id M [--no-verify] [--ima-api P] [--kb-id K] [--folder-id F]
-  mark-failed   --card C --title T --reason R
-  mark-filtered --card C --title T --reason R
+  mark-failed   --card C --title T --reason R [--stub-key K]
+  mark-filtered --card C --title T --reason R [--stub-key K]
   mark-needs-fetch --card C --title T --reason R [--stub-key K] [--batch-id B]
-  mark-handback-consumed --card C --title T --media-id M [--stub-key K] [--batch-id B] [--level L]
+  mark-handback-consumed --card C --title T --media-id M [--stub-key K] [--batch-id B] [--level L] [--provenance JSON]
   set-attempts  --card C --n N
   reset-attempts --card C
   reset-card    --card C                     （清空文章记录 + 重置 searchedKeywords/failureClass）
   update-card   --card C [--last-run R] [--next-due D] [--rotate-index I] [--status S] [--next-retry-at T] [--note N] [--pending-keywords K] [--searched-keywords K] [--clear-searched] [--failure-class C]
   report [--kb-id K] [--folder-id F] [--kb-snapshot <json>] [--card C] [--json]
   diff-keywords --card C --keywords "K1;K2;K3" [--json]   输出尚未搜索的关键词差集（续跑只搜剩余词）
+  dedup-progress --card C [--dry-run]          按 (card, stubKey) 清理陈旧重复进度条目
+  update-card ... [--l3-checkpoint JSON]          写入续跑守护断点（phase/round/remain/reason）
   resolve-folder --name <ima实际子目录名> --kb-id K [--card C] [--json]   按名实时解析真实 folder_id（禁止硬编码）
   classify-failure --reason "R"                           判定 transient / permanent
 
 通用选项：
   --progress <路径>   读写进度文件的子命令必填；resolve-folder / classify-failure 为纯离线命令，无需此参数。
+  --dry-run           预演不落盘（dedup-progress 等支持）。
   -h, --help          打印本帮助。`);
 }
 
@@ -150,7 +153,7 @@ function fail(msg) {
 }
 
 function parseArgs(argv) {
-  const opt = { progress: '', command: '', card: '', title: '', mediaId: '', reason: '', n: null, verify: true, noVerify: false, imaApi: '', kbId: '', folderId: '', kbSnapshot: '', json: false, searchedKeywords: '', clearSearched: false, failureClass: '', keywords: '', skillBase: '', name: '', stubKey: '', level: '', batchId: '' };
+  const opt = { progress: '', command: '', card: '', title: '', mediaId: '', reason: '', n: null, verify: true, noVerify: false, imaApi: '', kbId: '', folderId: '', kbSnapshot: '', json: false, searchedKeywords: '', clearSearched: false, failureClass: '', keywords: '', skillBase: '', name: '', stubKey: '', level: '', batchId: '', provenance: '', l3Checkpoint: '', dryRun: false };
   let i = 0;
   while (i < argv.length) {
     const a = argv[i];
@@ -183,6 +186,9 @@ function parseArgs(argv) {
     else if (a === '--stub-key') opt.stubKey = argv[++i] || fail('缺少 --stub-key 值');
     else if (a === '--level') opt.level = argv[++i] || fail('缺少 --level 值');
     else if (a === '--batch-id') opt.batchId = argv[++i] || fail('缺少 --batch-id 值');
+    else if (a === '--provenance') opt.provenance = argv[++i] || fail('缺少 --provenance 值');
+    else if (a === '--l3-checkpoint') opt.l3Checkpoint = argv[++i] || fail('缺少 --l3-checkpoint 值');
+    else if (a === '--dry-run') opt.dryRun = true;
     else if (!opt.command) opt.command = a;
     else fail(`未知参数：${a}`);
     i++;
@@ -266,14 +272,23 @@ const cardOf = (a) => a.card || a.cardId || '';
 // 消除「初始进度文件 name 字段为空」的展示层缺陷；显式传入 --name 时优先采用（见 cmdResetCard / cmdUpdateCard）。
 const CARD_NAMES = { A: '总包', B: '城更', C: '全域土地' };
 
-function findArticle(data, card, title) {
-  return data.articles.find((a) => cardOf(a) === card && a.title === title);
+function findArticle(data, card, title, stubKey) {
+  // 主匹配：精确 (card, title)
+  let art = data.articles.find((a) => cardOf(a) === card && a.title === title);
+  // D3 修复（B-01 关联根因）：搜狗侧标题与回交侧标题可能因全/半角标点差异（如「!」vs「！」）
+  // 而被视为不同标题，导致回交时未命中既有 needs-fetch 条目、新建重复。stubKey 由 URL 派生、稳定唯一，
+  // 作为兜底匹配键即可把「同一篇文章、不同标点标题」正确归并到同一条进度记录，消除陈旧重复条目。
+  if (!art && stubKey) {
+    art = data.articles.find((a) => cardOf(a) === card && a.stubKey === stubKey);
+  }
+  return art;
 }
 
-function upsertArticle(data, card, title) {
-  let art = findArticle(data, card, title);
+function upsertArticle(data, card, title, stubKey) {
+  let art = findArticle(data, card, title, stubKey);
   if (!art) {
     art = { card, title, fetchStatus: 'ok', filterResult: 'kept', gateResult: 'pass', ingestStatus: 'pending', note: '' };
+    if (stubKey) art.stubKey = stubKey; // 新条目一并写入 stubKey，供后续幂等归并
     data.articles.push(art);
   } else if (!art.card && art.cardId) {
     // 归一化旧字段名，避免同一文件里 card/cardId 混存
@@ -368,7 +383,7 @@ function cmdMarkIngested(opt, data) {
   if (!opt.card || !opt.title) fail('mark-ingested 需要 --card 与 --title。');
   ensureCard(data, opt.card);
   const card = data.cards[opt.card];
-  const art = upsertArticle(data, opt.card, opt.title);
+  const art = upsertArticle(data, opt.card, opt.title, opt.stubKey);
   const isFailed = String(art.gateResult).startsWith('fail') || art.fetchStatus === 'failed' || art.ingestStatus === 'failed';
   const isFiltered = String(art.filterResult).startsWith('filtered');
   // 强约束：未联机复核时，禁止把 failed / gate_failed / filtered 伪装为 ingested（防误报成功；segment ④ 契约要求 --no-verify 时拒绝）
@@ -392,7 +407,7 @@ function cmdMarkIngested(opt, data) {
  * handback 消费成功的状态机归零（F-02 显式语义入口）。
  *
  * 与 mark-ingested 的差别：① 强制把 fetchStatus 从 needs-fetch 迁移为 ok、gateResult 归 pass，
- * 使 report 第 5 栏存在归零路径；② 额外记录 stubKey / batchId / provenance.level，
+ * 使 report 第 5 栏存在归零路径；② 记录 stubKey / batchId / 完整 provenance（B7），
  * 让「哪一篇经哪一批次、哪一级降级链回交」可审计。
  *
  * 不做联机复核：pipeline.js 消费端已用 listAllKb() 全量分页复验 media_type===11 且确在目标
@@ -402,14 +417,18 @@ function cmdMarkIngested(opt, data) {
 function cmdMarkHandbackConsumed(opt, data) {
   if (!opt.card || !opt.title) fail('mark-handback-consumed 需要 --card 与 --title。');
   ensureCard(data, opt.card);
-  const art = upsertArticle(data, opt.card, opt.title);
+  const art = upsertArticle(data, opt.card, opt.title, opt.stubKey);
   art.fetchStatus = 'ok';
   art.ingestStatus = 'ingested';
   art.gateResult = 'pass';
   if (opt.mediaId) art.note = `media_id=${opt.mediaId}`;
   if (opt.stubKey) art.stubKey = opt.stubKey;
   if (opt.batchId) art.batchId = opt.batchId;
-  if (opt.level) art.provenance = { level: String(opt.level), verifiedBy: 'pipeline.js --verify-batch' };
+  let full = null;
+  if (opt.provenance) { try { full = JSON.parse(opt.provenance); } catch (_) { /* 损坏证据不阻断状态迁移 */ } }
+  art.provenance = (full && typeof full === 'object')
+    ? { ...full, level: String(opt.level || full.level || '3'), verifiedBy: 'pipeline.js --verify-batch' }
+    : { level: String(opt.level || '3'), verifiedBy: 'pipeline.js --verify-batch' };
   saveProgress(opt.progress, data);
   console.error(`✅ handback 已消费：card=${opt.card} title=${opt.title} fetchStatus=needs-fetch→ok ingestStatus=ingested${opt.stubKey ? ' stubKey=' + opt.stubKey : ''}`);
 }
@@ -417,19 +436,25 @@ function cmdMarkHandbackConsumed(opt, data) {
 function cmdMarkFailed(opt, data) {
   if (!opt.card || !opt.title) fail('mark-failed 需要 --card 与 --title。');
   ensureCard(data, opt.card);
-  const art = upsertArticle(data, opt.card, opt.title);
+  const art = upsertArticle(data, opt.card, opt.title, opt.stubKey);
   art.ingestStatus = 'failed';
+  // F-02 补全（闭环判据④）：handback 被完整性闸门 / G3 验收否决时，条目 fetchStatus 仍是
+  // needs-fetch（尚未归零），导致 report 第 5 栏「移交 Agent 编排」永不归零、闭环不可达。
+  // 终态失败与 ingested 一样属于「已离开 2/3 级编排」，统一迁移 needs-fetch → failed。
+  if (art.fetchStatus === 'needs-fetch') art.fetchStatus = 'failed';
   if (opt.reason) art.note = opt.reason;
   saveProgress(opt.progress, data);
-  console.error(`✅ 已标记 failed：card=${opt.card} title=${opt.title} reason=${opt.reason || '(未提供)'}`);
+  console.error(`✅ 已标记 failed：card=${opt.card} title=${opt.title} reason=${opt.reason || '(未提供)'}${art.fetchStatus === 'failed' ? '（fetchStatus 已归位）' : ''}`);
 }
 
 function cmdMarkFiltered(opt, data) {
   if (!opt.card || !opt.title) fail('mark-filtered 需要 --card 与 --title。');
   ensureCard(data, opt.card);
-  const art = upsertArticle(data, opt.card, opt.title);
+  const art = upsertArticle(data, opt.card, opt.title, opt.stubKey);
   // 被过滤文章：filterResult 记 filtered:<reason>，ingestStatus 保持 pending（不计入 failed）
   art.filterResult = 'filtered:' + (opt.reason || 'unknown');
+  // F-02 补全：过滤同属终态，条目不应继续挂 needs-fetch，否则闭环判据④不可达。
+  if (art.fetchStatus === 'needs-fetch') art.fetchStatus = 'filtered';
   saveProgress(opt.progress, data);
   console.error(`✅ 已标记 filtered：card=${opt.card} title=${opt.title} reason=${opt.reason || '(未提供)'}`);
 }
@@ -437,7 +462,7 @@ function cmdMarkFiltered(opt, data) {
 function cmdMarkNeedsFetch(opt, data) {
   if (!opt.card || !opt.title) fail('mark-needs-fetch 需要 --card 与 --title。');
   ensureCard(data, opt.card);
-  const art = upsertArticle(data, opt.card, opt.title);
+  const art = upsertArticle(data, opt.card, opt.title, opt.stubKey);
   // 1 级抓取失败、移交 Agent 编排（2/3 级）：不计 failed（未真正失败，待 Agent 兜底），
   // 也不计 ingested；ingestStatus 保持 pending，fetchStatus 标 needs-fetch 供 report 单列。
   art.fetchStatus = 'needs-fetch';
@@ -561,6 +586,12 @@ function cmdUpdateCard(opt, data) {
   if (opt.status !== undefined) card.status = opt.status;
   if (opt.nextRetryAt !== undefined) card.nextRetryAt = opt.nextRetryAt;
   if (opt.note !== undefined) card.note = opt.note;
+  // parseArgs 把 l3Checkpoint 统一初始化为空串；仅显式传入非空 JSON 时写断点。
+  // 旧判定 `!== undefined` 会让空串进入 JSON.parse 抛错，打挂所有未带该参数的 update-card 调用
+  // （test_state.js 15 个断言曾集体失败，属本轮改造回归，已修）。
+  if (opt.l3Checkpoint) {
+    try { card.l3Checkpoint = JSON.parse(opt.l3Checkpoint); } catch (_) { fail('--l3-checkpoint 须为合法 JSON'); }
+  }
   if (opt.pendingKeywords !== undefined) {
     // 缺陷 A 修复：累积并集（与 --searched-keywords 同款实现）。
     // 原实现为「覆盖写入」，引导词 D4 的逐词调用（每词一次 --pending-keywords）会静默吞掉已记录的词，
@@ -771,6 +802,13 @@ function cmdReport(opt, data) {
   rep.dirBlockers = dirBlockers;
   // 审计 E-12 延伸：四栏 + 第 5 栏齐全仍可能被目录残留 / 未完成批次卡死，闭环判定必须一并纳入
   rep.closed = rep.closed && dirBlockers.length === 0;
+  // A4：null 是「report 不伪造 CDP 取证值」的正确设计，但机读调用方容易误判；补语义说明字段，
+  // 明确权威值来源，不改 null 本身。
+  rep.provenanceSource = 'pipeline.js --verify-batch（独立 CDP 取证）';
+  rep.provenanceValidNote = 'report 恒为 null，须另跑 --verify-batch 读权威值；禁止把 null 当作 true';
+  // A1：EXIT 码区分闭环 / 未闭环，供自动化与续跑守护判定（此前只有文本提示）。
+  // 注意：本行位于 cmdReport（非纯函数 classifyReport），不会污染直接调用 classifyReport 的测试进程。
+  process.exitCode = rep.closed ? 0 : 1;
   if (opt.json) { process.stdout.write(JSON.stringify(rep, null, 2) + '\n'); return; }
 
   const L = [];
@@ -891,6 +929,65 @@ function cmdResolveFolder(opt) {
   else console.log(hit.media_id);
 }
 
+/**
+ * 进度去重清理（D3/B-01 关联修复）：同一篇文章因搜狗侧与回交侧标题标点漂移（如「!」vs「！」）
+ * 可能产生两条进度记录（一条 needs-fetch、一条 ingested），二者 stubKey 相同却因 title 不同而并存。
+ * 这类陈旧重复条目会使 report 第 5 栏 needsFetch 永不归零、闭环判据④不可达。
+ *
+ * 归并键：(card, stubKey)。stubKey 由 URL 派生、稳定唯一，是「同一篇文章」的权威不变量。
+ * 保留策略：同组内按「(ingestStatus, fetchStatus) 组合」定序，保留最高者（ingested > failed > filtered > ok > needs-fetch），
+ * 移除其余冗余条目（保留首条作为并列兜底）。
+ * 注意：被移除的 needs-fetch 条目若仍挂着 pending_fetch 文件，会留下孤儿文件 —— 由调用方（pipeline.js
+ * --dedup-progress）在去重后追加 --sweep-orphans 一并清扫，确保判据②可达。
+ *
+ * --dry-run：仅打印计划移除的条目，不落盘，供预演核验。
+ */
+function cmdDedupProgress(opt, data) {
+  if (!opt.card) fail('dedup-progress 需要 --card。');
+  // B4 修复：原 RANK 以 ingestStatus 的 'ingested' 作键却按 fetchStatus 取值，该键永不可达；
+  // 且值域中真实存在的 'filtered' 缺键（rank=0），导致同组去重时删除终态、保留 needs-fetch（状态倒退）。
+  const rankOf = (a) => {
+    const ing = String(a.ingestStatus || '');
+    const fet = String(a.fetchStatus || '');
+    if (ing === 'ingested') return 6;
+    if (ing === 'failed' || fet === 'failed') return 5;
+    if (ing === 'filtered' || fet === 'filtered') return 4;
+    if (fet === 'ok') return 3;
+    if (fet === 'needs-fetch') return 2;
+    return 1;
+  };
+  const groups = {};
+  for (const a of data.articles) {
+    if (cardOf(a) !== opt.card || !a.stubKey) continue;
+    const key = cardOf(a) + '\u0000' + a.stubKey;
+    (groups[key] = groups[key] || []).push(a);
+  }
+  // 一次性收集所有待移除条目的「对象引用」与「报告元数据」，末了单次过滤，避免组内重复全数组 filter。
+  const removeRefs = new Set();
+  const removedMeta = [];
+  for (const [key, arr] of Object.entries(groups)) {
+    if (arr.length < 2) continue;
+    let keepIdx = 0;
+    for (let i = 1; i < arr.length; i++) {
+      if (rankOf(arr[i]) > rankOf(arr[keepIdx])) keepIdx = i;
+    }
+    for (let i = 0; i < arr.length; i++) {
+      if (i === keepIdx) continue;
+      removeRefs.add(arr[i]);
+      removedMeta.push({ title: arr[i].title, fetchStatus: arr[i].fetchStatus, ingestStatus: arr[i].ingestStatus, stubKey: arr[i].stubKey });
+    }
+  }
+  if (opt.dryRun) {
+    console.error(`[dry-run] 将移除 ${removedMeta.length} 条冗余进度条目（未落盘）：`);
+    for (const r of removedMeta) console.error(`  - ${JSON.stringify(r.title)} | fetch=${r.fetchStatus} ingest=${r.ingestStatus} stubKey尾=${(r.stubKey || '').slice(-12)}`);
+    return;
+  }
+  if (removeRefs.size) data.articles = data.articles.filter((a) => !removeRefs.has(a));
+  saveProgress(opt.progress, data);
+  console.error(`✅ 进度去重完成：card=${opt.card} 移除冗余 ${removedMeta.length} 条${removedMeta.length ? '（详见下方，随后请跑 --sweep-orphans 清理悬空 pending_fetch 文件）' : ''}`);
+  for (const r of removedMeta) console.error(`  - ${JSON.stringify(r.title)} | fetch=${r.fetchStatus} ingest=${r.ingestStatus} stubKey尾=${(r.stubKey || '').slice(-12)}`);
+}
+
 function main() {
   const opt = parseArgs(process.argv.slice(2));
   if (!opt.command) { usage(); process.exit(2); }
@@ -921,6 +1018,7 @@ function main() {
     case 'reset-card': cmdResetCard(opt, data); break;
     case 'update-card': cmdUpdateCard(opt, data); break;
     case 'report': cmdReport(opt, data); break;
+    case 'dedup-progress': cmdDedupProgress(opt, data); break;
     case 'diff-keywords': cmdDiffKeywords(opt, data); break;
     case 'resolve-folder': cmdResolveFolder(opt); break;
     case 'classify-failure': cmdClassifyFailure(opt); break;
@@ -932,4 +1030,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { dedupKey, TITLE_CAP, cardOf, locateImaApi, classifyReport, fetchKbEntries, readKbSnapshot, parseMediaIdFromNote, classifyFailure, assertOutsideSkillDir, cmdResolveFolder, cmdMarkHandbackConsumed };
+module.exports = { dedupKey, TITLE_CAP, cardOf, locateImaApi, classifyReport, fetchKbEntries, readKbSnapshot, parseMediaIdFromNote, classifyFailure, assertOutsideSkillDir, cmdResolveFolder, cmdMarkHandbackConsumed, cmdDedupProgress };
