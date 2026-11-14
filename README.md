@@ -31,7 +31,7 @@
 | 15 | `code-audit-consolidation` | 1.0.0 | 整合多视角审计报告，去重归因、交叉分析、根因分析，产出唯一根治报告（由 `Skill-多代码审计报告归一收敛.md` 重命名而来） |
 | 16 | `external-tool-onboarding` | — | 外部工具与外部资产的引入评估与接入落地通用工作流 |
 | 17 | `task-methodology-consolidation` | 3.4.0 | 对当前对话会话做经验沉淀和方法论固化（踩坑/避坑/成败经验 → 开箱即用方法论） |
-| 18 | `wechat-article-to-ima` | 1.2.0 | 按关键词检索微信公众号文章、抓取正文、批量入库腾讯 ima 知识库指定子目录并复验完整性（含限流退避/断点续跑/任务卡轮转） |
+| 18 | `wechat-article-to-ima` | 1.4.0 | 按关键词检索微信公众号文章、抓取正文、批量入库腾讯 ima 知识库指定子目录并复验完整性（含限流退避/断点续跑/任务卡轮转） |
 
 > 注：
 > - 已退役/移除，不再纳入说明：`anysearch-skill`（2026-07-23 清理其独立目录，CLI 现位于 `web-search/anysearch-skill/scripts/anysearch_cli.py`）、`github-repo-sync`（2026-07-24 退役，能力并入 `github-personal-manager`）。
@@ -208,16 +208,16 @@
 
 ### 18. wechat-article-to-ima（微信公众号文章抓取入 ima 库）
 
-- **用途**：按关键词检索微信公众号文章 → 抓取正文（一文章一 Markdown 文件）→ 批量存入腾讯 ima 知识库指定子目录 → 入库后复验内容完整性。含参数配置区（全部带默认值、零输入可执行）、任务卡 A/B/C 轮转（主词簇/变体词簇跨轮覆盖）、前置依赖检查四项（wechat-article-search / ima-skills / web-search / firecrawl）、完整性闸门（≥800 字且 ≥5 句号）、判重（带 `.md` 后缀）、四类过滤词族（中标/开工/招商/广告）、三级抓取降级链（原生抓取 → 浏览器自动化 → firecrawl）、限流退避与断点续跑。本技能只执行、不负责调度。
+- **用途**：按关键词检索微信公众号文章 → 抓取正文（一文章一 Markdown 文件）→ 批量存入腾讯 ima 知识库指定子目录 → 入库后复验内容完整性。含参数配置区（全部带默认值、零输入可执行）、任务卡 A/B/C 轮转（主词簇/变体词簇跨轮覆盖）、前置依赖检查（wechat-article-search / ima-skills / chrome-devtools）、完整性闸门（≥800 字且 ≥5 句号）、判重（带 `.md` 后缀）、四类过滤词族（中标/开工/招商/广告）、统一第 3 级有头采集（0 级仅解析中转直链，正文一律经有头 360Chromex CDP 取回）、限流退避与断点续跑。本技能只执行、不负责调度。
 - **外部依赖 / 外部工具 / 外部需求**：
   - **技能 `wechat-article-search`**：微信公众号文章检索（用户提供检索脚本 `search_wechat.js`，本技能不内置）。
   - **技能 `ima-skills`（复数，非 `ima-skill`）**：目标 ima 知识库入库（创建媒体 / 对象存储上传 / 写入知识）。
-  - **技能 `web-search` + 其 `firecrawl` 适配层子目录**：抓取兜底层（三级降级链的第三级）。
-  - **原生网页抓取能力**：正文抓取一级手段。
-  - **浏览器自动化能力**（可选，仅作记录、不阻断）：抓取二级降级手段。
+  - **技能 `chrome-devtools`**：第 3 级正文采集唯一下游（真实可见的 360Chromex 有头实例 + CDP 端口）。
+  - **0 级中转链解析**（`resolve_midlink.js` 经 CDP HTTP 端点）：只产出候选 mp 直链，不抓正文。
+  - **`web-search` / `firecrawl`（已移除）**：统一第 3 级后不再需要 2 级无头兜底，依赖探测已删除。
   - **网络访问 + ima 知识库接口凭据**：必备，凭据不入进度文件/日志/产物。
   - **结构化进度文件**：`[workspace]/_progress.json`（任务卡状态、轮转序号、断点续跑依据）。
-- **备注**：开发态为仓库内 `Workbuddy专属/wechat-article-to-ima/`（目录型，v1.2.0），部署态为 `wechat-article-to-ima/`（用户级 skills 目录，目录型），二者经 main 的 git blob 同步（AGENTS.md §7.2 已登记映射）；参数 `rotate_index`（0=主词簇 / 1=变体词簇，留空则两簇全搜）在「任务卡轮转规则」中引用，调度侧（WorkBuddy 定时任务）按 `card_id` 直接派卡；任务卡 A=总包 / B=城更 / C=全域土地，各对应固定 `folder_id` 与关键词簇。
+- **备注**：开发态为仓库内 `Workbuddy专属/wechat-article-to-ima/`（目录型，v1.4.0），部署态为 `wechat-article-to-ima/`（用户级 skills 目录，目录型），二者经 main 的 git blob 同步（AGENTS.md §7.2 已登记映射）；参数 `rotate_index`（0=主词簇 / 1=变体词簇，留空则两簇全搜）在「任务卡轮转规则」中引用，调度侧（WorkBuddy 定时任务）按 `card_id` 直接派卡；任务卡 A=总包 / B=城更 / C=全域土地，各对应固定 `folder_id` 与关键词簇。
 
 ---
 
@@ -225,7 +225,7 @@
 
 | 依赖类别 | 涉及技能 |
 |---|---|
-| **联网搜索/抓取服务** | ref-material-writing、web-search（父 Skill + anysearch-skill 子目录 + Firecrawl CLI 双轨）、wechat-article-to-ima（检索依赖 wechat-article-search + 入库依赖 ima-skills + 抓取依赖 web-search/firecrawl 三级降级链） |
+| **联网搜索/抓取服务** | ref-material-writing、web-search（父 Skill + anysearch-skill 子目录 + Firecrawl CLI 双轨）、wechat-article-to-ima（检索依赖 wechat-article-search + 入库依赖 ima-skills + 正文采集依赖 chrome-devtools 有头实例） |
 | **Firecrawl MCP** | ref-material-writing |
 | **Firecrawl CLI（全局）** | web-search（轨道2 适配层，无需 MCP/Dynamic-mcp） |
 | **Dynamic-mcp MCP** | ref-material-writing、web-search、mimo-code-collab（mimo.code 中转） |
