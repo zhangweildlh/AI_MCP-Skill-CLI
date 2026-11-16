@@ -1,5 +1,10 @@
 ---
 
+## [2026-11-16]
+
+### Changed
+- **形态 A（单 PR 闭环）端到端首个实证 + dir/Workbuddy专属：wechat-article-to-ima 引导词措辞精简**：直接采纳用户手动修改 `引导词.md`（4 段引导词：卡片 A/B/C + 续跑守护）——① 「调用 `wechat-article-to-ima`」统一为「调用技能 `wechat-article-to-ima`」；② 删除各段重复的「本段是本卡调用范式的唯一权威：单段自含、可独立复制粘贴……」长句；③ 「唯一事实源分工（本段适用）」简化为「唯一事实源分工」。纯措辞精简，调用契约 / 参数 / 路径符号 / 命令 / 闭环判据零改动；改动后 blob sha `8773bd3b…` 与用户修改逐字节一致（主工作树 → 补丁 → worktree 落地，hash-object 两次核验相同）。**本 PR 是 PR #246 确立形态 A 为首选后首个真实技能改动**：全程走「专用 worktree 内技能 commit（`f234cc8`，仅引导词.md）→ 同一 worktree 内追加 docs(meta) commit（CHANGELOG + AGENTS §7.2）→ 同一分支单 PR 闭环」，meta commit 暂存 `CHANGELOG.md`/`AGENTS.md` 由 `.githooks/pre-commit` §2.3 `dir` scope 形态 A 窄例外放行，端到端坐实形态 A 在 worktree 纪律下完全可达（不再依赖「切回主工作树追加」这一不可达旧措辞）。§7.2 实测列由唯一生成器 `--rewrite --ref HEAD` 复采：**29 文件 / 513590 B / 7497 行 / 0 CR / 聚合 md5 `7674e5a6…`**（引导词.md `08c19c2c…`→`8773bd3b…`，字节 514836→513590 为删长句所致、行数不变），其余 19 行幂等无 diff。验证：技能 commit 冒烟 31 OK / 0 FATAL、scope `dir/Workbuddy专属` 通过；合并后须在 fresh main 经 `scripts/deploy-skill.cjs --all --verify` 校验门禁并覆盖部署 `wechat-article-to-ima`（写后 29/29），`wai-deploy-parity` 复跑全绿。
+
 ## [2026-11-14]
 
 ### Changed
