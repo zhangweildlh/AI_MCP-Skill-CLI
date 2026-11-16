@@ -311,10 +311,11 @@ try {
   try { fs.rmSync(stubDirG4, { recursive: true, force: true }); } catch (_) { /* ignore */ }
 }
 
-console.log('\n=== ⑪ 引导词.md 契约覆盖（E-23/E-24 防漂移；此前两层测试零读取此文件）===');
-// 背景：四套引导词是「调度方直接复制执行的命令清单」，但仓库级 scripts/smoke/ 与本技能 tests/
-// 此前都未读过 引导词.md，导致「文档写着能跑、实跑 exit=1」的 E-23（--ingest-pending 被守卫拒绝）
-// 与 E-24（classify-failure 被 --progress 必填拦住）长期无人察觉。本章节把引导词当契约来测。
+console.log('\n=== ⑪ 引导词.md 模板防漂移覆盖（E-23/E-24；此前两层测试零读取此文件）===');
+// 背景：四套引导词是「给用户参考的示例/模板」（执行期 Agent 禁止读取/比对，判据只认 SKILL.md/scripts），
+// 但模板中的示例命令若漂移为「文档写着能跑、实跑 exit=1」会误导用户，故仍须静态+端到端校验其可运行性：
+// E-23（--ingest-pending 被守卫拒绝）与 E-24（classify-failure 被 --progress 必填拦住）曾长期无人察觉。
+// 本章节把引导词当「须可运行的模板」来测（维护性门禁），不作为执行期判据、不据以评判用户指令。
 const GUIDE_MD = path.join(SKILL_DIR, '引导词.md');
 const GUIDE = fs.readFileSync(GUIDE_MD, 'utf8');
 check('★ 引导词.md 存在且非空（此前零测试读取）', GUIDE.length > 1000, String(GUIDE.length));
@@ -348,9 +349,12 @@ check('★ 续跑守护禁用 reset-card 且用 diff-keywords 取差集',
 // —— 章节级自含判据 ——
 // 原实现用 GUIDE.includes() 全文全局断言：只要任意一套或共享区出现某符号即判通过，
 // 结构上检不出「某一套缺失符号定义」。共享前置区清零后必须改成逐套断言。
+// 定位（2026-11-16 修订）：引导词.md 是「给用户参考的示例/模板」，非执行契约/判据。
+// 故移除旧版 4 项「自含权威契约」锁定词（唯一权威 / 单段自含 / 可独立复制粘贴 / 已加载本技能）——
+// 它们已在 PR #258 措辞精简时从各套删除，且与 SKILL.md「执行态禁止以引导词为判据」定位冲突；
+// 保留其余 12 项作为「模板不漂移」的维护性门禁（参数/符号/命令/闭环判据仍须逐套自含）。
 const SELF_CONTAINED = [
-  '唯一权威', '单段自含', '可独立复制粘贴',
-  '已加载本技能', 'knowledge_base_id=ima_kb_QFSIbCma',
+  'knowledge_base_id=ima_kb_QFSIbCma',
   '唯一事实源分工', '以 `SKILL.md` 为唯一事实源', '不复述',
   '`[WS]` =', '`[SKILL]` =', '`[FID]` =',
   '不依赖当前工作目录', '禁止硬编码 `folder_id`',
