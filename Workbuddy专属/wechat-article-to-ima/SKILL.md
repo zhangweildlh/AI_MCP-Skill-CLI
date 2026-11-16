@@ -18,6 +18,15 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 
 本技能不负责定时调度；执行期由 Agent 自调度自编排第三方独立技能。触发即执行。
 
+## 引导词.md 的定位与使用边界（执行态 / 维护态二分）
+
+> 本节是 `引导词.md` 定位的唯一权威口径，用于杜绝「Agent 把示例模板当校验基准」的行为偏差。
+
+- **定位**：`引导词.md` 是**给用户参考的示例 / 范式 / 模板**——示范「怎样正确地为 `wechat-article-to-ima` 撰写提示词/引导词」。它**不是**技能执行契约、**不是**校验基准、**不是**事实源；本 `SKILL.md` 与 `scripts/` 才是唯一权威。
+- **执行态（默认，用户发起采集/续跑任务时）——禁止读取与比对**：Agent 执行本技能时，**禁止扫描 / 读取 / 检查 / 审核 / 对比 / 分析 `引导词.md`**，更**禁止**把用户输入的指令/提示词与该文件比对、据此判断用户引导词是否正确。任何 Agent 应**直接依据用户指令准确执行本技能**；判断用户指令是否正确 / 准确 / 有无 BUG 的唯一依据是 `SKILL.md`（契约）与 `scripts/`（代码实装）。
+- **维护态（例外，仅修正模板本身时）——单向回流**：仅当依据 `SKILL.md` / `scripts/` 已确认用户指令或契约存在 BUG / 缺陷时，才检查 `引导词.md` 是否存在同类 / 同一 BUG；若存在，则**单向**修正模板（以 `SKILL.md` / `scripts/` 为准使其一致）。**严禁反向**：不得用 `引导词.md` 评判用户指令，也不得因模板与用户指令不一致而判用户指令有误。
+- **冲突裁决**：`引导词.md` 中的参数、命令、闭环判据如与 `SKILL.md` / `scripts/` 冲突，一律以后者为准。`tests/test_pipeline_contract.js` 对引导词的静态校验仅用于防止模板漂移（维护性门禁），不构成执行期判据。
+
 ## 统一第 3 级采集契约（v1.4.0 起唯一权威口径）
 
 > 本章是**正文采集路径的唯一权威口径**。卡片 A 实测表明：无头原生 HTTP 抓取对微信正文仅约 38% 成功，且与有头采集的证据链不统一、G2 门禁须伪造 `[0,1]` 顺级、已移除的 2 级 firecrawl 全程零调用。自 v1.4.0 起**全部文章统一走第 3 级有头浏览器采集**；下文各章残留的「0→1→2→3」「1 级」「2 级」等历史措辞一律以本章为准，不构成可执行指令。
@@ -199,7 +208,7 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
    - 9.2 **第 3 级有头抓取回交（铁律：有头驱动，禁止无头回退 / 截图 OCR / 消费产物）**：遍历 `pending_fetch/` 下本卡 stub，经 `chrome-devtools` 在**已拉起的有头 360Chromex 实例内**真实打开每篇 `原文直链`（`mp.weixin.qq.com` 直链，禁止搜狗中转/反爬链接）——**用 chrome-devtools 的 MCP 工具（`navigate_page` → `take_snapshot` / `evaluate_script` 读取渲染后的 `js_content`）在可见浏览器中模拟真实用户加载并读取正文**，**严禁退回 `fetch()` / 无头 HTTP 直连抓取、严禁截图后 OCR、严禁把 chrome-devtools 当作无头抓取代理消费其产物；Agent 须亲自经其主 `SKILL.md` 工序驱动有头浏览器，而非委托其代抓**。抽取到的文章 Markdown（含元数据头，格式同步骤 6）覆写回同一 `<url>.md`，**去除 `<!-- NEEDS_FETCH -->` 标记**（文件名须与移交时一致；回交物须含 `# 文章标题` 头、真实直链、且非反爬验证码页）。
    - 9.3 **消费 handback（G3 强制复验）**：`node scripts/pipeline.js --workspace "[workspace]" --card [card] --ingest-pending --kb-id [knowledge_base_id] --folder-id [folder_id]` 重跑过滤 + 完整性闸门后再入库；仍含 `NEEDS_FETCH` 标记者视为 Agent 未取回、自动跳过。
    - 9.4 **回收隔离区**：`node scripts/pipeline.js --workspace "[workspace]" --card [card] --ingest-quarantine --kb-id [knowledge_base_id] --folder-id [folder_id]` 消费 `failed_quarantine/` 下未入库 `.md` 直接补入库（不通重搜）。
-   - 9.5 **闭环约束**：9.1–9.4 须在**当次会话内串起**，禁止将 `pending_fetch/` 与 `failed_quarantine/` 残留留待下一轮；完成后本卡 `pending_fetch/` stub 与 `failed_quarantine/` 本卡前缀残留均应清零（见各引导词闭环判据）。**无 Agent 编排在场时 第 3 级有头不执行**：本步骤降级为仅跑 9.4 隔离区补入，相关 stub 留待下一轮 Agent 编排（由「断点续跑与续跑守护」或定时任务接续）。
+   - 9.5 **闭环约束**：9.1–9.4 须在**当次会话内串起**，禁止将 `pending_fetch/` 与 `failed_quarantine/` 残留留待下一轮；完成后本卡 `pending_fetch/` stub 与 `failed_quarantine/` 本卡前缀残留均应清零（闭环判据见本章「收尾清扫」与 `state.js report --json` 输出；**不以 `引导词.md` 为判据来源**）。**无 Agent 编排在场时 第 3 级有头不执行**：本步骤降级为仅跑 9.4 隔离区补入，相关 stub 留待下一轮 Agent 编排（由「断点续跑与续跑守护」或定时任务接续）。
 
 10. 执行「复验」，输出**增强四栏清单**：必须以 `state.js report` 产出，**不得手工拼凑**。强烈建议带 `--kb-id` / `--folder-id` 走 KB 复核模式：
    ```bash
@@ -305,12 +314,12 @@ allowed-tools: Bash Read Write Edit WebFetch Skill ToolSearch DeferExecuteTool
 - **消费（pipeline.js 读）**：`--ingest-pending` 读取 `pending_fetch/*.md`；仍含 `<!-- NEEDS_FETCH -->` 视为 stub（Agent 未取回）→ 跳过；否则经 `validateHandback()` 形态验收（不合格者**拒收并保留文件**待重新回交，绝不进入 `import_doc`）→ 过滤 + 闸门 → 入库或标记失败。
 - **provenance 字段（Agent 回交写、代码层校验）**：每篇 handback 须带 provenance，供代码层做 provenance 校验（G3 硬门禁组成），字段定义为：`level`（恒为 3；2 级已移除）、`cdpPort`（所用有头实例 CDP 端口）、`pageUrl`（实际读取的渲染页 URL）、`agentSkill`（驱动该篇的第三方主 `SKILL.md`）、`extractedAt`（抽取时刻 ISO 8601）、`chars`（渲染正文字符数）、`batchId`（所属批次 ID）、`stubKey`（与移交时一致的 `pending_fetch` stub 确定性键）。**入库后 HTML 注释证据行会被 `import_doc` 剥离，故 handback 必须同时写可见 `采集证据：` 行，且完整 provenance 由 `mark-handback-consumed` / `updateBatchItem` 落入进度文件与批次清单**（B7）。
 - **「下载」定义（B 兜底 / 3 级，逐一序贯）**：「下载」指 Agent 在有头窗口内对每篇**逐一序贯**执行 `navigate_page`（打开真实直链）→ `evaluate_script` 读渲染后 `#js_content` 正文 → 落盘 handback（`pending_fetch/<url>.md`）；禁止并发批量，禁止依赖 `--filePath`（受工作区根约束，产物只落 `[workspace]` 内）。
-- **batch manifest（批次台账）**：主 Agent 按批次派发子 Agent，台账为 `[workspace]/_batch_<card>_<ts>.json`，每篇 state 取 `pending → inflight → done` 三态流转，收尾前由 `--verify-batch --batch-id "<批次ID>"` 门控复核（见引导词守护段收尾前门禁）。
+- **batch manifest（批次台账）**：主 Agent 按批次派发子 Agent，台账为 `[workspace]/_batch_<card>_<ts>.json`，每篇 state 取 `pending → inflight → done` 三态流转，收尾前由 `--verify-batch --batch-id "<批次ID>"` 门控复核（门禁定义见下条「批次闭环门禁」；**不以 `引导词.md` 为判据来源**）。
 - **批次闭环门禁 `--verify-batch --batch-id B [--json]`（收尾前，纯离线）**：该命令**不触碰 KB、不依赖 `ima_api.cjs`**，故**不带 `--kb-id` / `--folder-id`**；必须置于 `--ingest-pending` **之前**执行，未通过（退出码 1）则**禁止消费 handback、禁止写 `status=completed`**。其职责仅判定「批次是否可交付给 `--ingest-pending`」：`batchDone` 与 `provenanceValid` 全通过方可放行；`needsFetch` / 幽灵记录属消费后判据，由 `state.js report` 复核。
 - **level=3 独立 CDP 取证要求有头实例仍存活**：批次门禁对 provenance 中 `level=3` 的篇目，经 `resolve_midlink.js` 的 `verifyHeadedSession()` **直连 CDP `/json/version` + `/json/list`** 校验实例身份（拒 `WorkBuddy/Electron`）与 `pageUrl`（须存在同源已打开文章页），不采信 Agent 自述；该取证**要求有头浏览器实例仍存活**，故批次门禁**必须在关闭浏览器之前执行**，浏览器已关闭时须先经 `chrome-devtools` 重新拉起有头实例再跑门禁。
 - **消费端二次硬门禁（防调度方跳过批次门禁）**：`--ingest-pending` 对 `level=3` 另有硬门禁——批次清单中该 `stubKey` 的 `state` 必须为 `done`（即已通过 `--verify-batch` 独立取证），否则**拒收并保留文件**（日志「批次门禁拦截」），杜绝跳过批次门禁直接把「无头冒充有头」写进 KB。
 - **消费成功的状态迁移（F-02）**：`state.js` 新增 `mark-handback-consumed` 子命令，`--ingest-pending` 入库成功时经其把 `fetchStatus='needs-fetch'` 迁移为 `ok`、`ingestStatus` 迁移为 `ingested`，使 `report` 第 5 栏「移交Agent编排」存在归零路径（否则 `needsFetch` 恒 >0、闭环不可达）。
-- **写操作命令白名单（所有写操作必带 `--card`，唯一口径）**：综上，本技能所有 `pipeline.js` / `state.js` 写操作命令一律带 `--card <卡>`（卡前缀隔离、防跨卡污染），完整清单为：`pipeline.js` 的 `--search "<检索结果.json>"` / `--ingest-pending` / `--ingest-quarantine` / `--verify-batch --batch-id B`，以及 `state.js` 的 `mark-ingested` / `mark-failed` / `mark-filtered` / `mark-needs-fetch` / `mark-handback-consumed` / `set-attempts` / `reset-attempts` / `reset-card` / `update-card`；其中 `--verify-batch` 为纯离线门控，**仅豁免 `--kb-id` / `--folder-id`、不豁免 `--card`**（仍须带 `--workspace --card --batch-id B`），其余入库类命令均须同时带 `--kb-id` 与 `--folder-id`；引导词四套「关键命令」/「收尾轮转」的每条 node 命令均遵守本清单（由 `tests/test_pipeline_contract.js` 静态判据锁定）。
+- **写操作命令白名单（所有写操作必带 `--card`，唯一口径）**：综上，本技能所有 `pipeline.js` / `state.js` 写操作命令一律带 `--card <卡>`（卡前缀隔离、防跨卡污染），完整清单为：`pipeline.js` 的 `--search "<检索结果.json>"` / `--ingest-pending` / `--ingest-quarantine` / `--verify-batch --batch-id B`，以及 `state.js` 的 `mark-ingested` / `mark-failed` / `mark-filtered` / `mark-needs-fetch` / `mark-handback-consumed` / `set-attempts` / `reset-attempts` / `reset-card` / `update-card`；其中 `--verify-batch` 为纯离线门控，**仅豁免 `--kb-id` / `--folder-id`、不豁免 `--card`**（仍须带 `--workspace --card --batch-id B`），其余入库类命令均须同时带 `--kb-id` 与 `--folder-id`；本清单为本技能写操作的唯一权威口径，`引导词.md` 中的示例命令仅为参考模板、如与本清单冲突以本清单为准（由 `tests/test_pipeline_contract.js` 静态判据锁定）。
 
 ## 规则与知识库
 
