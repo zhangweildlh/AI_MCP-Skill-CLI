@@ -94,15 +94,17 @@
   - **网络访问**。
 - **备注**：父 Skill 完全自包含、不依赖/不加载其他技能定义；路径一律相对路径（基于 `{SKILL_ROOT}` 注入），可移植部署任一目录不失效；隐私门禁（手机号/身份证/密码脱敏）前置。
 
-### 5. code-review-combo（组合式代码审查）
+### 5. code-review-combo（组合式代码审查 / Skill 与文本规则审计）
 
-- **用途**：将两种互补的代码审查子技能——`open-code-review-delegate`（委托模式确定性审查）与 `review-spd`（五焦点语义深度审查）——交叉验证，产出**唯一合并审计报告**（人类可读文本 + 结构化 JSON）；为同一代码改动提供高置信度的单一审查结论。
+- **用途**：以父 `SKILL.md` 自编排，三路交叉验证（`ocr review` 原生审查 / `ocr delegate` 宿主委托主审 / `review-spd` 五焦点语义审查）经 `scripts/merge_reports` 确定性去重合并，产出**唯一合并审计报告**（人类可读 `.md` + 结构化 `.json`）。在既有程序代码审计基础上，经本地质量镜家族扩展支持**目录型 / 单文件型 Skill 结构审计**与**文本（规则、纪律）审计**；架构、五顶层键 Schema（`tool/mode/sources/findings/summary`）与单一写者契约不变，不新增第五路子技能，不引用 / 内联 / 调用任何外部 Skill。
 - **外部依赖 / 外部工具 / 外部需求**：
-  - **子技能**：`open-code-review-delegate`（中文增强委托审查，v1.1 衍生）、`review-spd`（五焦点语义深度审查，v1.1）。二者均纯提示词流程，无 shell/MCP 依赖。
-  - **适用场景**：GitHub 仓库、代码修改、代码提交；代码审查/审计/BUG 查找。
-  - **不适用**：纯非 GitHub/纯非 Git 文件夹的代码审查；非代码审查类任务（文档润色、需求分析）。
-  - **审查与执行严格分离**：审查阶段显式 `do-not-modify`，矛盾时输出单一权威报告而非多版并存。
-- **备注**：本技能承接了原根级单文件技能 `Skill-代码审查.md` 的能力（该文件已于 2026-08-03 删除）。
+  - **子技能（内嵌、自包含）**：`open-code-review-delegate`（委托模式确定性审查）、`review-spd`（五焦点语义深度审查）。二者均为纯提示词流程，无 shell / MCP 依赖。
+  - **本地质量镜（按参数追加挂载）**：`local/skill-audit-dimensions.md`（SA-1~9，单文件型 SA-2 标 `⊘`）、`local/text-rules-audit.md`（TR-1~6）；`local/super-philosophy.md`（S.U.P.E.R）为全类型恒挂基线镜。严重度映射唯一权威在 `SKILL.md`，两镜只保留指针不重复定义。
+  - **输入参数 `audit_target_type`**：`program-code` / `skill-dir` / `skill-file` / `text-rules` 四值，显式指定挂载镜组，无资格判定决策树、不反问用户。**缺省按目标形态推断**（目录 → `skill-dir`、单文件 → `skill-file`，无法判定才回退 `program-code`）；**非法取值回退 `program-code`** 并在报告注明。
+  - **适用场景**：Git 工作区 / 单提交 / 分支区间审查；**非 Git 文件夹**（Stage1 `ocr scan` 整库 / 目录扫描，全 Key 失效走通用非 Git 委托分支）；目录型 / 单文件型 Skill 审计；文本规则 / 纪律审计；项目级自定义规则；结构化 JSON 接入下游。
+  - **不适用**：非审查类任务（文档润色、需求分析、方案撰写）；形态不适用项按镜标 `⊘`，不进 `findings[]`。
+  - **审查与执行严格分离**：审查阶段显式 `do-not-modify`；矛盾时输出单一权威报告，不并列多版。
+- **备注**：本技能承接原根级单文件技能 `Skill-代码审查.md` 的能力（该文件已于 2026-08-03 删除）。当前内部版本 **1.2.0**；JSON 字段 `verified_by` 取四值 `ocr-only` / `delegate-only` / `review-spd-only` / `both`；`summary.severity_dist` 为严重度分布唯一权威字段，无顶层扁平 severity 别名。
 
 ### 6. mimo-code-collab（小米 MiMo 代码协同）
 
