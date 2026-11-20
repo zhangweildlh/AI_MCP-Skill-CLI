@@ -55,6 +55,12 @@ TEST_ENTRIES = [
          cmd=[PYTHON, "code-review-combo/review-spd/tests/test_review_context.py"], shell=False,
          kind="regression", risk="needs-api",
          note="review-spd 上下文测试；疑似需 provider/LLM，保守标 needs-api，默认门控"),
+    dict(scope="dir/code-review-combo", name="crc-matrix", path="code-review-combo/tests/verify_matrix.sh",
+         cmd=["bash", "code-review-combo/tests/verify_matrix.sh"], shell=False,
+         kind="regression", risk="offline",
+         note="v1.2.0 全场景 S1-S9 × 全边界 B1-B14 契约矩阵断言（scene/mirror/severity/morph/fallback/"
+              "residual/self-contained/schema/regression/manifest 十组）；纯静态离线，不调 ocr/LLM；"
+              "含 SKILL.md/local/tests 的自包含扫描（动态拼接禁用串，避免测试脚本自指命中）"),
 
     # ---- dir/github-personal-manager ----
     dict(scope="dir/github-personal-manager", name="gpm-smoke", path="github-personal-manager/smoke/run-smoke.sh",
