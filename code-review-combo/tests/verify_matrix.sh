@@ -9,7 +9,8 @@
 #   2. mirror-files        两镜文件存在非空 + SA-1~9 / TR-1~6 编号连续 + 严重度四值 + ⊘
 #   3. severity-mapping    致命→high / 严重→medium / 一般→low / ⊘ / critical 保留 + 文档不占 critical
 #   4. morph-applicability SA-2 单文件型 ⊘ + 非规则文本 TR ⊘（B10）
-#   5. fallback-routing    audit_target_type 缺省/非法回退 program-code，不反问不中断（B11）
+#   5. fallback-routing    audit_target_type 缺省按形态推断/非法回退 program-code，口径唯一（B11）
+#   5b. fallback-reverse   反向测试：注入「一律回退」矛盾口径，确认判据报错（T1 配套）
 #   6. residual-risks      两镜输出纪律含「无法定位者入 Residual Risks」（B12）
 #   7. self-contained      运行时文件零外部技能名 / URL / 跨技能调用（B14）
 #   8. schema-frozen       merge_reports + SKILL.md Schema 五顶层键未变（由 schema_parity.js 承担）
@@ -18,6 +19,10 @@
 #
 # 判据纪律：禁用 grep -q（SIGPIPE 假阴性，见 AGENTS.md 门禁铁律④）；内容断言一律
 #           用 node 逐文件 readFileSync，避免管道短读。退出码 = [FAIL] 组数。
+# 语义一致性纪律（2026-11-20 修复 T1）：对「同一决策点的多重表述」，禁止用
+#           「A 在场 && B 在场」这类字面判据（会把互斥口径共存固化为 PASS），
+#           须断言口径唯一；且判据改造必须配反向测试（注入矛盾→确认报错→还原，
+#           见门禁铁律②）。g_fallback / g_severity 均按此纪律重写。
 # 环境变量：CRC_MATRIX_SKIP_MANIFEST=1 时跳过第 10 组（配对 meta PR 尚未合入时使用；
 #           最终全量验证必须不带该变量重跑，确保登记已落地）。
 # ==========================================================================
@@ -73,19 +78,23 @@ g_mirrors() {
   ' "$ROOT"
 }
 
-# 3. severity-mapping
+# 3. severity-mapping（语义一致：唯一权威在 SKILL.md，两镜为指针不重复映射）
 g_severity() {
   "$NODE_BIN" -e '
     const fs=require("fs"),path=require("path");
     const root=process.argv[1]; let bad=0; const need=(n,c)=>{if(!c){console.log("   MISS "+n);bad++;}};
-    const files=["local/skill-audit-dimensions.md","local/text-rules-audit.md"];
-    for(const f of files){
+    // 唯一权威：SKILL.md 核心原则段必须含完整映射
+    const skill=fs.readFileSync(path.join(root,"SKILL.md"),"utf8");
+    need("权威 致命→high", /致命→high/.test(skill));
+    need("权威 严重→medium", /严重→medium/.test(skill));
+    need("权威 一般→low", /一般→low/.test(skill));
+    need("权威 critical 保留", skill.includes("critical") && skill.includes("运行时后果"));
+    need("权威 文档不占 critical", skill.includes("默认不占"));
+    // 两镜必须为指针，且不得重复映射表（单一事实源）
+    for(const f of ["local/skill-audit-dimensions.md","local/text-rules-audit.md"]){
       const t=fs.readFileSync(path.join(root,f),"utf8");
-      need(f+" 致命→high", /致命[^\n]*high|high[^\n]*致命/.test(t));
-      need(f+" 严重→medium", /严重[^\n]*medium|medium[^\n]*严重/.test(t));
-      need(f+" 一般→low", /一般[^\n]*low|low[^\n]*一般/.test(t));
-      need(f+" critical 保留", t.includes("critical") && t.includes("运行时后果"));
-      need(f+" 文档不占 critical", t.includes("默认不占"));
+      need(f+" 指向 SKILL 权威", /唯一权威在\s*`SKILL.md`/.test(t));
+      need(f+" 不重复映射", !/致命\s*→\s*`high`/.test(t));
     }
     process.exit(bad?1:0);
   ' "$ROOT"
@@ -106,18 +115,72 @@ g_morph() {
   ' "$ROOT"
 }
 
-# 5. fallback-routing (B11)
+# 5. fallback-routing (B11) —— 语义一致性判据
+#    修复 T1：旧判据 `s.includes("按目标形态推断") && s.includes("program-code")`
+#    把两个互斥口径「同时在场」当 PASS，等于奖励矛盾。新判据断言：
+#    ① 权威口径「按目标形态推断」在场；② 互斥口径「缺省/非法一律回退」不在场；
+#    ③ 非法取值回退程序路径在场；④ 不反问 / 不中断 / 报告注明在场。
 g_fallback() {
   "$NODE_BIN" -e '
-    const fs=require("fs");
-    const s=fs.readFileSync(process.argv[1],"utf8"); let bad=0; const need=(n,c)=>{if(!c){console.log("   MISS "+n);bad++;}};
-    need("缺省回退", s.includes("按目标形态推断") && s.includes("program-code"));
-    need("非法回退", s.includes("取值非法") && s.includes("回退 `program-code`"));
-    need("不中断", s.includes("不中断审查"));
-    need("不反问", s.includes("不反问用户"));
-    need("报告注明", s.includes("在报告注明"));
+    const fs=require("fs"),path=require("path");
+    const root=process.argv[1]; let bad=0; const need=(n,c)=>{if(!c){console.log("   MISS "+n);bad++;}};
+    const skill=fs.readFileSync(path.join(root,"SKILL.md"),"utf8");
+    const readme=fs.readFileSync(path.join(root,"README.md"),"utf8");
+    // ① 权威口径在场（参数表 + 异常处理 + README 三处一致）
+    need("权威口径 按形态推断", skill.includes("按目标形态推断"));
+    need("README 口径同步", readme.includes("缺省按目标形态推断"));
+    // ② 互斥口径不在场（核心：禁止矛盾表述）
+    need("SKILL 无一律回退", !/缺省[\/／]非法一律回退/.test(skill));
+    need("README 无一律回退", !/缺省[\/／]非法一律回退/.test(readme));
+    // ③ 非法回退路径在场
+    need("非法回退 program-code", skill.includes("非法取值回退"));
+    // ④ 路由纪律
+    need("不中断", skill.includes("不中断审查"));
+    need("不反问", skill.includes("不反问用户"));
+    need("报告注明", skill.includes("在报告注明"));
     process.exit(bad?1:0);
-  ' "$ROOT/SKILL.md"
+  ' "$ROOT"
+}
+
+# 5b. fallback-reverse（反向测试，T1 配套）：注入互斥口径，确认 g_fallback 判据报错
+#     判据若无法因注入矛盾而失败，即等于没有判据（门禁铁律②）。
+g_fallback_reverse() {
+  tmpdir="$(mktemp -d 2>/dev/null)" || { echo "   ERROR mktemp 失败"; return 1; }
+  trap 'rm -rf "$tmpdir"' RETURN
+  mkdir -p "$tmpdir/local"
+  cp "$ROOT/SKILL.md" "$tmpdir/SKILL.md"
+  cp "$ROOT/README.md" "$tmpdir/README.md"
+  # 注入矛盾：把权威参数表行替换为旧「一律回退」口径
+  "$NODE_BIN" -e '
+    const fs=require("fs"),path=require("path");
+    const d=process.argv[1];
+    const p=path.join(d,"SKILL.md");
+    let t=fs.readFileSync(p,"utf8");
+    t=t.replace("缺省按目标形态推断", "缺省/非法一律回退");
+    fs.writeFileSync(p,t);
+  ' "$tmpdir"
+  # 用同一判据函数检查注入后的临时目录：必须 FAIL（非零）
+  if g_fallback_on "$tmpdir" >/dev/null 2>&1; then
+    echo "   MISS 注入矛盾后判据仍 PASS（反向测试失败）"
+    return 1
+  fi
+  return 0
+}
+
+# g_fallback 的可注入版本：判据逻辑与 g_fallback 完全一致，仅入参 root 可替换
+g_fallback_on() {
+  "$NODE_BIN" -e '
+    const fs=require("fs"),path=require("path");
+    const root=process.argv[1]; let bad=0;
+    const skill=fs.readFileSync(path.join(root,"SKILL.md"),"utf8");
+    const readme=fs.readFileSync(path.join(root,"README.md"),"utf8");
+    if(!skill.includes("按目标形态推断")) bad++;
+    if(!readme.includes("缺省按目标形态推断")) bad++;
+    if(/缺省[\/／]非法一律回退/.test(skill)) bad++;
+    if(/缺省[\/／]非法一律回退/.test(readme)) bad++;
+    if(!skill.includes("非法取值回退")) bad++;
+    process.exit(bad?1:0);
+  ' "$1"
 }
 
 # 6. residual-risks (B12)
@@ -193,6 +256,7 @@ run_group mirror-files          g_mirrors
 run_group severity-mapping      g_severity
 run_group morph-applicability   g_morph
 run_group fallback-routing      g_fallback
+run_group fallback-reverse      g_fallback_reverse
 run_group residual-risks        g_residual
 run_group self-contained        g_selfcontained
 run_group schema-frozen         g_schema

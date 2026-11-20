@@ -61,5 +61,5 @@
 
 ## 适用 / 不适用场景补充
 
-- 适用：Git 工作区 / 提交 / 分支区间审查；无 Key 时走委托模式；已配 LLM 时切原生 review/scan；项目级自定义规则；结构化 JSON 接入下游。
-- 不适用：非 Git 仓库；期望后台常驻监控式扫描；期望纯 MCP 调用（本技能走命令行路径 B，MCP 见主技能 `open-code-review`）；未配 LLM 却要求原生 review/scan；超大单文件 diff 可能触发截断（默认 MAX_TOKENS 约 58888/请求），需拆分审查。
+- 适用：非 Git 仓库（`ocr scan` 整库扫描 / 全 Key 失效时走「通用非 Git 委托分支」兜底）；Git 工作区 / 提交 / 分支区间审查；无 Key 时走委托模式；已配 LLM 时切原生 review/scan；项目级自定义规则；结构化 JSON 接入下游。
+- 不适用：期望后台常驻监控式扫描；期望纯 MCP 调用（本技能走命令行路径 B，MCP 见主技能 `open-code-review`）；未配 LLM 却要求原生 review/scan；超大单文件 diff 可能触发截断（默认 MAX_TOKENS 约 58888/请求），需拆分审查。
