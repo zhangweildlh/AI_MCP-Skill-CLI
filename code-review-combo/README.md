@@ -1,10 +1,10 @@
 # code-review-combo 使用说明（README）
 
 > 本文件是 `code-review-combo` 技能的补充文档，承载**非功能性**的背景说明、完整示例与**上游演进跟进指南**。
-> 技能的执行逻辑、参数、四阶段工作流（Stage0 选择器 → Stage1 OCR 审查 → Stage2 review-spd 交叉验证 → Stage3 合并去重）、输出 Schema 与异常处理一律以同目录的 `SKILL.md` 为准。
+> 技能的执行逻辑、参数、Stage0~Stage4 完整工作流（路径核验 → Stage0 选择器 → Stage0.5 裁决器 + 契约面前置 → Stage1 三路并行 → Stage2 review-spd 交叉验证 → Stage3 确定性合并 → Stage3.5 裁决器复核 → Stage4 修复纪律）、输出 Schema 与异常处理一律以同目录的 `SKILL.md` 为准。
 > 运行本技能时只需激活 `code-review-combo`，不要单独激活其子技能。
 >
-> **v1.2.0 能力变更（相对 v1.1.0）**：新增本地质量镜家族扩展——新增输入参数 `audit_target_type`（`program-code` / `skill-dir` / `skill-file` / `text-rules`，缺省/非法回退 `program-code`），新增两组本地质量镜 `local/skill-audit-dimensions.md`（Skill 结构镜 SA-1~9）与 `local/text-rules-audit.md`（文本规则镜 TR-1~6）。由此支持目录型 / 单文件型 Skill 审计与文本规则 / 纪律审计。**不新增子技能、不改 merge_reports / JSON Schema / 三路流水线 / 单一写者契约**，发现统一以 `category: other` 走既有 `findings[]`；文档缺陷默认不占 `critical`。详见 `SKILL.md` Stage0.5.4 与 §7.3 明细表第 14/15 项。
+> **v1.2.0 能力变更（相对 v1.1.0）**：新增本地质量镜家族扩展——新增输入参数 `audit_target_type`（`program-code` / `skill-dir` / `skill-file` / `text-rules`，缺省按目标形态推断、非法取值回退 `program-code`），新增两组本地质量镜 `local/skill-audit-dimensions.md`（Skill 结构镜 SA-1~9）与 `local/text-rules-audit.md`（文本规则镜 TR-1~6）。由此支持目录型 / 单文件型 Skill 审计与文本规则 / 纪律审计。**不新增子技能、不改 merge_reports / JSON Schema / 三路流水线 / 单一写者契约**，发现统一以 `category: other` 走既有 `findings[]`；文档缺陷默认不占 `critical`。详见 `SKILL.md` Stage0.5.4 与 §7.3 明细表第 14/15 项。
 >
 > **v1.1.0 能力变更（相对 v1.0.1）**：① 新增 `freellmapi-auto` 本地代理 provider 作为首选 Key（直连 `http://127.0.0.1:31415/v1`，model=auto，无需 capture_proxy 中转）；② `config/providers.example.json` 模板同步更新，新增 `<FREE_LLM_API_KEY>` 占位符。详见 `SKILL.md` Stage0。
 >
@@ -54,7 +54,7 @@
 
 **输出（摘要）**：
 ```json
-{ "tool": "code-review-combo", "mode": "dual-cross-validation", "summary": { "files_reviewed": 3, "high": 1, "medium": 2, "ocr_only": 1, "delegate_only": 0, "review_spd_only": 1 } }
+{ "tool": "code-review-combo", "mode": "dual-cross-validation", "summary": { "files_reviewed": 3, "severity_dist": { "critical": 0, "high": 1, "medium": 2, "low": 0 }, "ocr_only": 1, "delegate_only": 0, "review_spd_only": 1 } }
 ```
 > 当委托报告（报告 A'）带 `delegate: true` 标记时，`mode` 为 `tri-cross-validation`、`summary` 额外含 `delegate_only`，`sources` 含 `open-code-review-delegate (host delegate)`；漏标则按两源 `dual-cross-validation` 处理。
 
@@ -74,7 +74,7 @@
 - `open-code-review-delegate` 委托模式无需 LLM Key；其原生 `review` / `scan` 需自行在 ocr `custom_providers` 配置 LLM（方案 β，非本技能默认路径）。
 - 报告 A / B 的 JSON 必须与各自文本同源（review-spd 已强制此纪律）；阶段三合并时再次核对，确保唯一审计报告与两份源报告一致。
 - 整库扫描（`ocr scan`）默认不启用；如需广度覆盖，按子技能说明配置 LLM 后启用，并将 scan 候选回灌阶段二供 review-spd 复核。
-- **`audit_target_type` 由调用方显式指定**：`program-code` / `skill-dir` / `skill-file` / `text-rules`，combo 仅按参数查表挂载质量镜，**不做资格判断、不反问用户**；缺省/非法一律回退 `program-code` 并在报告注明。
+- **`audit_target_type` 由调用方显式指定**：`program-code` / `skill-dir` / `skill-file` / `text-rules`，combo 仅按参数查表挂载质量镜，**不做资格判断、不反问用户**；缺省按目标形态推断（目录 → `skill-dir`、单文件 → `skill-file`，无法判定才回退 `program-code`），非法取值回退 `program-code`，并在报告注明。
 
 ---
 
