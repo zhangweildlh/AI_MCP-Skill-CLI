@@ -37,6 +37,7 @@ if [ -f "$SCRIPT_DIR_G/guard.sh" ]; then
 fi
 
 PROVIDER="${1:-}"
+
 if [ -z "$PROVIDER" ]; then
   echo "用法: bash tests/verify_combo.sh <provider>" >&2
   echo "  <provider> = 已配置的 provider 名 (例如 nvidia / sensenova)" >&2
@@ -78,6 +79,16 @@ OCR_BIN="$(command -v ocr || true)"
 NODE_BIN="$(command -v node || true)"
 
 overall=0
+
+# ---- 0.5 本地质量镜自审断言（离线，v1.2.0 新增；保持 needs-api 门控不变） ----
+# 验证两镜文件在场且非空；细节断言由 verify_matrix.sh 承担，此处仅做验收期快照。
+MIRROR_DIR="$SCRIPT_DIR_G/../local"
+if [ -s "$MIRROR_DIR/skill-audit-dimensions.md" ] && [ -s "$MIRROR_DIR/text-rules-audit.md" ]; then
+  echo "  RESULT mirror-files: PASS (SA/TR 两镜在场且非空)"
+else
+  echo "  RESULT mirror-files: FAIL (缺 skill-audit-dimensions.md / text-rules-audit.md)" >&2
+  overall=1
+fi
 
 echo "=============================================="
 echo " code-review-combo 验收验证 (provider=$PROVIDER)"

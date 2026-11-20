@@ -1,8 +1,8 @@
 ---
 name: code-review-combo
-description: "功能：将两种互补的代码审查子技能（open-code-review 委托模式确定性审查 + delegate 升平等主审 + review-spd 五焦点语义深度审查）三路交叉验证，产出唯一合并审计报告（人类可读文本 + 结构化 JSON），为同一代码改动提供高置信度的单一审查结论。关键词：代码审查、代码审计、代码检查、协同审查、BUG审查、查找BUG、审查提交、审查分支、审查PR、多 Key 轮询（probe 探测 Key 活/死）、delegate 平等主审、非 Git 审查。当用户要求审查代码改动、提交、分支或工作区时触发；当用户提及上述关键词时触发。适用于 Git 仓库的代码改动审查（工作区未提交改动、单提交、分支对比、PR 式 diff），也支持非 Git 文件夹（走 scan 整库扫描或全 Key 失效时的通用非 Git 委托分支兜底）。不适用于非代码审查类任务（如文档润色、需求分析）。"
+description: "功能：将两种互补的代码审查子技能（open-code-review 委托模式确定性审查 + delegate 升平等主审 + review-spd 五焦点语义深度审查）三路交叉验证，产出唯一合并审计报告（人类可读文本 + 结构化 JSON），为同一代码改动提供高置信度的单一审查结论；并通过本地质量镜支持 Skill 结构审计（目录型/单文件型）与文本规则/纪律审计（由 audit_target_type 显式挂载，发现走既有 category:other 通道，不改 Schema）。关键词：代码审查、代码审计、代码检查、协同审查、BUG审查、查找BUG、审查提交、审查分支、审查PR、多 Key 轮询（probe 探测 Key 活/死）、delegate 平等主审、非 Git 审查、审查 Skill / 审计 Skill / Skill 校验 / 检查 Skill 定义 / 规则审计 / 纪律审计 / 文本规则审查 / 规范一致性检查 / 目录型 Skill 审计 / 单文件 Skill 审计。当用户要求审查代码改动、提交、分支或工作区时触发；当用户要求审计 Skill 定义或规则/纪律文本时触发；当用户提及上述关键词时触发。适用于 Git 仓库的代码改动审查（工作区未提交改动、单提交、分支对比、PR 式 diff），也支持非 Git 文件夹（走 scan 整库扫描或全 Key 失效时的通用非 Git 委托分支兜底），以及目录型/单文件型 Skill 与规则/纪律文本的审计。"
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # 联合代码审查（code-review-combo）
@@ -27,6 +27,7 @@ metadata:
 - 查找 BUG / 找 bug / 查 bug / BUG 审查
 - 多 Key 轮询审查 / 多模型交叉验证审查 / 全 Key 失效兜底审查
 - 非 Git 审查 / 整库扫描审查 / 委托模式审查 / delegate 审查 / host LLM 主审
+- 审查 Skill / 审计 Skill / Skill 校验 / 检查 Skill 定义 / 规则审计 / 纪律审计 / 文本规则审查 / 规范一致性检查 / 目录型 Skill 审计 / 单文件 Skill 审计
 
 > 注：`open-code-review-delegate` 与 `review-spd` 作为纯镜像 / 覆盖层内嵌于本技能，**不要单独激活**；全部编排由本技能（父 SKILL.md）统一驱动。
 
@@ -48,6 +49,7 @@ metadata:
 | commit_hash | 字符串 | 否 | 单提交审查的提交哈希（对应 `<commit_hash>`） |
 | branch | 字符串 | 否 | 分支对比时的分支名（对应 `<branch>`；与 from_ref/to_ref 二选一） |
 | path_filter | 字符串 | 否 | 当目标为某 Git **仓库的子目录**（而非仓库根）时，指定相对仓库根的子目录路径（如 `github-personal-manager`）。用于把审查范围精确收敛到该子目录，避免范围失控扩大到整个父仓库。省略则按 `target_repo` 整仓审查。 |
+| audit_target_type | 字符串 | 否（默认 `program-code`） | 审计对象类型：`program-code` / `skill-dir` / `skill-file` / `text-rules`。由调用方显式指定，决定挂载哪组质量镜，不触发任何资格判断分支。缺省/非法一律回退 `program-code`（详见「异常处理」）。 |
 
 ## 核心原则：三路交叉验证（不叠加、不重复劳动）
 
@@ -59,6 +61,8 @@ Stage1 并行跑三路：`ocr review`（外部 Key，广覆盖 + 规则分组）
 `ocr delegate` 已升为与 `ocr review` **平等的「主审」**（不再是全 Key 失效才兜底的从属路径），与 OCR 原生审查互补；三者统一在 Stage3 由 `merge_reports` 确定性合并去重，既保留「多引擎交叉验证」价值，又避免纯重复劳动与结论打架。
 
 **架构质量镜（S.U.P.E.R，跨切面）**：三路审查同时套用 `./local/super-philosophy.md` 的「S.U.P.E.R 10 项评审核查」作为架构质量维度（单一职责 / 单向流 / 端口优于实现 / 环境无关 / 可替换），补足 combo 此前「仅缺陷维度」的缺口。架构质量问题（如硬编码密钥、循环依赖、不可序列化 I/O、隐式全局依赖）以 `category: other` 的发现产出（severity 由宿主在 Stage3 据实判定；安全类密钥泄漏升 `security`）。**不新增第 4 条审查路、不改 `merge_reports` 的确定性合并逻辑**——S.U.P.E.R 只是各路与宿主共享的检查清单，产出走既有 `findings[]` 通道。
+
+**Skill 与文本质量镜（跨切面，与 S.U.P.E.R 并列）**：另两组本地质量镜，按 `audit_target_type` 挂载——`skill-dir` / `skill-file` → `./local/skill-audit-dimensions.md`（Skill 结构镜 SA-1~9）；`text-rules` → `./local/text-rules-audit.md`（文本规则镜 TR-1~6）；`skill-dir` / `skill-file` 同时套用两组（Skill 结构镜 + 文本规则镜）。各路与宿主套用其维度，发现以 `category: other` 走既有 `findings[]`，严重度按两镜文件内「严重度口径」映射（`致命→high` / `严重→medium` / `一般→low` / `⊘` 为形态不适用标记；`critical` 仅留给运行时后果，文档缺陷默认不占，明文凭证等直接致运行时危害者升 `security`/`critical`）。**不新增子技能、不改 `merge_reports`、`JSON Schema`、三路流水线与单一写者契约**——与 S.U.P.E.R 同为跨切面检查清单。
 
 ## 工作流（路径核验 → Stage0 选择器 probe 探测 Key 活/死 → Stage0.5 裁决器 + 契约面前置 → Stage1 OCR 原生审查 + delegate 平等主审 + review-spd 三路并行 → Stage2 review-spd 交叉验证 → Stage3 merge_reports 合并去重 → Stage3.5 裁决器复核 → Stage4 修复纪律）
 
@@ -166,6 +170,25 @@ bash ./scripts/select-provider probe [-c <config>]   # 默认读本技能目录 
 写入任务笔记作为对齐基准：
 - 「本次审查覆盖到哪 / 不覆盖到哪 / 为何不覆盖」
 - 该笔记将在 Stage1 注入为三路共享的业务上下文 `-b` 的一部分
+
+#### 0.5.4 质量镜选择（显式、无判断）
+
+> **独立性声明**：本步骤同样独立于 Stage0 的 Key 活/死结果，且**不做任何「值不值得审 / 用哪级质量门」的资格判断**。
+
+宿主按 `audit_target_type` **查表**声明本次启用的质量镜集合，写入 0.5.3 的覆盖边界笔记，并注入三路共享上下文 `-b`：
+
+> S.U.P.E.R 是**既有基线镜**，对全部 `audit_target_type` 恒挂载（见「核心原则」）；下表仅列按参数**追加**的镜。
+
+| `audit_target_type` | 追加挂载的质量镜 |
+|---------------------|-----------------|
+| `program-code`（缺省/非法回退） | 无追加（仅 S.U.P.E.R 基线） |
+| `skill-dir` | Skill 结构镜（`./local/skill-audit-dimensions.md`）+ 文本规则镜（`./local/text-rules-audit.md`） |
+| `skill-file` | Skill 结构镜（SA-2 标 ⊘）+ 文本规则镜 |
+| `text-rules` | 文本规则镜（`./local/text-rules-audit.md`） |
+
+- 该映射为**纯路由**：由调用方给定的参数直接决定，**禁止**基于「对象的价值 / 复杂度 / 是否值得」做任何层级推断或反问用户。
+- 无论挂载哪组镜，**三路审查链路、Schema、`merge_reports`、单一写者契约全部不变**；各镜的发现统一以 `category: other` 进入既有 `findings[]`。
+- 每维度先判「适用 / ⊘ 不适用」；形态不适用项（如单文件型的 SA-2）标 `⊘`，**不计入问题、不计入严重度分布**（对应「异常处理」B-10）。
 
 ### Stage1：OCR 原生审查 + delegate 平等主审 + review-spd 并行（多 Key / 全 Key 失效降级）→ 报告 A / A' / B
 
@@ -407,6 +430,9 @@ combo 的编排遵循「单一写者」模型（writer model），与上游执�
 - **无可审查内容**（工作区干净且无分支 / 提交差异，或 preview 全 `excluded`，或 scan 命中 0 文件）：输出「No findings（无可审查改动）」并附 `Residual Risks`。
 - **OCR CLI 安装 / 自检失败**（open-code-review-delegate 子技能前置异常）：停止并展示失败原因，提示检查 npm / 网络；不编造 LLM Key。
 - **Stage3 后 findings 为空**：唯一审计报告输出「No findings」，附 `Testing Gaps` / `Residual Risks`。
+- **目标为 Skill 文件或目录但未指定 `audit_target_type`**：按目标形态推断（单文件 → `skill-file`、目录 → `skill-dir`）作为缺省值，不追问用户；若无法从目标形态判定，则回退 `program-code`。在报告的覆盖边界笔记中注明所采用的缺省值。
+- **`audit_target_type` 取值非法**（非 `program-code` / `skill-dir` / `skill-file` / `text-rules` 四值之一）：回退 `program-code` 并在报告注明「非法取值已回退」，**不中断审查、不反问用户**。
+- **质量镜发现无法定位到具体行/章节**（如结构缺失、规则冲突属整体性问题）：写入 `Residual Risks`，**不进 findings[]**；不得为凑数强行赋 `path`/`start_line`。
 
 ## 示例与上游跟进
 

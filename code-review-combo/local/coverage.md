@@ -49,6 +49,16 @@
 - `ocr viewer <session>` 查看某次审查的结构化报告。
 - `ocr session list` 列出历史审查会话，便于回溯与对比。
 
+## 本地质量镜覆盖（按 audit_target_type 挂载，零 Schema 变更）
+
+| 质量镜 | 维度 | 挂载的 audit_target_type | 产出通道 |
+|--------|------|--------------------------|----------|
+| S.U.P.E.R 架构镜 | 10 项评审核查 | 全部（缺省基线） | category: other → findings[] |
+| Skill 结构镜 | SA-1 ~ SA-9 | `skill-dir` / `skill-file` | category: other → findings[] |
+| 文本规则镜 | TR-1 ~ TR-6 | `skill-dir` / `skill-file` / `text-rules` | category: other → findings[] |
+
+> 三镜均为跨切面检查清单，与 ocr / delegate / review-spd 三路并行叠加，不新增审查路、不改 merge_reports / Schema。
+
 ## 适用 / 不适用场景补充
 
 - 适用：Git 工作区 / 提交 / 分支区间审查；无 Key 时走委托模式；已配 LLM 时切原生 review/scan；项目级自定义规则；结构化 JSON 接入下游。

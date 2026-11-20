@@ -35,6 +35,11 @@
 | APPROVED / FIXED / ESCALATE | 通过 / 已修复 / 需上报 | 报告最终裁决 |
 | findings | 问题项(findings) | 单条审计发现 |
 | dropped_style | 丢弃的样式噪音(dropped_style) | 被当噪音剔除、不计入问题的项 |
+| SA-* | Skill 结构项(SA-*) | 本地 Skill 结构镜发现（category: other 子类标签） |
+| TR-* | 文本规则项(TR-*) | 本地文本规则镜发现（category: other 子类标签） |
+
+> SA-* / TR-* 仅为 `other` 类内部的子类标签，用于人类可读报告定位；**不新增编号前缀**，
+> 「③ 问题逐条清单」的编号仍按下方规则 `other → O1-O99`，底层 JSON 的 category 仍为 `other`。
 
 ### 编号规则（用于「③ 问题逐条清单」的「编号」列）
 
