@@ -254,7 +254,7 @@ findings.forEach(function (f) {
   (f._sources || [f.source]).forEach(function (s) {
     summary.by_source[s] = (summary.by_source[s] || 0) + 1;
   });
-  if (summary[f.severity] != null) summary[f.severity] += 1;   // 兼容旧字段
+  // 扁平别名已废弃（severity 唯一权威字段为 severity_dist），不再回填顶层 critical/high/medium/low。
   if (summary.severity_dist[f.severity] != null) summary.severity_dist[f.severity] += 1;
   summary.category_dist[f.category] = (summary.category_dist[f.category] || 0) + 1;
   summary.verified_by[f.verified_by] = (summary.verified_by[f.verified_by] || 0) + 1;

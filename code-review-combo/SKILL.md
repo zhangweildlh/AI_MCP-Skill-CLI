@@ -12,7 +12,7 @@ metadata:
 - `./open-code-review-delegate/SKILL.md` —— 基于 open-code-review（OCR）的委托模式。OCR 承担确定性工程（范围筛选、规则解析、整库扫描），宿主承担语义审查；其 SKILL.md 内置 `ocr` CLI 的**自动安装与自检查**，无需 LLM Key 即可走委托模式。
 - `./review-spd/SKILL.md` —— findings-first 五焦点（正确性 / 回归兼容 / 测试 / 安全 / 性能并发）强制语义深度审查，自带 `./review-spd/scripts/review-context.py` 收集 git 上下文。
 
-> **术语约定**：正文中的「open-code-review-delegate 子技能」与其底层工具「OCR / ocr」指代同一子技能；JSON 字段 `verified_by` 取值 `ocr-only` 即「仅 open-code-review-delegate 子技能发现」，`review-spd-only` 即「仅 review-spd 子技能发现」，`both` 即「两者共同确认」（完整三值释义见 README「二、术语约定」）。
+> **术语约定**：正文中的「open-code-review-delegate 子技能」与其底层工具「OCR / ocr」指代同一子技能；JSON 字段 `verified_by` 取值 `ocr-only` 即「仅 `ocr` 原生审查发现」、`delegate-only` 即「仅 `ocr delegate` 宿主委托主审发现」、`review-spd-only` 即「仅 review-spd 发现」，`both` 即「多源（ocr / delegate / review-spd 任意组合）共同确认」（完整四值释义见 README「二、术语约定」）。
 
 > **调用约定**：本技能不通过 Skill 工具单独激活任一子技能，而是**直接读取子目录的 SKILL.md 并按其指令执行**（子技能未单独安装）。请勿在本技能运行时再单独触发 open-code-review-delegate 或 review-spd，避免重复与结论冲突。
 
@@ -49,7 +49,7 @@ metadata:
 | commit_hash | 字符串 | 否 | 单提交审查的提交哈希（对应 `<commit_hash>`） |
 | branch | 字符串 | 否 | 分支对比时的分支名（对应 `<branch>`；与 from_ref/to_ref 二选一） |
 | path_filter | 字符串 | 否 | 当目标为某 Git **仓库的子目录**（而非仓库根）时，指定相对仓库根的子目录路径（如 `github-personal-manager`）。用于把审查范围精确收敛到该子目录，避免范围失控扩大到整个父仓库。省略则按 `target_repo` 整仓审查。 |
-| audit_target_type | 字符串 | 否（默认 `program-code`） | 审计对象类型：`program-code` / `skill-dir` / `skill-file` / `text-rules`。由调用方显式指定，决定挂载哪组质量镜，不触发任何资格判断分支。缺省/非法一律回退 `program-code`（详见「异常处理」）。 |
+| audit_target_type | 字符串 | 否（缺省按目标形态推断） | 审计对象类型：`program-code` / `skill-dir` / `skill-file` / `text-rules`。由调用方显式指定，决定挂载哪组质量镜，不触发任何资格判断分支。**缺省按目标形态推断**（目录 → `skill-dir`、单文件 → `skill-file`；无法从目标形态判定才回退 `program-code`），**非法取值回退 `program-code`**（详见「异常处理」）。 |
 
 ## 核心原则：三路交叉验证（不叠加、不重复劳动）
 
@@ -181,7 +181,7 @@ bash ./scripts/select-provider probe [-c <config>]   # 默认读本技能目录 
 
 | `audit_target_type` | 追加挂载的质量镜 |
 |---------------------|-----------------|
-| `program-code`（缺省/非法回退） | 无追加（仅 S.U.P.E.R 基线） |
+| `program-code`（非法取值回退 / 无法判定目标形态时回退） | 无追加（仅 S.U.P.E.R 基线） |
 | `skill-dir` | Skill 结构镜（`./local/skill-audit-dimensions.md`）+ 文本规则镜（`./local/text-rules-audit.md`） |
 | `skill-file` | Skill 结构镜（SA-2 标 ⊘）+ 文本规则镜 |
 | `text-rules` | 文本规则镜（`./local/text-rules-audit.md`） |
