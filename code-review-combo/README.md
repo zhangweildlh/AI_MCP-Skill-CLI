@@ -4,6 +4,8 @@
 > 技能的执行逻辑、参数、四阶段工作流（Stage0 选择器 → Stage1 OCR 审查 → Stage2 review-spd 交叉验证 → Stage3 合并去重）、输出 Schema 与异常处理一律以同目录的 `SKILL.md` 为准。
 > 运行本技能时只需激活 `code-review-combo`，不要单独激活其子技能。
 >
+> **v1.2.0 能力变更（相对 v1.1.0）**：新增本地质量镜家族扩展——新增输入参数 `audit_target_type`（`program-code` / `skill-dir` / `skill-file` / `text-rules`，缺省/非法回退 `program-code`），新增两组本地质量镜 `local/skill-audit-dimensions.md`（Skill 结构镜 SA-1~9）与 `local/text-rules-audit.md`（文本规则镜 TR-1~6）。由此支持目录型 / 单文件型 Skill 审计与文本规则 / 纪律审计。**不新增子技能、不改 merge_reports / JSON Schema / 三路流水线 / 单一写者契约**，发现统一以 `category: other` 走既有 `findings[]`；文档缺陷默认不占 `critical`。详见 `SKILL.md` Stage0.5.4 与 §7.3 明细表第 14/15 项。
+>
 > **v1.1.0 能力变更（相对 v1.0.1）**：① 新增 `freellmapi-auto` 本地代理 provider 作为首选 Key（直连 `http://127.0.0.1:31415/v1`，model=auto，无需 capture_proxy 中转）；② `config/providers.example.json` 模板同步更新，新增 `<FREE_LLM_API_KEY>` 占位符。详见 `SKILL.md` Stage0。
 >
 > **v1.0.1 能力变更（相对早期版本）**：① 新增 **Stage0 多 Key 轮询选择器**（`scripts/select-provider` + ocr `custom_providers`，方案 β 跨厂商多 Key，全 Key 失效降级委托）；② **非 Git 目标自 v1.0.1 起支持**（`ocr scan` 整库扫描，或全 Key 失效时走「通用非 Git 委托分支」兜底），不再拒绝非 Git 文件夹。详见 `SKILL.md` Stage0 / Stage1 / 异常处理。
@@ -72,6 +74,7 @@
 - `open-code-review-delegate` 委托模式无需 LLM Key；其原生 `review` / `scan` 需自行在 ocr `custom_providers` 配置 LLM（方案 β，非本技能默认路径）。
 - 报告 A / B 的 JSON 必须与各自文本同源（review-spd 已强制此纪律）；阶段三合并时再次核对，确保唯一审计报告与两份源报告一致。
 - 整库扫描（`ocr scan`）默认不启用；如需广度覆盖，按子技能说明配置 LLM 后启用，并将 scan 候选回灌阶段二供 review-spd 复核。
+- **`audit_target_type` 由调用方显式指定**：`program-code` / `skill-dir` / `skill-file` / `text-rules`，combo 仅按参数查表挂载质量镜，**不做资格判断、不反问用户**；缺省/非法一律回退 `program-code` 并在报告注明。
 
 ---
 
@@ -256,6 +259,7 @@ gh api repos/zhu1090093659/spec_driven_develop/contents/plugins/spec-driven-deve
 
 | 同步时间 | 子技能 | 上游 SHA / 版本 | 改动摘要 |
 |----------|--------|----------------|----------|
+| 2026-11-20 | **本地增强（非上游同步）** | combo 自有 v1.2.0 | 新增 `audit_target_type` 参数 + 两组本地质量镜（`local/skill-audit-dimensions.md` SA-1~9 / `local/text-rules-audit.md` TR-1~6），支持目录型/单文件型 Skill 审计与文本规则/纪律审计。判据为 combo 自有定义（仅借鉴通用元技能质量模型的分类思想，非任何第三方仓库的代码镜像），零外部技能引用 / 零 URL / 零调用。新增 `tests/verify_matrix.sh`（全场景 S1-S9 × 全边界 B1-B14 离线契约矩阵）与 3 份 fixtures；`guard.sh` 扩展引用存在性；`report-narrative.md` / `coverage.md` 同步登记。架构保真：`merge_reports` / JSON Schema / 三路流水线 / 单一写者 / category:other 全部零改动。 |
 | 2026-10-23 | open-code-review-delegate doc 同步升级 | 上游 `alibaba/open-code-review` @ **v1.13.3**（纯镜像：顶部 HTML 注释镜像声明 + frontmatter `disable-model-invocation: true` 为本地增强，正文可整文件覆盖） | 上游自 v1.12.11 演进至 v1.13.3（含 2026-10-20 提交 `375f64c`；本地 `ocr --version` 实测亦 v1.13.3）。delegate `SKILL.md` 增量更新：**Step 3 取 diff 命令全面硬化**——改为 `git --no-pager diff --no-ext-diff --no-textconv --no-color`（禁用外部 diff 程序 / textconv / 颜色，输出纯补丁）、路径统一加引号；**新增「读上下文」指引**（`git log --oneline` / `git blame` / `git show "<ref>:<path>"`）；**新增大 diff 落盘机制**（`--output="<absolute-diff-file>"` + 分块读全文 + 读后删除 + 失败/超时记 `skipped` + 空输出须回查 preview）。JSON Schema（8 类 `category` / 4 类 `severity`）与 `ocr delegate preview/rule --format json` 命令参数均未变化，对 combo Stage1（ocr 调用）/ Stage3（裁决）与 delegate 第三源改造**无破坏影响**。按 7.5-A 整文件覆盖上游 v1.13.3 正文并补回本地增强（顶部镜像声明 + `disable-model-invocation: true`），`version` 注释中的 CLI 实测值同步更新为 v1.13.3；经 `diff` 确认与上游 v1.13.3 逐字一致（仅 `disable-model-invocation: true` 与 `version` 注释 2 处本地增强偏离）。回归 `tests/guard.sh`（仓库卫生 OK）、`tests/test_merge_reports.sh`（两报告向后兼容 + 三报告 delegate 第三源全 PASS）、`tests/verify_combo.sh`（guard PASS）均通过。**review-spd 真上游仍冻结 `d5d3477`、combo 副本（fork `35cc1e8`）领先上游，三项融合范式 blob SHA（`3eb0550` / `37e2c6c` / `ca48847`）复核一致，本次均无需跟随。** |
 | 2026-10-01 | open-code-review-delegate doc 同步升级 | 上游 `alibaba/open-code-review` @ **v1.12.11**（纯镜像：顶部 HTML 注释镜像声明 + frontmatter `disable-model-invocation: true` 为本地增强，正文可整文件覆盖） | 上游自 v1.9.5 演进至 v1.12.11（跨 3 大版本）。delegate `SKILL.md` 增量更新：**删除 `Prerequisites` 段**（安装自检已抽离 `local/setup.md`）、**新增 `Recovering Oversized Background Context` 与 `Troubleshooting CLI Version Compatibility` 两段**；JSON Schema（8 类 `category` / 4 类 `severity`）与 `ocr delegate preview/rule --format json` 命令参数均未变化。对 combo Stage1（ocr 调用）/ Stage3（裁决）与 delegate 第三源改造**无破坏影响**。正文经 `diff` 确认与上游 v1.12.11 逐字一致。回归 `tests/test_merge_reports.sh`（两报告向后兼容 + 三报告 delegate 第三源全 PASS）与 `tests/guard.sh`（仓库卫生 OK）均通过。 |
 | 2026-09-30 | **delegate 第三源支持（非上游同步）** | combo 本地提交（见 PR） | `scripts/merge_reports` 支持 ocr / delegate / review-spd 三源识别：delegate 报告须带 `delegate: true`（或 `mode: "delegate"`）标记方识别为独立第三源，与 ocr / review-spd 跨源交叉验证成 `both`；无标记回退 `ocr`（向后兼容）。`verified_by` 新增 `delegate-only`、`summary` 新增 `delegate_only` 与 `by_source.delegate`，`mode` 按实际源数动态取 `dual-cross-validation` / `tri-cross-validation`，`sources` 按输入动态计算。新增 `tests/fixtures/delegate_report.json` 与三源回归断言（保留两报告契约不变）。`SKILL.md` 用法示例 / 输出 Schema / 避坑小节、`delegate-json-schema.md` 标记纪律、`README.md` 术语与字段表同步更新。回归 `tests/test_merge_reports.sh` 两报告 + 三报告全 PASS。 |
@@ -312,18 +316,25 @@ code-review-combo/
 │   ├── coverage.md                  【本地化】全面功能覆盖表
 │   ├── delegate-json-schema.md      【本地化】委托模式宿主 JSON Schema 包装（字段统一 content）
 │   ├── super-philosophy.md          【融合·S.U.P.E.R 架构质量镜】10 项评审核查（跨切面维度，MIT 署名，来源 super-philosophy.md @ 3eb0550）
+│   ├── skill-audit-dimensions.md    【本地增强·Skill 结构质量镜】SA-1~9（跨切面维度，目录型/单文件型；按 audit_target_type=skill-dir/skill-file 挂载）
+│   ├── text-rules-audit.md          【本地增强·文本规则质量镜】TR-1~6（跨切面维度，规则/纪律文本；按 audit_target_type=skill-dir/skill-file/text-rules 挂载）
 │   └── report-narrative.md          【本地化】人类报告 prompt 模板（只叙事不裁决；含 Verdict 段）
 ├── open-code-review-delegate/       【上游纯镜像】alibaba/open-code-review @ v1.13.3，仅 SKILL.md
 │   └── SKILL.md                     （顶部 6 行中文头部注释声明镜像；跟进即覆盖此文件）
 ├── tests/                           【combo 本地·离线回归与卫生】
 │   ├── test_merge_reports.sh        【combo 增强】Stage3 合并确定性回归（16/16，含三源delegate 交叉）
 │   ├── verify_combo.sh              【combo 增强】Phase5 验收（含 guard.sh 离线门禁）
+│   ├── verify_matrix.sh             【combo 增强·v1.2.0】全场景 S1-S9 × 全边界 B1-B14 契约矩阵断言（离线，经 run_all.py 调度）
 │   ├── guard.sh                     【融合·仓库一致性守卫】引用存在性/版本一致/JSON合法/py_compile/Schema双向一致（MIT 署名，来源 validate.sh @ ca48847）
 │   ├── schema_parity.js             【combo 增强·2026-10-13】guard 的 (e) 项实现：merge_reports 输出 ↔ SKILL.md Schema 双向一致性比对（独立成文件以避开 bash -c '...' 与 JS 反引号的嵌套冲突）
 │   └── fixtures/                    【combo 增强】回归输入样本
 │       ├── ocr_report.json          （OCR 原生审查报告样本，含 comments[]与 8 类 category）
 │       ├── delegate_report.json     （ocr delegate 宿主主审报告样本，含 delegate:true 标记）
-│       └── reviewspd_report.md      （review-spd 报告样本，含 ```json findings[] 块）
+│       ├── reviewspd_report.md      （review-spd 报告样本，含 ```json findings[] 块）
+│       ├── skill-dir-sample/        （矩阵 fixture：目录型 Skill 样本，含 SA-2 可判定目录名结构）
+│       │   └── SKILL.md
+│       ├── skill-file-sample.md     （矩阵 fixture：单文件型 Skill 样本，SA-2 应标 ⊘）
+│       └── text-rules-sample.md     （矩阵 fixture：含 TR-1 矛盾 + TR-5 过度声称的负向样本）
 └── review-spd/                      【fork 覆盖层】zhangweildlh/spec_driven_develop @ 35cc1e8（领先真上游 d5d3477）
     ├── SKILL.md                     （非纯镜像：含 Dual output 指令层 + combo 自加 --path 特性）
     ├── references/
@@ -371,6 +382,8 @@ code-review-combo/
 | 11 | 裁决契约（writer model） | combo 已有单一写者设计但未显式立约 | 显式「子技能只出报告 / 宿主唯一写者 / APPROVED·FIXED·ESCALATE 裁决」契约 | 父 `SKILL.md` 加「Stage3 裁决契约」段（融合 `code-reviewer.md` @ `37e2c6c`，MIT 署名）；`local/report-narrative.md` 加 Verdict 段 | 改 `SKILL.md`、`local/report-narrative.md` | 不改三路流水线与 `merge_reports` | 把隐式设计显式化，便于维护与陌生 Agent 跟进 |
 | 12 | 仓库一致性守卫 | combo 有测试但缺引用/版本/JSON 卫生守卫 | 离线 repo 卫生（引用存在性/版本一致/JSON合法/py_compile） | 新增 `tests/guard.sh`（融合 `validate.sh` @ `ca48847`，MIT 署名）；`verify_combo.sh` 调 `guard.sh` | 新增 `tests/guard.sh`；改 `tests/verify_combo.sh` | 与三路流水线正交，无运行时依赖 | 补齐仓库健壮性，机制上可 drop-in |
 | 13 | merge_reports delegate 第三源 | 委托报告（报告 A'）与 ocr review（报告 A）同用 `comments[]`，旧逻辑统归 `ocr` 源，同键被当同源碰撞拆近重复 `ocr-only`，致 `summary.ocr_only` 虚高 | Stage3 三源（ocr / delegate / review-spd）真交叉验证 | `merge_reports` 识别 delegate 报告顶层 `delegate: true`（或 `mode: "delegate"`）标记为独立第三源，与 ocr / review-spd 跨源互验；`verified_by` 增 `delegate-only`、`summary` 增 `delegate_only` 与 `by_source.delegate`，`mode`/`sources` 动态计算；新增 `tests/fixtures/delegate_report.json` + 三源回归断言（两报告契约不变） | 改 `scripts/merge_reports` | 改动 `scripts/merge_reports`、`tests/test_merge_reports.sh`、新增 `tests/fixtures/delegate_report.json` | Stage3 调用；输出被 `local/report-narrative.md` 消费 |
+| 14 | Skill 结构质量镜（SA-1~9） | 三路五焦点 + S.U.P.E.R 均为代码/架构维度，缺 Skill 工件自身的结构合格性判据（元数据/命名载体/字段自洽/参数/可执行/无硬编码/示例/触发） | 目录型 / 单文件型 Skill 审计（本地增强，非上游同步） | 新增 `local/skill-audit-dimensions.md`（combo 自有 SA-1~9 + 严重度口径 + ⊘ 形态判定）；父 `SKILL.md` 加 `audit_target_type` 参数 + Stage0.5.4 挂载表 + 核心原则段 + 异常处理回退 | 新增 `local/skill-audit-dimensions.md`；改 `SKILL.md` | 挂 `skill-dir` / `skill-file`，与文本规则镜叠加；发现以 category: other 走既有 findings[]，不改 merge_reports / Schema | 补「工件合格性」缺口，判据为 combo 自有定义，零外部依赖 |
+| 15 | 文本规则 / 纪律质量镜（TR-1~6） | 规则集、纪律条款、规范文本的自洽 / 可执行 / 边界 / 单一事实源 / 反过度声称缺专门判据 | 文本规则 / 纪律审计 + Skill 审计叠加（本地增强，非上游同步） | 新增 `local/text-rules-audit.md`（combo 自有 TR-1~6 + 严重度口径 + ⊘ 形态判定）；父 `SKILL.md` Stage0.5.4 挂载 | 新增 `local/text-rules-audit.md`；改 `SKILL.md` | 挂 `text-rules`（及 `skill-dir` / `skill-file` 叠加）；产出走既有通道，不改 merge_reports / Schema | 补「规则文本合格性」缺口，与 S.U.P.E.R / Skill 镜并列，零外部依赖 |
 
 ### 7.4 无法解耦项及原因
 
@@ -456,5 +469,8 @@ bash ./tests/test_merge_reports.sh   # 退出码 0 = 合并逻辑未破
 4. 用 open-code-review-delegate 审计 `code-review-combo` 自身 → 无 BUG。
 5. 用 review-spd 交叉验证 `code-review-combo` → 无 BUG。
 6. 用 Skill 校验器 11 维校验 `code-review-combo` → 通过。
+7. `uv run --with requests python scripts/smoke/run_all.py --scope dir/code-review-combo --project-tests` 全绿（含新增 `tests/verify_matrix.sh` 全场景 × 全边界矩阵）。
+8. `uv run --with requests python scripts/smoke/run_all.py --list-tests` 确认 `verify_matrix.sh`（`crc-matrix`）已登记、无遗漏。
+9. 用 Skill 结构镜自审 combo 本身（`audit_target_type=skill-dir`，宿主直读 `.md` 路径，`review-context.py` 对 combo 自身的特殊路径见本节注）+ 文本规则镜自审 README 纪律章节（`audit_target_type=text-rules`）。
 
 > 注：第 4–5 条审计 `code-review-combo` 自身时，走**宿主直接读取文件的静态审查**；这属于维护者主动选择的独立路径，与 SKILL.md 异常处理中「目标非 Git 仓库 → 停止」互不冲突——该拒绝规则仅针对**被审查目标**，而自审是维护动作，不触发拒绝。注意：本技能目录本身是 Git 仓库（`AI_MCP-Skill-CLI`）的**子目录**，`review-context.py` 的 `require_git_repo()` 不会报错，反而会 `os.chdir` 到 monorepo 根并收集**整个父仓库**上下文，远超 combo 自身范围；加之 combo 主体为 `.md` 文件（review-spd 五焦点偏代码语义），故阶段二对 combo 自身不调用该脚本，改由宿主直读 `.md` 文件按五焦点审查。

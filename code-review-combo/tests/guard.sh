@@ -11,6 +11,7 @@
 #   (d) JSON 合法性 — 仓库内全部 .json（排除 gitignored providers.json）须可解析
 #   (e) Schema 一致性 — merge_reports 真实输出字段 须与 SKILL.md Schema 双向一致（2026-10-13 新增）
 #   (f) py_compile  — 仓库内 .py（review-spd/scripts/review-context.py）语法编译（可选：无 python 则跳过）
+#   (g) 本地质量镜 — SA-1~9 / TR-1~6 编号连续 + ⊘ 形态标记（v1.2.0 新增）
 # 退出码：0 = 全部检查通过；非 0 = 任一检查失败。
 # 依赖：bash + node（(a)(c)(d)(e)）；python/uv（(f)，缺失则跳过而非失败）。
 # ==========================================================================
@@ -199,6 +200,43 @@ else
     fi
   fi
 fi
+
+# ---------------------------------------------------------------------------
+# (g) 本地质量镜存在性 + 维度编号连续 + ⊘ 形态标记（v1.2.0 新增，离线）
+# (a) 已通用覆盖 ./local/*.md 引用存在性；本项补充「文件非空 + 维度编号连续 +
+#     ⊘ 标记在位」的轻量契约，防止质量镜文件被清空或维度断裂而 (a) 仍绿。
+# ---------------------------------------------------------------------------
+run_check g "local-quality-mirrors (SA-1~9 / TR-1~6 连续 + ⊘ 标记)" node -e '
+const fs = require("fs");
+const path = require("path");
+const ROOT = process.cwd();
+let fails = 0;
+function check(name, cond) {
+  if (cond) console.log("  (g) PASS " + name);
+  else { console.log("  (g) FAIL " + name); fails++; }
+}
+const mirrors = [
+  { rel: "local/skill-audit-dimensions.md", prefix: "SA", count: 9, morph: "单文件型 ⊘" },
+  { rel: "local/text-rules-audit.md", prefix: "TR", count: 6, morph: "⊘" },
+];
+for (const m of mirrors) {
+  const p = path.join(ROOT, m.rel);
+  let text = "";
+  try { text = fs.readFileSync(p, "utf8"); }
+  catch { check(m.rel + " 存在且非空", false); continue; }
+  check(m.rel + " 存在且非空", text.trim().length > 0);
+  const nums = [];
+  const re = new RegExp(m.prefix + "-(\\d+)", "g");
+  let mm;
+  while ((mm = re.exec(text))) nums.push(Number(mm[1]));
+  const unique = [...new Set(nums)].sort((a, b) => a - b);
+  const expected = Array.from({ length: m.count }, (_, i) => i + 1);
+  check(m.rel + " " + m.prefix + "-1~" + m.count + " 编号连续",
+    JSON.stringify(unique) === JSON.stringify(expected));
+  check(m.rel + " 含 ⊘ 形态标记", text.includes(m.morph));
+}
+process.exit(fails === 0 ? 0 : 1);
+'
 
 echo
 if [ "$FAILURES" -gt 0 ]; then

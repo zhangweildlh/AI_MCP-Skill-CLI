@@ -18,7 +18,7 @@
 | 2 | `ref-material-writing` | 5.0.0 | 基于提纲+多份参考资料的文档撰写，输出 Office(docx) 文件 |
 | 3 | `tender-review-kit` | — | 招标文件审标，产出投标核对清单（废标项/评分项/▲参数/时间节点） |
 | 4 | `web-search` | 1.0.0 | 深度联网搜索与下载，多来源印证，落盘素材文件 |
-| 5 | `code-review-combo` | 1.0.0 | 双子技能（委托模式 + 五焦点语义）交叉验证，产出唯一合并审计报告 |
+| 5 | `code-review-combo` | 1.2.0 | 三路交叉验证 + 本地质量镜家族，产出唯一合并审计报告（代码 / Skill 结构 / 文本规则审计） |
 | 6 | `mimo-code-collab` | 6 | 与小米 MiMo 代码智能体(mimo.code)协同开展工程任务 |
 | 7 | `playwright-360chrome` | 2.0.0 | Playwright + 360Chromex 内核的浏览器自动化（导航/截图/抓取） |
 | 8 | `workbuddy-workspace-migration` | — | 工作区迁移/恢复丢失的 WorkBuddy 会话（位于 `Workbuddy专属/`） |
@@ -243,7 +243,7 @@
 ## 四、版本与发布说明
 
 - 本仓库统一以 **git 标签 `v1.0.0`** 标记首个发布快照（作用于整个仓库，包含所有技能 Definition 与脚本）。
-- 各技能自身的演进版本记录在其 frontmatter 的 `version` 字段（如 `ref-material-writing` 5.0.0、`web-search` 1.0.0、`code-review-combo` 1.0.0、`playwright-360chrome` 2.0.0、`mimo-code-collab` 6、`find-skill-to-xml` 1.1.0 等），与仓库 git 标签相互独立。
+- 各技能自身的演进版本记录在其 frontmatter 的 `version` 字段（如 `ref-material-writing` 5.0.0、`web-search` 1.0.0、`code-review-combo` 1.2.0、`playwright-360chrome` 2.0.0、`mimo-code-collab` 6、`find-skill-to-xml` 1.1.0 等），与仓库 git 标签相互独立。
 - 当前仓库最新标签为 **`v2.2.1`**（2026-08-02 发版）；`github-personal-manager` 随仓库版本演进，无独立 frontmatter 版本号。
 - 日常修改遵循仓库节奏：编辑技能 → 建 `feat/xxx` 分支 → 提交（自动跑 Tier0+1 门禁）→ 推送 → 开 PR → 合并 main；推送/PR 由云端 CI（Tier5）兜底。
 
